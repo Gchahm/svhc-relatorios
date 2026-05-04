@@ -18,11 +18,40 @@ export default async function DashboardLayout({ children }: { children: React.Re
     return (
         <div className="flex flex-col h-screen overflow-hidden font-[family-name:var(--font-geist-sans)]">
             <header className="w-full border-b shrink-0">
-                <div className="max-w-3xl mx-auto flex items-center justify-between px-8 py-4">
-                    <div>
-                        <h1 className="text-xl font-bold">Dashboard</h1>
-                        <p className="text-xs text-gray-500">Powered by better-auth-cloudflare</p>
-                    </div>
+                <div className="max-w-3xl mx-auto flex items-center justify-between px-8 py-2">
+                    <nav className="flex items-center gap-4">
+                        <Link href="/dashboard" className="text-sm font-semibold mr-2">
+                            Dashboard
+                        </Link>
+                        <Link
+                            href="/dashboard/user-info"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <User className="h-3.5 w-3.5" />
+                            User Info
+                        </Link>
+                        <Link
+                            href="/dashboard/geolocation"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <MapPin className="h-3.5 w-3.5" />
+                            Geolocation
+                        </Link>
+                        <Link
+                            href="/dashboard/entries"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Receipt className="h-3.5 w-3.5" />
+                            Entries
+                        </Link>
+                        <Link
+                            href="/dashboard/file-upload"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Upload className="h-3.5 w-3.5" />
+                            File Upload
+                        </Link>
+                    </nav>
                     <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-600">
                             {session.user?.name || session.user?.email}
@@ -30,38 +59,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         <SignOutButton />
                     </div>
                 </div>
-                <nav className="max-w-3xl mx-auto px-8 pb-2">
-                    <div className="flex gap-4">
-                        <Link
-                            href="/dashboard/user-info"
-                            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <User className="h-4 w-4" />
-                            User Info
-                        </Link>
-                        <Link
-                            href="/dashboard/geolocation"
-                            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <MapPin className="h-4 w-4" />
-                            Geolocation
-                        </Link>
-                        <Link
-                            href="/dashboard/entries"
-                            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Receipt className="h-4 w-4" />
-                            Entries
-                        </Link>
-                        <Link
-                            href="/dashboard/file-upload"
-                            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Upload className="h-4 w-4" />
-                            File Upload
-                        </Link>
-                    </div>
-                </nav>
             </header>
 
             <main className="flex-1 flex flex-col items-center p-8 min-h-0 overflow-auto">
