@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Receipt } from "lucide-react";
 
@@ -22,8 +22,6 @@ interface Entry {
     unitCode: string | null;
 }
 
-const ALL = "__all__";
-
 function formatCurrency(value: number): string {
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -34,10 +32,8 @@ function formatDate(iso: string): string {
 }
 
 function stripDescriptionPrefix(description: string, subcategory: string): string {
-    // Strip "BLOCO X, N° Y - RECEBIMENTO " prefix
     let text = description.replace(/^BLOCO [A-Z], N° \d+ - RECEBIMENTO\s*/i, "");
     text = text.replace(/^[\s\-]+/, "");
-    // Strip subcategory prefix if it matches
     if (text.includes(" - ")) {
         const [before, ...rest] = text.split(" - ");
         const normalize = (s: string) =>
@@ -58,11 +54,11 @@ export default function EntriesClient() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Filters
-    const [period, setPeriod] = useState(ALL);
-    const [category, setCategory] = useState(ALL);
-    const [subcategory, setSubcategory] = useState(ALL);
-    const [movementType, setMovementType] = useState(ALL);
+    // Filters (now arrays for multi-select)
+    const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
+    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
+    const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
     useEffect(() => {
@@ -77,31 +73,60 @@ export default function EntriesClient() {
     }, []);
 
     // Derive filter options from data
-    const periods = useMemo(
-        () => [...new Set(entries.map((e) => e.period))].sort().reverse(),
+    const periodOptions = useMemo(
+        () =>
+            [...new Set(entries.map((e) => e.period))]
+                .sort()
+                .reverse()
+                .map((v) => ({ value: v, label: v })),
         [entries]
     );
-    const categories = useMemo(
-        () => [...new Set(entries.map((e) => e.category))].sort(),
+    const categoryOptions = useMemo(
+        () =>
+            [...new Set(entries.map((e) => e.category))]
+                .sort()
+                .map((v) => ({ value: v, label: v })),
         [entries]
     );
-    const subcategories = useMemo(() => {
-        const filtered = category === ALL ? entries : entries.filter((e) => e.category === category);
-        return [...new Set(filtered.map((e) => e.subcategory))].sort();
-    }, [entries, category]);
+    const subcategoryOptions = useMemo(() => {
+        const filtered =
+            selectedCategories.length === 0
+                ? entries
+                : entries.filter((e) => selectedCategories.includes(e.category));
+        return [...new Set(filtered.map((e) => e.subcategory))]
+            .sort()
+            .map((v) => ({ value: v, label: v }));
+    }, [entries, selectedCategories]);
+
+    const movementTypeOptions = [
+        { value: "D", label: "Debit (D)" },
+        { value: "C", label: "Credit (C)" },
+    ];
+
+    // Reset subcategories when categories change
+    const handleCategoriesChange = (values: string[]) => {
+        setSelectedCategories(values);
+        // Remove any selected subcategories that no longer belong to selected categories
+        if (values.length > 0) {
+            const validSubs = new Set(
+                entries.filter((e) => values.includes(e.category)).map((e) => e.subcategory)
+            );
+            setSelectedSubcategories((prev) => prev.filter((s) => validSubs.has(s)));
+        }
+    };
 
     // Apply filters
     const filtered = useMemo(() => {
         const searchLower = search.toLowerCase();
         return entries.filter((e) => {
-            if (period !== ALL && e.period !== period) return false;
-            if (category !== ALL && e.category !== category) return false;
-            if (subcategory !== ALL && e.subcategory !== subcategory) return false;
-            if (movementType !== ALL && e.movementType !== movementType) return false;
+            if (selectedPeriods.length > 0 && !selectedPeriods.includes(e.period)) return false;
+            if (selectedCategories.length > 0 && !selectedCategories.includes(e.category)) return false;
+            if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
+            if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(e.movementType)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
             return true;
         });
-    }, [entries, period, category, subcategory, movementType, search]);
+    }, [entries, selectedPeriods, selectedCategories, selectedSubcategories, selectedMovementTypes, search]);
 
     // Totals
     const totals = useMemo(() => {
@@ -113,12 +138,6 @@ export default function EntriesClient() {
         }
         return { revenue, expenses, net: revenue - expenses };
     }, [filtered]);
-
-    // Reset subcategory when category changes
-    const handleCategoryChange = (value: string) => {
-        setCategory(value);
-        setSubcategory(ALL);
-    };
 
     // Virtualizer
     const parentRef = useRef<HTMLDivElement>(null);
@@ -159,37 +178,46 @@ export default function EntriesClient() {
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
-                        <FilterSelect
-                            label="Period"
-                            value={period}
-                            onValueChange={setPeriod}
-                            options={periods}
-                            className="w-[130px]"
-                        />
-                        <FilterSelect
-                            label="Category"
-                            value={category}
-                            onValueChange={handleCategoryChange}
-                            options={categories}
-                            className="w-[200px]"
-                        />
-                        <FilterSelect
-                            label="Subcategory"
-                            value={subcategory}
-                            onValueChange={setSubcategory}
-                            options={subcategories}
-                            className="w-[200px]"
-                        />
-                        <FilterSelect
-                            label="Type"
-                            value={movementType}
-                            onValueChange={setMovementType}
-                            options={[
-                                { value: "D", label: "Debit (D)" },
-                                { value: "C", label: "Credit (C)" },
-                            ]}
-                            className="w-[140px]"
-                        />
+                        <div className="w-[160px]">
+                            <label className="block text-xs text-muted-foreground mb-1">Period</label>
+                            <MultiSelect
+                                options={periodOptions}
+                                selected={selectedPeriods}
+                                onSelectedChange={setSelectedPeriods}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="w-[200px]">
+                            <label className="block text-xs text-muted-foreground mb-1">Category</label>
+                            <MultiSelect
+                                options={categoryOptions}
+                                selected={selectedCategories}
+                                onSelectedChange={handleCategoriesChange}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="w-[200px]">
+                            <label className="block text-xs text-muted-foreground mb-1">Subcategory</label>
+                            <MultiSelect
+                                options={subcategoryOptions}
+                                selected={selectedSubcategories}
+                                onSelectedChange={setSelectedSubcategories}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="w-[160px]">
+                            <label className="block text-xs text-muted-foreground mb-1">Type</label>
+                            <MultiSelect
+                                options={movementTypeOptions}
+                                selected={selectedMovementTypes}
+                                onSelectedChange={setSelectedMovementTypes}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
                         <div className="flex-1 min-w-[200px]">
                             <label className="block text-xs text-muted-foreground mb-1">Search</label>
                             <Input
@@ -257,10 +285,16 @@ export default function EntriesClient() {
                                             <div className="flex-1 px-3 min-w-0 truncate" title={entry.description}>
                                                 {stripDescriptionPrefix(entry.description, entry.subcategory)}
                                             </div>
-                                            <div className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs" title={entry.category}>
+                                            <div
+                                                className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs"
+                                                title={entry.category}
+                                            >
                                                 {entry.category}
                                             </div>
-                                            <div className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs" title={entry.subcategory}>
+                                            <div
+                                                className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs"
+                                                title={entry.subcategory}
+                                            >
                                                 {entry.subcategory}
                                             </div>
                                             <div
@@ -281,45 +315,6 @@ export default function EntriesClient() {
                     </div>
                 </CardContent>
             </Card>
-        </div>
-    );
-}
-
-// ─── Filter Select Helper ────────────────────────────────────────────────────
-
-function FilterSelect({
-    label,
-    value,
-    onValueChange,
-    options,
-    className,
-}: {
-    label: string;
-    value: string;
-    onValueChange: (value: string) => void;
-    options: (string | { value: string; label: string })[];
-    className?: string;
-}) {
-    return (
-        <div className={className}>
-            <label className="block text-xs text-muted-foreground mb-1">{label}</label>
-            <Select value={value} onValueChange={onValueChange}>
-                <SelectTrigger className="h-9">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value={ALL}>All</SelectItem>
-                    {options.map((opt) => {
-                        const v = typeof opt === "string" ? opt : opt.value;
-                        const l = typeof opt === "string" ? opt : opt.label;
-                        return (
-                            <SelectItem key={v} value={v}>
-                                {l}
-                            </SelectItem>
-                        );
-                    })}
-                </SelectContent>
-            </Select>
         </div>
     );
 }
