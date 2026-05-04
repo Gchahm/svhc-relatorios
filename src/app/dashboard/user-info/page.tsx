@@ -2,7 +2,7 @@ import { initAuth } from "@/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { headers } from "next/headers";
 
-export default async function DashboardPage() {
+export default async function UserInfoPage() {
     const authInstance = await initAuth();
     const session = await authInstance.api.getSession({ headers: await headers() });
 
