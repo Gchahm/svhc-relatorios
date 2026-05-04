@@ -148,15 +148,15 @@ export default function EntriesClient() {
     }
 
     return (
-        <div className="space-y-4">
-            <Card>
+        <div className="flex-1 flex flex-col min-h-0">
+            <Card className="flex-1 flex flex-col min-h-0">
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <Receipt className="h-5 w-5" />
                         Entries
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <FilterSelect
@@ -216,9 +216,9 @@ export default function EntriesClient() {
                     </div>
 
                     {/* Table */}
-                    <div className="rounded-md border">
+                    <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
-                        <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b sticky top-0 z-10">
+                        <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
                             <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
                             <div className="flex-1 px-3 py-2 min-w-0">Description</div>
@@ -229,7 +229,7 @@ export default function EntriesClient() {
                         </div>
 
                         {/* Virtualized body */}
-                        <div ref={parentRef} className="overflow-auto max-h-[calc(100vh-380px)]">
+                        <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
                             <div
                                 style={{
                                     height: `${virtualizer.getTotalSize()}px`,

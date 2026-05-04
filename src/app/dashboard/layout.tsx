@@ -16,8 +16,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     const openAPISpec = await authInstance.api.generateOpenAPISchema();
 
     return (
-        <div className="flex flex-col min-h-screen font-[family-name:var(--font-geist-sans)]">
-            <header className="w-full border-b">
+        <div className="flex flex-col h-screen overflow-hidden font-[family-name:var(--font-geist-sans)]">
+            <header className="w-full border-b shrink-0">
                 <div className="max-w-3xl mx-auto flex items-center justify-between px-8 py-4">
                     <div>
                         <h1 className="text-xl font-bold">Dashboard</h1>
@@ -64,11 +64,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 </nav>
             </header>
 
-            <main className="flex-1 flex flex-col items-center p-8">
-                <div className="w-full max-w-3xl">{children}</div>
+            <main className="flex-1 flex flex-col items-center p-8 min-h-0 overflow-auto">
+                <div className="w-full max-w-3xl flex-1 flex flex-col min-h-0">{children}</div>
             </main>
 
-            <footer className="w-full text-center text-sm text-gray-500 py-4 mt-8">
+            <footer className="w-full text-center text-sm text-gray-500 py-4 shrink-0">
                 <div className="space-y-3">
                     <div>Powered by better-auth-cloudflare</div>
                     <div className="flex items-center justify-center gap-4">
