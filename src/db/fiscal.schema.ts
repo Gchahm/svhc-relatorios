@@ -1,13 +1,28 @@
-import { relations, sql } from "drizzle-orm";
+import { relations } from "drizzle-orm";
 import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+const uuid = () =>
+    text("id")
+        .primaryKey()
+        .$defaultFn(() => crypto.randomUUID());
+
+const timestamps = {
+    createdAt: integer("created_at", { mode: "timestamp_ms" as const })
+        .notNull()
+        .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" as const })
+        .notNull()
+        .$defaultFn(() => new Date())
+        .$onUpdate(() => new Date()),
+};
 
 // ─── Scrape Runs (coleta) ────────────────────────────────────────────────────
 
 export const scrapeRuns = sqliteTable("scrape_runs", {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: uuid(),
     executedAt: integer("executed_at", { mode: "timestamp_ms" })
-        .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-        .notNull(),
+        .notNull()
+        .$defaultFn(() => new Date()),
     status: text("status", { length: 20 }).notNull(), // running, success, error
     errors: text("errors"),
     durationSeconds: real("duration_seconds"),
@@ -18,8 +33,8 @@ export const scrapeRuns = sqliteTable("scrape_runs", {
 export const accountabilityReports = sqliteTable(
     "accountability_reports",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        scrapeRunId: integer("scrape_run_id")
+        id: uuid(),
+        scrapeRunId: text("scrape_run_id")
             .notNull()
             .references(() => scrapeRuns.id),
         period: text("period", { length: 7 }).notNull(), // YYYY-MM
@@ -30,13 +45,7 @@ export const accountabilityReports = sqliteTable(
         monthBalance: real("month_balance").notNull(),
         accumulatedBalance: real("accumulated_balance").notNull(),
         sourceUrl: text("source_url").notNull(),
-        createdAt: integer("created_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .notNull(),
-        updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .$onUpdate(() => new Date())
-            .notNull(),
+        ...timestamps,
     },
     (table) => [
         index("accountability_reports_scrape_run_id_idx").on(table.scrapeRunId),
@@ -47,7 +56,7 @@ export const accountabilityReports = sqliteTable(
 // ─── Categories (categoria_ref) ──────────────────────────────────────────────
 
 export const categories = sqliteTable("categories", {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: uuid(),
     name: text("name", { length: 100 }).notNull().unique(),
     movementType: text("movement_type", { length: 1 }).notNull(), // D or C
 });
@@ -57,8 +66,8 @@ export const categories = sqliteTable("categories", {
 export const subcategories = sqliteTable(
     "subcategories",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        categoryId: integer("category_id")
+        id: uuid(),
+        categoryId: text("category_id")
             .notNull()
             .references(() => categories.id),
         name: text("name", { length: 100 }).notNull(),
@@ -72,14 +81,14 @@ export const subcategories = sqliteTable(
 // ─── Vendors (fornecedor) ────────────────────────────────────────────────────
 
 export const vendors = sqliteTable("vendors", {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: uuid(),
     name: text("name", { length: 200 }).notNull().unique(),
 });
 
 // ─── Units (unidade) ─────────────────────────────────────────────────────────
 
 export const units = sqliteTable("units", {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: uuid(),
     block: text("block", { length: 1 }).notNull(),
     number: integer("number").notNull(),
     code: text("code", { length: 10 }).notNull().unique(), // e.g. "205C"
@@ -90,28 +99,22 @@ export const units = sqliteTable("units", {
 export const entries = sqliteTable(
     "entries",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        reportId: integer("report_id")
+        id: uuid(),
+        reportId: text("report_id")
             .notNull()
             .references(() => accountabilityReports.id),
         date: text("date").notNull(), // ISO date string YYYY-MM-DD
         description: text("description").notNull(),
         amount: real("amount").notNull(),
         movementType: text("movement_type", { length: 1 }).notNull(), // D or C
-        subcategoryId: integer("subcategory_id")
+        subcategoryId: text("subcategory_id")
             .notNull()
             .references(() => subcategories.id),
-        unitId: integer("unit_id").references(() => units.id),
-        vendorId: integer("vendor_id").references(() => vendors.id),
+        unitId: text("unit_id").references(() => units.id),
+        vendorId: text("vendor_id").references(() => vendors.id),
         externalDocumentId: integer("external_document_id"),
         sourceUrl: text("source_url").notNull(),
-        createdAt: integer("created_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .notNull(),
-        updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .$onUpdate(() => new Date())
-            .notNull(),
+        ...timestamps,
     },
     (table) => [
         index("entries_report_id_idx").on(table.reportId),
@@ -128,22 +131,16 @@ export const entries = sqliteTable(
 export const categorySubtotals = sqliteTable(
     "category_subtotals",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        reportId: integer("report_id")
+        id: uuid(),
+        reportId: text("report_id")
             .notNull()
             .references(() => accountabilityReports.id),
-        subcategoryId: integer("subcategory_id")
+        subcategoryId: text("subcategory_id")
             .notNull()
             .references(() => subcategories.id),
         amount: real("amount").notNull(),
         movementType: text("movement_type", { length: 1 }).notNull(), // D or C
-        createdAt: integer("created_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .notNull(),
-        updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .$onUpdate(() => new Date())
-            .notNull(),
+        ...timestamps,
     },
     (table) => [
         uniqueIndex("category_subtotals_report_subcategory_idx").on(table.reportId, table.subcategoryId),
@@ -157,8 +154,8 @@ export const categorySubtotals = sqliteTable(
 export const approvers = sqliteTable(
     "approvers",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        reportId: integer("report_id")
+        id: uuid(),
+        reportId: text("report_id")
             .notNull()
             .references(() => accountabilityReports.id),
         name: text("name", { length: 200 }).notNull(),
@@ -172,8 +169,8 @@ export const approvers = sqliteTable(
 export const documents = sqliteTable(
     "documents",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        entryId: integer("entry_id")
+        id: uuid(),
+        entryId: text("entry_id")
             .notNull()
             .unique()
             .references(() => entries.id),
@@ -188,14 +185,14 @@ export const documents = sqliteTable(
 export const documentAnalyses = sqliteTable(
     "document_analyses",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
-        documentId: integer("document_id")
+        id: uuid(),
+        documentId: text("document_id")
             .notNull()
             .unique()
             .references(() => documents.id),
         analyzedAt: integer("analyzed_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .notNull(),
+            .notNull()
+            .$defaultFn(() => new Date()),
         documentType: text("document_type", { length: 50 }),
         extractedAmount: real("extracted_amount"),
         amountMatch: integer("amount_match", { mode: "boolean" }),
@@ -217,10 +214,10 @@ export const documentAnalyses = sqliteTable(
 export const alerts = sqliteTable(
     "alerts",
     {
-        id: integer("id").primaryKey({ autoIncrement: true }),
+        id: uuid(),
         createdAt: integer("created_at", { mode: "timestamp_ms" })
-            .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-            .notNull(),
+            .notNull()
+            .$defaultFn(() => new Date()),
         type: text("type", { length: 50 }).notNull(),
         severity: text("severity", { length: 20 }).notNull(), // critical, warning, info
         title: text("title", { length: 200 }).notNull(),

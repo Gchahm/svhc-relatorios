@@ -1,39 +1,73 @@
-# Data Migration Scripts
+# Scripts
 
-Export data from the old PostgreSQL database and import into the new D1 database.
+All scripts output per-period JSON files to `data/scrape/` (one file per month, e.g. `2026-01.json`).
+Reference data (categories, vendors, units, subcategories) uses deterministic UUIDs so the same
+entity always gets the same ID across files — duplicates are safely ignored on import.
 
-## Prerequisites
+## Scraper
 
-- Old PostgreSQL running (`cd ../fiscal-old && docker compose up -d`)
-- [uv](https://github.com/astral-sh/uv) installed
-- Local D1 migrations applied (`pnpm db:migrate:dev`)
+Scrapes accountability data from BRCondos portal.
 
-## 1. Export from PostgreSQL
+### Setup
 
 ```bash
-uv run --with psycopg2-binary scripts/export-old-db.py
+# Install playwright browser (one-time)
+uv run --with playwright -- playwright install chromium
 ```
 
-This creates `data/export.json` with all tables mapped to the new schema.
+Requires env vars in `.env` at the project root:
+```
+BRCONDOS_URL=https://ssl.brcondos.com.br
+BRCONDOS_USER=...
+BRCONDOS_PASSWORD=...
+HEADLESS=true
+```
 
-Options:
-- `-o <path>` — custom output path (default: `data/export.json`)
-- `--database-url <url>` — custom PostgreSQL URL (default: `postgresql://fiscal:fiscal_dev@localhost:5432/fiscal`)
-
-## 2. Import into D1
+### Usage
 
 ```bash
-# Local
+cd scripts
+
+# Scrape all new periods (skips those with existing JSON files)
+uv run --with playwright --with python-dotenv -- python -m scraper scrape
+
+# Scrape specific periods
+uv run --with playwright --with python-dotenv -- python -m scraper scrape --periodo 2026-01 2025-12
+
+# Also download document files
+uv run --with playwright --with python-dotenv -- python -m scraper scrape --download-docs
+
+# Custom output directory
+uv run --with playwright --with python-dotenv -- python -m scraper scrape -o ../data/scrape
+```
+
+## Import into D1
+
+Reads all JSON files from a directory (or a single file) and imports into D1.
+
+```bash
+# Local (reads all files from data/scrape/)
 node scripts/import-to-d1.mjs
 
 # Remote (production)
 node scripts/import-to-d1.mjs --remote
 
+# Single file
+node scripts/import-to-d1.mjs -i data/scrape/2026-01.json
+
 # Generate SQL only (no execution)
 node scripts/import-to-d1.mjs --dry-run
 ```
 
-Options:
-- `-i <path>` — custom input path (default: `data/export.json`)
-- `--remote` — target remote D1 instead of local
-- `--dry-run` — write `data/import.sql` without executing
+## Typical workflow
+
+```bash
+# 1. Scrape
+cd scripts && uv run --with playwright --with python-dotenv -- python -m scraper scrape && cd ..
+
+# 2. Import into local D1
+node scripts/import-to-d1.mjs
+
+# 3. Import into production D1
+node scripts/import-to-d1.mjs --remote
+```

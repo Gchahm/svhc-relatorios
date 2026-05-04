@@ -1,26 +1,26 @@
 #!/usr/bin/env node
 /**
- * Import data from a JSON export file into the D1 database.
+ * Import data from JSON files into the D1 database.
  *
- * Reads the JSON file produced by export-old-db.py, generates SQL INSERT
- * statements, and executes them via `wrangler d1 execute`.
+ * Reads JSON files (single file or directory of per-period files) and
+ * executes SQL INSERT statements via `wrangler d1 execute`.
+ *
+ * Reference tables (categories, subcategories, vendors, units) use
+ * INSERT OR IGNORE to handle duplicates across period files.
  *
  * Usage:
- *   node scripts/import-to-d1.mjs [--input data/export.json] [--remote]
- *
- * Options:
- *   --input, -i   Path to the JSON export file (default: data/export.json)
- *   --remote      Apply to remote D1 (default: local)
- *   --dry-run     Generate SQL file without executing
+ *   node scripts/import-to-d1.mjs [--input data/scrape] [--remote]
+ *   node scripts/import-to-d1.mjs --input data/export.json [--remote]
  */
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { join } from "node:path";
 
 const { values: args } = parseArgs({
     options: {
-        input: { type: "string", short: "i", default: "data/export.json" },
+        input: { type: "string", short: "i", default: "data/scrape" },
         remote: { type: "boolean", default: false },
         "dry-run": { type: "boolean", default: false },
     },
@@ -46,11 +46,13 @@ const TABLE_ORDER = [
     "alerts",
 ];
 
+// Reference tables use INSERT OR IGNORE (deterministic UUIDs may repeat across files)
+const REFERENCE_TABLES = new Set(["categories", "subcategories", "vendors", "units"]);
+
 function escapeSQL(value) {
     if (value === null || value === undefined) return "NULL";
     if (typeof value === "number") return String(value);
     if (typeof value === "boolean") return value ? "1" : "0";
-    // Escape single quotes by doubling them
     const str = String(value).replace(/'/g, "''");
     return `'${str}'`;
 }
@@ -60,23 +62,68 @@ function generateInserts(table, rows) {
 
     const columns = Object.keys(rows[0]);
     const colList = columns.map((c) => `"${c}"`).join(", ");
+    const verb = REFERENCE_TABLES.has(table) ? "INSERT OR IGNORE INTO" : "INSERT INTO";
 
     const statements = rows.map((row) => {
         const values = columns.map((col) => escapeSQL(row[col])).join(", ");
-        return `INSERT INTO "${table}" (${colList}) VALUES (${values});`;
+        return `${verb} "${table}" (${colList}) VALUES (${values});`;
     });
 
     return statements.join("\n");
 }
 
+function loadJsonFiles(inputPath) {
+    const stat = statSync(inputPath);
+
+    if (stat.isFile()) {
+        console.log(`Reading ${inputPath}...`);
+        return [JSON.parse(readFileSync(inputPath, "utf-8"))];
+    }
+
+    if (stat.isDirectory()) {
+        const files = readdirSync(inputPath)
+            .filter((f) => f.endsWith(".json"))
+            .sort();
+        console.log(`Reading ${files.length} JSON files from ${inputPath}/...`);
+        return files.map((f) => {
+            const path = join(inputPath, f);
+            console.log(`  ${f}`);
+            return JSON.parse(readFileSync(path, "utf-8"));
+        });
+    }
+
+    throw new Error(`Input path is neither a file nor a directory: ${inputPath}`);
+}
+
 // Main
-console.log(`Reading ${inputPath}...`);
-const data = JSON.parse(readFileSync(inputPath, "utf-8"));
+const datasets = loadJsonFiles(inputPath);
+
+// Merge all datasets, deduplicating reference tables by id
+const merged = {};
+const seenIds = {};
+
+for (const table of TABLE_ORDER) {
+    merged[table] = [];
+    seenIds[table] = new Set();
+}
+
+for (const data of datasets) {
+    for (const table of TABLE_ORDER) {
+        const rows = data[table];
+        if (!rows) continue;
+        for (const row of rows) {
+            const id = row.id;
+            if (id && seenIds[table].has(id)) continue;
+            if (id) seenIds[table].add(id);
+            merged[table].push(row);
+        }
+    }
+}
 
 let allSQL = "PRAGMA defer_foreign_keys = ON;\n\n";
 
 for (const table of TABLE_ORDER) {
-    const rows = data[table];
+    const rows = merged[table];
     if (!rows || rows.length === 0) {
         console.log(`  ${table}: 0 rows (skipped)`);
         continue;
@@ -88,7 +135,7 @@ for (const table of TABLE_ORDER) {
     console.log(`  ${table}: ${rows.length} rows`);
 }
 
-const totalRows = TABLE_ORDER.reduce((sum, t) => sum + (data[t]?.length || 0), 0);
+const totalRows = TABLE_ORDER.reduce((sum, t) => sum + (merged[t]?.length || 0), 0);
 
 // Write SQL to temp file
 mkdirSync("data", { recursive: true });
