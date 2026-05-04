@@ -2,7 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { anonymous, openAPI } from "better-auth/plugins";
+import { openAPI } from "better-auth/plugins";
 import type { D1Database } from "@cloudflare/workers-types";
 import { getDb } from "../db";
 
@@ -36,7 +36,7 @@ async function authBuilder() {
                     window: 60,
                     max: 100,
                 },
-                plugins: [openAPI(), anonymous()],
+                plugins: [openAPI()],
             }
         ),
     });
@@ -73,7 +73,7 @@ export const auth = betterAuth({
             emailAndPassword: {
                 enabled: true,
             },
-            plugins: [openAPI(), anonymous()],
+            plugins: [openAPI()],
         }
     ),
 

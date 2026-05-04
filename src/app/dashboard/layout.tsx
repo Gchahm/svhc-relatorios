@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-600">
-                            {session.user?.name || session.user?.email || "Anonymous User"}
+                            {session.user?.name || session.user?.email}
                         </span>
                         <SignOutButton />
                     </div>

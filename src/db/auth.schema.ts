@@ -14,7 +14,6 @@ export const users = sqliteTable("users", {
         .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
         .$onUpdate(() => /* @__PURE__ */ new Date())
         .notNull(),
-    isAnonymous: integer("is_anonymous", { mode: "boolean" }).default(false),
 });
 
 export const sessions = sqliteTable(

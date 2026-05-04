@@ -18,18 +18,13 @@ export default async function DashboardPage() {
                 <p className="text-lg">
                     Welcome,{" "}
                     <span className="font-semibold">
-                        {session.user?.name || session.user?.email || "Anonymous User"}
+                        {session.user?.name || session.user?.email}
                     </span>
                     !
                 </p>
                 {session.user?.email && (
                     <p className="text-md break-words">
                         <strong>Email:</strong> <span className="break-all">{session.user.email}</span>
-                    </p>
-                )}
-                {!session.user?.email && (
-                    <p className="text-md">
-                        <strong>Account Type:</strong> Anonymous
                     </p>
                 )}
                 {session.user?.id && (
