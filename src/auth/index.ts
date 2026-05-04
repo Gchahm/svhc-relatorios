@@ -19,8 +19,8 @@ async function authBuilder() {
                 d1: {
                     db: dbInstance,
                     options: {
-                        usePlural: true, // Optional: Use plural table names (e.g., "users" instead of "user")
-                        debugLogs: true, // Optional
+                        usePlural: true,
+                        debugLogs: true,
                     },
                 },
                 kv: cfCtx.env.KV,
@@ -28,6 +28,9 @@ async function authBuilder() {
             {
                 baseURL: cfCtx.env.BETTER_AUTH_URL,
                 trustedOrigins: (cfCtx.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "").split(",").filter(Boolean),
+                emailAndPassword: {
+                    enabled: true,
+                },
                 rateLimit: {
                     enabled: true,
                     window: 60,
@@ -67,6 +70,9 @@ export const auth = betterAuth({
             cf: {},
         },
         {
+            emailAndPassword: {
+                enabled: true,
+            },
             plugins: [openAPI(), anonymous()],
         }
     ),

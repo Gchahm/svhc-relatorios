@@ -8,7 +8,7 @@ export async function middleware(request: NextRequest) {
     // Routes that require authentication
     const protectedRoutes = ["/dashboard"];
     // Routes that should redirect to dashboard if already authenticated
-    const authRoutes = ["/", "/sign-in"];
+    const authRoutes = ["/", "/sign-in", "/sign-up"];
 
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
     const isAuthRoute = authRoutes.includes(pathname);
@@ -78,8 +78,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        "/dashboard/:path*", // Protects /dashboard and all its sub-routes
-        "/", // Home page - redirect to dashboard if authenticated
-        "/sign-in", // Sign-in page - redirect to dashboard if authenticated
+        "/dashboard/:path*",
+        "/",
+        "/sign-in",
+        "/sign-up",
     ],
 };
