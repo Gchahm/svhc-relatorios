@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
-import { Github, Package, FileText, User, MapPin, Upload } from "lucide-react";
+import { Github, Package, FileText, User, MapPin, Upload, Receipt } from "lucide-react";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const authInstance = await initAuth();
@@ -45,6 +45,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         >
                             <MapPin className="h-4 w-4" />
                             Geolocation
+                        </Link>
+                        <Link
+                            href="/dashboard/entries"
+                            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Receipt className="h-4 w-4" />
+                            Entries
                         </Link>
                         <Link
                             href="/dashboard/file-upload"
