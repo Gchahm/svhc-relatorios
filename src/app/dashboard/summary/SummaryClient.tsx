@@ -37,6 +37,7 @@ export default function SummaryClient() {
     // Filters
     const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
 
     useEffect(() => {
@@ -63,16 +64,32 @@ export default function SummaryClient() {
         () => [...new Set(data.map(r => r.category))].sort().map(v => ({ value: v, label: v })),
         [data]
     );
+    const subcategoryOptions = useMemo(() => {
+        const filtered =
+            selectedCategories.length === 0 ? data : data.filter(r => selectedCategories.includes(r.category));
+        return [...new Set(filtered.map(r => r.subcategory))].sort().map(v => ({ value: v, label: v }));
+    }, [data, selectedCategories]);
+
     const movementTypeOptions = [
         { value: "D", label: "Debit (D)" },
         { value: "C", label: "Credit (C)" },
     ];
+
+    // Reset subcategories when categories change
+    const handleCategoriesChange = (values: string[]) => {
+        setSelectedCategories(values);
+        if (values.length > 0) {
+            const validSubs = new Set(data.filter(r => values.includes(r.category)).map(r => r.subcategory));
+            setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
+        }
+    };
 
     // Filter and group
     const grouped = useMemo(() => {
         const filtered = data.filter(r => {
             if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
             if (selectedCategories.length > 0 && !selectedCategories.includes(r.category)) return false;
+            if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
             if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
             return true;
         });
@@ -102,7 +119,7 @@ export default function SummaryClient() {
             if (catCmp !== 0) return catCmp;
             return a.subcategory.localeCompare(b.subcategory);
         });
-    }, [data, selectedPeriods, selectedCategories, selectedMovementTypes]);
+    }, [data, selectedPeriods, selectedCategories, selectedSubcategories, selectedMovementTypes]);
 
     // Totals
     const totals = useMemo(() => {
@@ -159,7 +176,17 @@ export default function SummaryClient() {
                             <MultiSelect
                                 options={categoryOptions}
                                 selected={selectedCategories}
-                                onSelectedChange={setSelectedCategories}
+                                onSelectedChange={handleCategoriesChange}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="w-[200px]">
+                            <label className="block text-xs text-muted-foreground mb-1">Subcategory</label>
+                            <MultiSelect
+                                options={subcategoryOptions}
+                                selected={selectedSubcategories}
+                                onSelectedChange={setSelectedSubcategories}
                                 placeholder="All"
                                 className="w-full"
                             />
