@@ -36,6 +36,13 @@
             "when": 1777932078709,
             "tag": "0004_lyrical_nehzno",
             "breakpoints": true
+        },
+        {
+            "idx": 5,
+            "version": "6",
+            "when": 1777992067177,
+            "tag": "0005_fancy_black_widow",
+            "breakpoints": true
         }
     ]
 }

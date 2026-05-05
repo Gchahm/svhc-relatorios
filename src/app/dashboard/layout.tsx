@@ -15,6 +15,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
         redirect("/");
     }
 
+    const allowedRoles = ["admin", "member"];
+    const userRole = (session.user as { role?: string }).role;
+    if (!userRole || !allowedRoles.includes(userRole)) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen font-[family-name:var(--font-geist-sans)] p-8 text-center">
+                <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+                <p className="text-muted-foreground mb-6">
+                    Your account is pending approval. Contact an administrator to get access.
+                </p>
+                <SignOutButton />
+            </div>
+        );
+    }
+
     const openAPISpec = await authInstance.api.generateOpenAPISchema();
 
     return (

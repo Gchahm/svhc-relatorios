@@ -31,6 +31,15 @@ async function authBuilder() {
                 emailAndPassword: {
                     enabled: true,
                 },
+                user: {
+                    additionalFields: {
+                        role: {
+                            type: "string",
+                            defaultValue: "pending",
+                            required: false,
+                        },
+                    },
+                },
                 rateLimit: {
                     enabled: true,
                     window: 60,
@@ -72,6 +81,15 @@ export const auth = betterAuth({
         {
             emailAndPassword: {
                 enabled: true,
+            },
+            user: {
+                additionalFields: {
+                    role: {
+                        type: "string",
+                        defaultValue: "pending",
+                        required: false,
+                    },
+                },
             },
             plugins: [openAPI()],
         }
