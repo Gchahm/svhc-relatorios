@@ -79,8 +79,8 @@ export const auth = betterAuth({
 
     // Used by the Better Auth CLI for schema generation.
     database: drizzleAdapter({} as D1Database, {
-                      provider: "sqlite",
-                      usePlural: true,
-                      debugLogs: true
-                  }),
+        provider: "sqlite",
+        usePlural: true,
+        debugLogs: true,
+    }),
 });

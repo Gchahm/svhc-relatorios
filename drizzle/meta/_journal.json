@@ -1,41 +1,41 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1749946877776,
-      "tag": "0000_aspiring_supreme_intelligence",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1775401840211,
-      "tag": "0001_dry_ulik",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1777900900189,
-      "tag": "0002_high_marvel_boy",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1777925559114,
-      "tag": "0003_messy_monster_badoon",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1777932078709,
-      "tag": "0004_lyrical_nehzno",
-      "breakpoints": true
-    }
-  ]
+    "version": "7",
+    "dialect": "sqlite",
+    "entries": [
+        {
+            "idx": 0,
+            "version": "6",
+            "when": 1749946877776,
+            "tag": "0000_aspiring_supreme_intelligence",
+            "breakpoints": true
+        },
+        {
+            "idx": 1,
+            "version": "6",
+            "when": 1775401840211,
+            "tag": "0001_dry_ulik",
+            "breakpoints": true
+        },
+        {
+            "idx": 2,
+            "version": "6",
+            "when": 1777900900189,
+            "tag": "0002_high_marvel_boy",
+            "breakpoints": true
+        },
+        {
+            "idx": 3,
+            "version": "6",
+            "when": 1777925559114,
+            "tag": "0003_messy_monster_badoon",
+            "breakpoints": true
+        },
+        {
+            "idx": 4,
+            "version": "6",
+            "when": 1777932078709,
+            "tag": "0004_lyrical_nehzno",
+            "breakpoints": true
+        }
+    ]
 }

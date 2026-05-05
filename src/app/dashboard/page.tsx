@@ -16,11 +16,7 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-4">
                 <p className="text-lg">
-                    Welcome,{" "}
-                    <span className="font-semibold">
-                        {session.user?.name || session.user?.email}
-                    </span>
-                    !
+                    Welcome, <span className="font-semibold">{session.user?.name || session.user?.email}</span>!
                 </p>
                 {session.user?.email && (
                     <p className="text-md break-words">

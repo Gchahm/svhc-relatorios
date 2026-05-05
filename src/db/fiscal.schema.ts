@@ -47,7 +47,7 @@ export const accountabilityReports = sqliteTable(
         sourceUrl: text("source_url").notNull(),
         ...timestamps,
     },
-    (table) => [
+    table => [
         index("accountability_reports_scrape_run_id_idx").on(table.scrapeRunId),
         index("accountability_reports_period_idx").on(table.period),
     ]
@@ -72,7 +72,7 @@ export const subcategories = sqliteTable(
             .references(() => categories.id),
         name: text("name", { length: 100 }).notNull(),
     },
-    (table) => [
+    table => [
         uniqueIndex("subcategories_category_id_name_idx").on(table.categoryId, table.name),
         index("subcategories_name_idx").on(table.name),
     ]
@@ -116,7 +116,7 @@ export const entries = sqliteTable(
         sourceUrl: text("source_url").notNull(),
         ...timestamps,
     },
-    (table) => [
+    table => [
         index("entries_report_id_idx").on(table.reportId),
         index("entries_date_idx").on(table.date),
         index("entries_movement_type_idx").on(table.movementType),
@@ -142,7 +142,7 @@ export const categorySubtotals = sqliteTable(
         movementType: text("movement_type", { length: 1 }).notNull(), // D or C
         ...timestamps,
     },
-    (table) => [
+    table => [
         uniqueIndex("category_subtotals_report_subcategory_idx").on(table.reportId, table.subcategoryId),
         index("category_subtotals_report_id_idx").on(table.reportId),
         index("category_subtotals_subcategory_id_idx").on(table.subcategoryId),
@@ -161,7 +161,7 @@ export const approvers = sqliteTable(
         name: text("name", { length: 200 }).notNull(),
         status: text("status", { length: 50 }).notNull(),
     },
-    (table) => [index("approvers_report_id_idx").on(table.reportId)]
+    table => [index("approvers_report_id_idx").on(table.reportId)]
 );
 
 // ─── Documents (documento) ───────────────────────────────────────────────────
@@ -177,7 +177,7 @@ export const documents = sqliteTable(
         externalDocumentId: integer("external_document_id").notNull(),
         filePath: text("file_path"),
     },
-    (table) => [index("documents_entry_id_idx").on(table.entryId)]
+    table => [index("documents_entry_id_idx").on(table.entryId)]
 );
 
 // ─── Document Analyses (analise_documento) ───────────────────────────────────
@@ -206,7 +206,7 @@ export const documentAnalyses = sqliteTable(
         rawResponse: text("raw_response"),
         error: text("error"),
     },
-    (table) => [index("document_analyses_document_id_idx").on(table.documentId)]
+    table => [index("document_analyses_document_id_idx").on(table.documentId)]
 );
 
 // ─── Alerts (alerta) ─────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ export const alerts = sqliteTable(
         notes: text("notes"),
         metadata: text("metadata"), // JSON string
     },
-    (table) => [
+    table => [
         index("alerts_type_idx").on(table.type),
         index("alerts_severity_idx").on(table.severity),
         index("alerts_reference_period_idx").on(table.referencePeriod),

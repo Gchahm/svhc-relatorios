@@ -25,9 +25,7 @@ export function MultiSelect({ options, selected, onSelectedChange, placeholder =
     const [open, setOpen] = React.useState(false);
 
     const toggle = (value: string) => {
-        onSelectedChange(
-            selected.includes(value) ? selected.filter((s) => s !== value) : [...selected, value]
-        );
+        onSelectedChange(selected.includes(value) ? selected.filter(s => s !== value) : [...selected, value]);
     };
 
     const clear = (e: React.MouseEvent) => {
@@ -35,9 +33,7 @@ export function MultiSelect({ options, selected, onSelectedChange, placeholder =
         onSelectedChange([]);
     };
 
-    const selectedLabels = selected
-        .map((v) => options.find((o) => o.value === v)?.label ?? v)
-        .slice(0, 2);
+    const selectedLabels = selected.map(v => options.find(o => o.value === v)?.label ?? v).slice(0, 2);
     const remaining = selected.length - selectedLabels.length;
 
     return (
@@ -54,7 +50,7 @@ export function MultiSelect({ options, selected, onSelectedChange, placeholder =
                             <span className="text-muted-foreground">{placeholder}</span>
                         ) : (
                             <>
-                                {selectedLabels.map((label) => (
+                                {selectedLabels.map(label => (
                                     <Badge key={label} variant="secondary" className="px-1 py-0 text-xs font-normal">
                                         {label}
                                     </Badge>
@@ -81,8 +77,12 @@ export function MultiSelect({ options, selected, onSelectedChange, placeholder =
                     <CommandList>
                         <CommandEmpty>No results.</CommandEmpty>
                         <CommandGroup>
-                            {options.map((option) => (
-                                <CommandItem key={option.value} value={option.label} onSelect={() => toggle(option.value)}>
+                            {options.map(option => (
+                                <CommandItem
+                                    key={option.value}
+                                    value={option.label}
+                                    onSelect={() => toggle(option.value)}
+                                >
                                     <div
                                         className={cn(
                                             "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",

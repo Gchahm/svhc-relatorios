@@ -14,9 +14,7 @@ export default async function GeolocationPage() {
                     <MapPin className="h-5 w-5" />
                     Your Location
                 </CardTitle>
-                <p className="text-sm text-gray-600">
-                    Automatically detected using Cloudflare&apos;s global network
-                </p>
+                <p className="text-sm text-gray-600">Automatically detected using Cloudflare&apos;s global network</p>
             </CardHeader>
             <CardContent>
                 {cloudflareGeolocationData && "error" in cloudflareGeolocationData && (
@@ -33,9 +31,7 @@ export default async function GeolocationPage() {
                             <Clock className="h-5 w-5 text-gray-600" />
                             <div>
                                 <p className="font-medium text-gray-900">Timezone</p>
-                                <p className="text-gray-600">
-                                    {cloudflareGeolocationData.timezone || "Unknown"}
-                                </p>
+                                <p className="text-gray-600">{cloudflareGeolocationData.timezone || "Unknown"}</p>
                             </div>
                         </div>
 
@@ -43,9 +39,7 @@ export default async function GeolocationPage() {
                             <Building className="h-5 w-5 text-gray-600" />
                             <div>
                                 <p className="font-medium text-gray-900">City</p>
-                                <p className="text-gray-600">
-                                    {cloudflareGeolocationData.city || "Unknown"}
-                                </p>
+                                <p className="text-gray-600">{cloudflareGeolocationData.city || "Unknown"}</p>
                             </div>
                         </div>
 
@@ -53,9 +47,7 @@ export default async function GeolocationPage() {
                             <Globe className="h-5 w-5 text-gray-600" />
                             <div>
                                 <p className="font-medium text-gray-900">Country</p>
-                                <p className="text-gray-600">
-                                    {cloudflareGeolocationData.country || "Unknown"}
-                                </p>
+                                <p className="text-gray-600">{cloudflareGeolocationData.country || "Unknown"}</p>
                             </div>
                         </div>
 
@@ -75,9 +67,7 @@ export default async function GeolocationPage() {
                             <Server className="h-5 w-5 text-gray-600" />
                             <div>
                                 <p className="font-medium text-gray-900">Data Center</p>
-                                <p className="text-gray-600">
-                                    {cloudflareGeolocationData.colo || "Unknown"}
-                                </p>
+                                <p className="text-gray-600">{cloudflareGeolocationData.colo || "Unknown"}</p>
                             </div>
                         </div>
 
@@ -87,8 +77,7 @@ export default async function GeolocationPage() {
                                 <div>
                                     <p className="font-medium text-gray-900">Coordinates</p>
                                     <p className="text-gray-600">
-                                        {cloudflareGeolocationData.latitude &&
-                                        cloudflareGeolocationData.longitude
+                                        {cloudflareGeolocationData.latitude && cloudflareGeolocationData.longitude
                                             ? `${cloudflareGeolocationData.latitude}, ${cloudflareGeolocationData.longitude}`
                                             : "Partially available"}
                                     </p>

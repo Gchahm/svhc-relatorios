@@ -63,39 +63,32 @@ export default function EntriesClient() {
 
     useEffect(() => {
         fetch("/api/entries")
-            .then((res) => {
+            .then(res => {
                 if (!res.ok) throw new Error("Failed to fetch entries");
                 return res.json();
             })
             .then(setEntries)
-            .catch((e) => setError(e.message))
+            .catch(e => setError(e.message))
             .finally(() => setLoading(false));
     }, []);
 
     // Derive filter options from data
     const periodOptions = useMemo(
         () =>
-            [...new Set(entries.map((e) => e.period))]
+            [...new Set(entries.map(e => e.period))]
                 .sort()
                 .reverse()
-                .map((v) => ({ value: v, label: v })),
+                .map(v => ({ value: v, label: v })),
         [entries]
     );
     const categoryOptions = useMemo(
-        () =>
-            [...new Set(entries.map((e) => e.category))]
-                .sort()
-                .map((v) => ({ value: v, label: v })),
+        () => [...new Set(entries.map(e => e.category))].sort().map(v => ({ value: v, label: v })),
         [entries]
     );
     const subcategoryOptions = useMemo(() => {
         const filtered =
-            selectedCategories.length === 0
-                ? entries
-                : entries.filter((e) => selectedCategories.includes(e.category));
-        return [...new Set(filtered.map((e) => e.subcategory))]
-            .sort()
-            .map((v) => ({ value: v, label: v }));
+            selectedCategories.length === 0 ? entries : entries.filter(e => selectedCategories.includes(e.category));
+        return [...new Set(filtered.map(e => e.subcategory))].sort().map(v => ({ value: v, label: v }));
     }, [entries, selectedCategories]);
 
     const movementTypeOptions = [
@@ -108,17 +101,15 @@ export default function EntriesClient() {
         setSelectedCategories(values);
         // Remove any selected subcategories that no longer belong to selected categories
         if (values.length > 0) {
-            const validSubs = new Set(
-                entries.filter((e) => values.includes(e.category)).map((e) => e.subcategory)
-            );
-            setSelectedSubcategories((prev) => prev.filter((s) => validSubs.has(s)));
+            const validSubs = new Set(entries.filter(e => values.includes(e.category)).map(e => e.subcategory));
+            setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
         }
     };
 
     // Apply filters
     const filtered = useMemo(() => {
         const searchLower = search.toLowerCase();
-        return entries.filter((e) => {
+        return entries.filter(e => {
             if (selectedPeriods.length > 0 && !selectedPeriods.includes(e.period)) return false;
             if (selectedCategories.length > 0 && !selectedCategories.includes(e.category)) return false;
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
@@ -151,9 +142,7 @@ export default function EntriesClient() {
     if (loading) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                    Loading entries...
-                </CardContent>
+                <CardContent className="py-12 text-center text-muted-foreground">Loading entries...</CardContent>
             </Card>
         );
     }
@@ -223,7 +212,7 @@ export default function EntriesClient() {
                             <Input
                                 placeholder="Search description..."
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={e => setSearch(e.target.value)}
                                 className="h-9"
                             />
                         </div>
@@ -265,7 +254,7 @@ export default function EntriesClient() {
                                     position: "relative",
                                 }}
                             >
-                                {virtualizer.getVirtualItems().map((virtualRow) => {
+                                {virtualizer.getVirtualItems().map(virtualRow => {
                                     const entry = filtered[virtualRow.index];
                                     return (
                                         <div

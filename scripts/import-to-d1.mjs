@@ -61,11 +61,11 @@ function generateInserts(table, rows) {
     if (!rows || rows.length === 0) return "";
 
     const columns = Object.keys(rows[0]);
-    const colList = columns.map((c) => `"${c}"`).join(", ");
+    const colList = columns.map(c => `"${c}"`).join(", ");
     const verb = REFERENCE_TABLES.has(table) ? "INSERT OR IGNORE INTO" : "INSERT INTO";
 
-    const statements = rows.map((row) => {
-        const values = columns.map((col) => escapeSQL(row[col])).join(", ");
+    const statements = rows.map(row => {
+        const values = columns.map(col => escapeSQL(row[col])).join(", ");
         return `${verb} "${table}" (${colList}) VALUES (${values});`;
     });
 
@@ -82,10 +82,10 @@ function loadJsonFiles(inputPath) {
 
     if (stat.isDirectory()) {
         const files = readdirSync(inputPath)
-            .filter((f) => f.endsWith(".json"))
+            .filter(f => f.endsWith(".json"))
             .sort();
         console.log(`Reading ${files.length} JSON files from ${inputPath}/...`);
-        return files.map((f) => {
+        return files.map(f => {
             const path = join(inputPath, f);
             console.log(`  ${f}`);
             return JSON.parse(readFileSync(path, "utf-8"));

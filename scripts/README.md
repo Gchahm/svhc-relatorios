@@ -16,6 +16,7 @@ uv run --with playwright -- playwright install chromium
 ```
 
 Requires env vars in `.env` at the project root:
+
 ```
 BRCONDOS_URL=https://ssl.brcondos.com.br
 BRCONDOS_USER=...
