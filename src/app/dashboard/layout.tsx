@@ -5,7 +5,22 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
-import { Github, Package, FileText, User, MapPin, Receipt, BarChart3 } from "lucide-react";
+import {
+    Github,
+    Package,
+    FileText,
+    User,
+    MapPin,
+    Receipt,
+    BarChart3,
+    FileSpreadsheet,
+    Store,
+    Building2,
+    AlertTriangle,
+    ArrowLeftRight,
+    Gavel,
+    RefreshCw,
+} from "lucide-react";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
     const authInstance = await initAuth();
@@ -54,6 +69,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                             Geolocation
                         </Link>
                         <Link
+                            href="/dashboard/reports"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                            Reports
+                        </Link>
+                        <Link
                             href="/dashboard/entries"
                             className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
                         >
@@ -66,6 +88,48 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         >
                             <BarChart3 className="h-3.5 w-3.5" />
                             Summary
+                        </Link>
+                        <Link
+                            href="/dashboard/vendors"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Store className="h-3.5 w-3.5" />
+                            Vendors
+                        </Link>
+                        <Link
+                            href="/dashboard/units"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Building2 className="h-3.5 w-3.5" />
+                            Units
+                        </Link>
+                        <Link
+                            href="/dashboard/fines"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <Gavel className="h-3.5 w-3.5" />
+                            Fines
+                        </Link>
+                        <Link
+                            href="/dashboard/alerts"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Alerts
+                        </Link>
+                        <Link
+                            href="/dashboard/comparison"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                            Comparativo
+                        </Link>
+                        <Link
+                            href="/dashboard/scrape-runs"
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                        >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Runs
                         </Link>
                     </nav>
                     <div className="flex items-center gap-2">
