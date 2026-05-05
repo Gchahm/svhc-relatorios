@@ -65,4 +65,4 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
 - **Middleware:** Checks auth by fetching `/api/auth/get-session` internally to avoid Edge Runtime eval issues
 - **Path alias:** `@/*` maps to `./src/*`
 - **Environment:** Cloudflare bindings defined in `wrangler.toml`: `DATABASE` (D1), `KV`, `ASSETS`; env vars: `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`
-- **Formatting:** Always run `pnpm format` before committing to ensure Prettier formatting is applied
+- **Pre-commit:** Always run `pnpm lint` and `pnpm format` before committing to ensure code passes ESLint and Prettier
