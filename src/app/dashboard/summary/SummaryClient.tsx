@@ -16,15 +16,6 @@ interface SummaryRow {
     count: number;
 }
 
-interface GroupedRow {
-    category: string;
-    subcategory: string;
-    movementType: string;
-    total: number;
-    count: number;
-    periods: number;
-}
-
 function formatCurrency(value: number): string {
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -84,58 +75,40 @@ export default function SummaryClient() {
         }
     };
 
-    // Filter and group
-    const grouped = useMemo(() => {
-        const filtered = data.filter(r => {
-            if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
-            if (selectedCategories.length > 0 && !selectedCategories.includes(r.category)) return false;
-            if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
-            if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
-            return true;
-        });
-
-        const map = new Map<string, GroupedRow>();
-        for (const r of filtered) {
-            const key = `${r.category}|${r.subcategory}|${r.movementType}`;
-            const existing = map.get(key);
-            if (existing) {
-                existing.total += r.total;
-                existing.count += r.count;
-                existing.periods += 1;
-            } else {
-                map.set(key, {
-                    category: r.category,
-                    subcategory: r.subcategory,
-                    movementType: r.movementType,
-                    total: r.total,
-                    count: r.count,
-                    periods: 1,
-                });
-            }
-        }
-
-        return [...map.values()].sort((a, b) => {
-            const catCmp = a.category.localeCompare(b.category);
-            if (catCmp !== 0) return catCmp;
-            return a.subcategory.localeCompare(b.subcategory);
-        });
+    // Filter
+    const filtered = useMemo(() => {
+        return data
+            .filter(r => {
+                if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
+                if (selectedCategories.length > 0 && !selectedCategories.includes(r.category)) return false;
+                if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
+                if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
+                return true;
+            })
+            .sort((a, b) => {
+                const periodCmp = b.period.localeCompare(a.period);
+                if (periodCmp !== 0) return periodCmp;
+                const catCmp = a.category.localeCompare(b.category);
+                if (catCmp !== 0) return catCmp;
+                return a.subcategory.localeCompare(b.subcategory);
+            });
     }, [data, selectedPeriods, selectedCategories, selectedSubcategories, selectedMovementTypes]);
 
     // Totals
     const totals = useMemo(() => {
         let revenue = 0;
         let expenses = 0;
-        for (const r of grouped) {
+        for (const r of filtered) {
             if (r.movementType === "C") revenue += r.total;
             else expenses += r.total;
         }
         return { revenue, expenses, net: revenue - expenses };
-    }, [grouped]);
+    }, [filtered]);
 
     // Virtualizer
     const parentRef = useRef<HTMLDivElement>(null);
     const virtualizer = useVirtualizer({
-        count: grouped.length,
+        count: filtered.length,
         getScrollElement: () => parentRef.current,
         estimateSize: () => 36,
         overscan: 20,
@@ -206,7 +179,7 @@ export default function SummaryClient() {
                     {/* Summary */}
                     <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${grouped.length} subcategories`}
+                            {loading ? "Loading..." : `${filtered.length} rows`}
                         </span>
                         {!loading && (
                             <>
@@ -226,12 +199,12 @@ export default function SummaryClient() {
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[180px] px-3 py-2 shrink-0">Category</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
+                            <div className="w-[160px] px-3 py-2 shrink-0">Category</div>
                             <div className="flex-1 px-3 py-2 min-w-0">Subcategory</div>
                             <div className="w-[40px] px-3 py-2 shrink-0 text-center">Type</div>
                             <div className="w-[120px] px-3 py-2 shrink-0 text-right">Total</div>
                             <div className="w-[70px] px-3 py-2 shrink-0 text-right">Entries</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Periods</div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
@@ -243,18 +216,21 @@ export default function SummaryClient() {
                                 }}
                             >
                                 {virtualizer.getVirtualItems().map(virtualRow => {
-                                    const row = grouped[virtualRow.index];
+                                    const row = filtered[virtualRow.index];
                                     return (
                                         <div
-                                            key={`${row.category}-${row.subcategory}-${row.movementType}`}
+                                            key={`${row.period}-${row.category}-${row.subcategory}-${row.movementType}`}
                                             className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full"
                                             style={{
                                                 height: `${virtualRow.size}px`,
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
                                         >
+                                            <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
+                                                {row.period}
+                                            </div>
                                             <div
-                                                className="w-[180px] px-3 shrink-0 text-muted-foreground truncate text-xs"
+                                                className="w-[160px] px-3 shrink-0 text-muted-foreground truncate text-xs"
                                                 title={row.category}
                                             >
                                                 {row.category}
@@ -274,9 +250,6 @@ export default function SummaryClient() {
                                             </div>
                                             <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
                                                 {row.count}
-                                            </div>
-                                            <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
-                                                {row.periods}
                                             </div>
                                         </div>
                                     );
