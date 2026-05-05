@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Receipt } from "lucide-react";
@@ -20,6 +21,11 @@ interface Entry {
     subcategory: string;
     vendor: string | null;
     unitCode: string | null;
+}
+
+function getCurrentPeriod(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatCurrency(value: number): string {
@@ -51,18 +57,40 @@ function stripDescriptionPrefix(description: string, subcategory: string): strin
 
 export default function EntriesClient() {
     const [entries, setEntries] = useState<Entry[]>([]);
+    const [periods, setPeriods] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Filters (now arrays for multi-select)
-    const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
+    // Filters
+    const [selectedPeriod, setSelectedPeriod] = useState(getCurrentPeriod());
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
+    // Fetch available periods
     useEffect(() => {
-        fetch("/api/entries")
+        fetch("/api/periods")
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to fetch periods");
+                return res.json();
+            })
+            .then((data: string[]) => {
+                setPeriods(data);
+                // If current month doesn't exist in data, default to the most recent
+                if (data.length > 0 && !data.includes(selectedPeriod)) {
+                    setSelectedPeriod(data[0]);
+                }
+            })
+            .catch(e => setError(e.message));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Fetch entries when period changes
+    const fetchEntries = useCallback((period: string) => {
+        setLoading(true);
+        setError(null);
+        fetch(`/api/entries?period=${encodeURIComponent(period)}`)
             .then(res => {
                 if (!res.ok) throw new Error("Failed to fetch entries");
                 return res.json();
@@ -72,15 +100,13 @@ export default function EntriesClient() {
             .finally(() => setLoading(false));
     }, []);
 
+    useEffect(() => {
+        if (selectedPeriod) {
+            fetchEntries(selectedPeriod);
+        }
+    }, [selectedPeriod, fetchEntries]);
+
     // Derive filter options from data
-    const periodOptions = useMemo(
-        () =>
-            [...new Set(entries.map(e => e.period))]
-                .sort()
-                .reverse()
-                .map(v => ({ value: v, label: v })),
-        [entries]
-    );
     const categoryOptions = useMemo(
         () => [...new Set(entries.map(e => e.category))].sort().map(v => ({ value: v, label: v })),
         [entries]
@@ -99,25 +125,32 @@ export default function EntriesClient() {
     // Reset subcategories when categories change
     const handleCategoriesChange = (values: string[]) => {
         setSelectedCategories(values);
-        // Remove any selected subcategories that no longer belong to selected categories
         if (values.length > 0) {
             const validSubs = new Set(entries.filter(e => values.includes(e.category)).map(e => e.subcategory));
             setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
         }
     };
 
-    // Apply filters
+    // Reset client-side filters when period changes
+    const handlePeriodChange = (value: string) => {
+        setSelectedPeriod(value);
+        setSelectedCategories([]);
+        setSelectedSubcategories([]);
+        setSelectedMovementTypes([]);
+        setSearch("");
+    };
+
+    // Apply client-side filters
     const filtered = useMemo(() => {
         const searchLower = search.toLowerCase();
         return entries.filter(e => {
-            if (selectedPeriods.length > 0 && !selectedPeriods.includes(e.period)) return false;
             if (selectedCategories.length > 0 && !selectedCategories.includes(e.category)) return false;
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
             if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(e.movementType)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
             return true;
         });
-    }, [entries, selectedPeriods, selectedCategories, selectedSubcategories, selectedMovementTypes, search]);
+    }, [entries, selectedCategories, selectedSubcategories, selectedMovementTypes, search]);
 
     // Totals
     const totals = useMemo(() => {
@@ -139,14 +172,6 @@ export default function EntriesClient() {
         overscan: 20,
     });
 
-    if (loading) {
-        return (
-            <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">Loading entries...</CardContent>
-            </Card>
-        );
-    }
-
     if (error) {
         return (
             <Card>
@@ -167,15 +192,20 @@ export default function EntriesClient() {
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
-                        <div className="w-[160px]">
+                        <div className="w-[140px]">
                             <label className="block text-xs text-muted-foreground mb-1">Period</label>
-                            <MultiSelect
-                                options={periodOptions}
-                                selected={selectedPeriods}
-                                onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
-                                className="w-full"
-                            />
+                            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Select period" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {periods.map(p => (
+                                        <SelectItem key={p} value={p}>
+                                            {p}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="w-[200px]">
                             <label className="block text-xs text-muted-foreground mb-1">Category</label>
@@ -220,23 +250,28 @@ export default function EntriesClient() {
 
                     {/* Summary */}
                     <div className="flex items-center gap-4 text-sm">
-                        <span className="text-muted-foreground">{filtered.length} entries</span>
-                        <Badge variant="outline" className="text-green-700 border-green-300">
-                            Revenue: {formatCurrency(totals.revenue)}
-                        </Badge>
-                        <Badge variant="outline" className="text-red-700 border-red-300">
-                            Expenses: {formatCurrency(totals.expenses)}
-                        </Badge>
-                        <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
-                            Net: {formatCurrency(totals.net)}
-                        </Badge>
+                        <span className="text-muted-foreground">
+                            {loading ? "Loading..." : `${filtered.length} entries`}
+                        </span>
+                        {!loading && (
+                            <>
+                                <Badge variant="outline" className="text-green-700 border-green-300">
+                                    Revenue: {formatCurrency(totals.revenue)}
+                                </Badge>
+                                <Badge variant="outline" className="text-red-700 border-red-300">
+                                    Expenses: {formatCurrency(totals.expenses)}
+                                </Badge>
+                                <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
+                                    Net: {formatCurrency(totals.net)}
+                                </Badge>
+                            </>
+                        )}
                     </div>
 
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
                             <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
                             <div className="flex-1 px-3 py-2 min-w-0">Description</div>
                             <div className="w-[140px] px-3 py-2 shrink-0">Category</div>
@@ -265,9 +300,6 @@ export default function EntriesClient() {
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
                                         >
-                                            <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
-                                                {entry.period}
-                                            </div>
                                             <div className="w-[90px] px-3 shrink-0 whitespace-nowrap">
                                                 {formatDate(entry.date)}
                                             </div>

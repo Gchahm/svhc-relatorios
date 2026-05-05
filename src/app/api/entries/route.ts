@@ -3,16 +3,21 @@ import { getDb } from "@/db";
 import { entries, subcategories, categories, accountabilityReports, vendors, units } from "@/db/fiscal.schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 const ALLOWED_ROLES = ["admin", "member"];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
     const authInstance = await initAuth();
     const session = await authInstance.api.getSession({ headers: await headers() });
     const userRole = (session?.user as { role?: string } | undefined)?.role;
     if (!session || !userRole || !ALLOWED_ROLES.includes(userRole)) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
+    const period = request.nextUrl.searchParams.get("period");
+    if (!period) {
+        return NextResponse.json({ error: "period query parameter is required" }, { status: 400 });
     }
 
     const db = await getDb();
@@ -37,7 +42,8 @@ export async function GET() {
         .innerJoin(categories, eq(subcategories.categoryId, categories.id))
         .leftJoin(vendors, eq(entries.vendorId, vendors.id))
         .leftJoin(units, eq(entries.unitId, units.id))
-        .orderBy(accountabilityReports.period, entries.date);
+        .where(eq(accountabilityReports.period, period))
+        .orderBy(entries.date);
 
     return NextResponse.json(rows);
 }
