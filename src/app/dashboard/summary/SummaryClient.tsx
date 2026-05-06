@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryTree } from "@/components/filters/CategoryTree";
-import { TypeFilter } from "@/components/filters/TypeFilter";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { BarChart3, X } from "lucide-react";
 
@@ -32,7 +31,6 @@ export default function SummaryClient() {
     // Filters
     const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
-    const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
 
     useEffect(() => {
         fetch("/api/summary")
@@ -72,18 +70,16 @@ export default function SummaryClient() {
         const result = data.filter(r => {
             if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
-            if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
             return true;
         });
         return sortFn(result, {
             period: r => r.period,
             category: r => r.category,
             subcategory: r => r.subcategory,
-            movementType: r => r.movementType,
             total: r => r.total,
             count: r => r.count,
         });
-    }, [data, selectedPeriods, selectedSubcategories, selectedMovementTypes, sortFn]);
+    }, [data, selectedPeriods, selectedSubcategories, sortFn]);
 
     // Totals
     const totals = useMemo(() => {
@@ -160,8 +156,6 @@ export default function SummaryClient() {
                     </CardContent>
                 </Card>
 
-                <TypeFilter selected={selectedMovementTypes} onSelectedChange={setSelectedMovementTypes} />
-
                 <CategoryTree
                     data={data}
                     selected={selectedSubcategories}
@@ -227,15 +221,6 @@ export default function SummaryClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[40px] px-3 py-2 shrink-0 flex justify-center">
-                                <SortableHeader
-                                    label="Type"
-                                    sortKey="movementType"
-                                    currentSort={sortKey}
-                                    currentDirection={sortDir}
-                                    onSort={toggleSort}
-                                />
-                            </div>
                             <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
                                     label="Total"
@@ -287,9 +272,6 @@ export default function SummaryClient() {
                                             <div className="flex-1 px-3 min-w-0 truncate" title={row.subcategory}>
                                                 {row.subcategory}
                                             </div>
-                                            <div className="w-[40px] px-3 shrink-0 text-center text-muted-foreground text-xs">
-                                                {row.movementType}
-                                            </div>
                                             <div
                                                 className={`w-[120px] px-3 shrink-0 text-right tabular-nums ${
                                                     row.movementType === "D" ? "text-red-600" : "text-green-600"
@@ -312,7 +294,6 @@ export default function SummaryClient() {
                                 <div className="w-[80px] px-3 py-2 shrink-0" />
                                 <div className="w-[160px] px-3 py-2 shrink-0" />
                                 <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
-                                <div className="w-[40px] px-3 py-2 shrink-0" />
                                 <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
                                     {formatCurrency(totals.net)}
                                 </div>

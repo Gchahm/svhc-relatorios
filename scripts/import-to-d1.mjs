@@ -5,8 +5,8 @@
  * Reads JSON files (single file or directory of per-period files) and
  * executes SQL INSERT statements via `wrangler d1 execute`.
  *
- * Reference tables (categories, subcategories, vendors, units) use
- * INSERT OR IGNORE to handle duplicates across period files.
+ * All tables use INSERT OR REPLACE (upsert) so re-importing the same
+ * data safely overwrites existing rows.
  *
  * Usage:
  *   node scripts/import-to-d1.mjs [--input data/scrape] [--remote]
@@ -46,9 +46,6 @@ const TABLE_ORDER = [
     "alerts",
 ];
 
-// Reference tables use INSERT OR IGNORE (deterministic UUIDs may repeat across files)
-const REFERENCE_TABLES = new Set(["categories", "subcategories", "vendors", "units"]);
-
 function escapeSQL(value) {
     if (value === null || value === undefined) return "NULL";
     if (typeof value === "number") return String(value);
@@ -62,11 +59,10 @@ function generateInserts(table, rows) {
 
     const columns = Object.keys(rows[0]);
     const colList = columns.map(c => `"${c}"`).join(", ");
-    const verb = REFERENCE_TABLES.has(table) ? "INSERT OR IGNORE INTO" : "INSERT INTO";
 
     const statements = rows.map(row => {
         const values = columns.map(col => escapeSQL(row[col])).join(", ");
-        return `${verb} "${table}" (${colList}) VALUES (${values});`;
+        return `INSERT OR REPLACE INTO "${table}" (${colList}) VALUES (${values});`;
     });
 
     return statements.join("\n");

@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryTree } from "@/components/filters/CategoryTree";
-import { TypeFilter } from "@/components/filters/TypeFilter";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt } from "lucide-react";
 
@@ -66,7 +65,6 @@ export default function EntriesClient() {
     // Filters
     const [selectedPeriod, setSelectedPeriod] = useState(getCurrentPeriod());
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
-    const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
     const [search, setSearch] = useState("");
 
     // Fetch available periods
@@ -110,7 +108,6 @@ export default function EntriesClient() {
     const handlePeriodChange = (value: string) => {
         setSelectedPeriod(value);
         setSelectedSubcategories([]);
-        setSelectedMovementTypes([]);
         setSearch("");
     };
 
@@ -122,7 +119,6 @@ export default function EntriesClient() {
         const searchLower = search.toLowerCase();
         const result = entries.filter(e => {
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
-            if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(e.movementType)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
             return true;
         });
@@ -132,9 +128,9 @@ export default function EntriesClient() {
             category: e => e.category,
             subcategory: e => e.subcategory,
             amount: e => e.amount,
-            movementType: e => e.movementType,
+            unit: e => e.unitCode || "",
         });
-    }, [entries, selectedSubcategories, selectedMovementTypes, search, sortFn]);
+    }, [entries, selectedSubcategories, search, sortFn]);
 
     // Totals
     const totals = useMemo(() => {
@@ -185,8 +181,6 @@ export default function EntriesClient() {
                         </Select>
                     </CardContent>
                 </Card>
-
-                <TypeFilter selected={selectedMovementTypes} onSelectedChange={setSelectedMovementTypes} />
 
                 <Card>
                     <CardContent className="p-3 space-y-2">
@@ -274,19 +268,19 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
+                            <div className="w-[70px] px-3 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Amount"
-                                    sortKey="amount"
+                                    label="Unit"
+                                    sortKey="unit"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[40px] px-3 py-2 shrink-0 flex justify-center">
+                            <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
-                                    label="Type"
-                                    sortKey="movementType"
+                                    label="Amount"
+                                    sortKey="amount"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
                                     onSort={toggleSort}
@@ -331,15 +325,15 @@ export default function EntriesClient() {
                                             >
                                                 {entry.subcategory}
                                             </div>
+                                            <div className="w-[70px] px-3 shrink-0 text-muted-foreground text-xs">
+                                                {entry.unitCode || "-"}
+                                            </div>
                                             <div
                                                 className={`w-[120px] px-3 shrink-0 text-right tabular-nums ${
                                                     entry.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
                                                 {formatCurrency(entry.amount)}
-                                            </div>
-                                            <div className="w-[40px] px-3 shrink-0 text-center text-muted-foreground text-xs">
-                                                {entry.movementType}
                                             </div>
                                         </div>
                                     );
@@ -354,11 +348,11 @@ export default function EntriesClient() {
                                 <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
                                 <div className="w-[140px] px-3 py-2 shrink-0" />
                                 <div className="w-[140px] px-3 py-2 shrink-0" />
+                                <div className="w-[70px] px-3 py-2 shrink-0 text-right text-xs text-muted-foreground">
+                                    {totals.count}
+                                </div>
                                 <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
                                     {formatCurrency(totals.net)}
-                                </div>
-                                <div className="w-[40px] px-3 py-2 shrink-0 text-center text-xs text-muted-foreground">
-                                    {totals.count}
                                 </div>
                             </div>
                         )}
