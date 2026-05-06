@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, ChevronRight, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { CategoryTree } from "@/components/filters/CategoryTree";
+import { TypeFilter } from "@/components/filters/TypeFilter";
+import { BarChart3, X } from "lucide-react";
 
 interface SummaryRow {
     period: string;
@@ -52,18 +53,6 @@ export default function SummaryClient() {
                 .map(v => ({ value: v, label: v })),
         [data]
     );
-    // Category → subcategory tree
-    const categoryTree = useMemo(() => {
-        const map = new Map<string, string[]>();
-        for (const r of data) {
-            if (!map.has(r.category)) map.set(r.category, []);
-            const subs = map.get(r.category)!;
-            if (!subs.includes(r.subcategory)) subs.push(r.subcategory);
-        }
-        return [...map.entries()]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([cat, subs]) => ({ category: cat, subcategories: subs.sort() }));
-    }, [data]);
 
     // Derive available years from periods
     const years = useMemo(() => [...new Set(data.map(r => r.period.slice(0, 4)))].sort().reverse(), [data]);
@@ -72,41 +61,6 @@ export default function SummaryClient() {
     const selectYear = (year: string) => {
         const yearPeriods = allPeriods.filter(p => p.startsWith(year));
         setSelectedPeriods(yearPeriods);
-    };
-
-    const movementTypeOptions = [
-        { value: "D", label: "Debit (D)" },
-        { value: "C", label: "Credit (C)" },
-    ];
-
-    // Collapsed state for categories
-    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-
-    const toggleCollapse = (cat: string) => {
-        setExpandedCategories(prev => {
-            const next = new Set(prev);
-            if (next.has(cat)) next.delete(cat);
-            else next.add(cat);
-            return next;
-        });
-    };
-
-    // Toggle category: selects/deselects all its subcategories
-    const toggleCategory = (cat: string) => {
-        const node = categoryTree.find(n => n.category === cat);
-        if (!node) return;
-        const allSelected = node.subcategories.every(s => selectedSubcategories.includes(s));
-        if (allSelected) {
-            // Deselect all subcategories of this category
-            setSelectedSubcategories(prev => prev.filter(s => !node.subcategories.includes(s)));
-        } else {
-            // Select all subcategories of this category
-            setSelectedSubcategories(prev => [...new Set([...prev, ...node.subcategories])]);
-        }
-    };
-
-    const toggleSubcategory = (sub: string) => {
-        setSelectedSubcategories(prev => (prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]));
     };
 
     // Filter
@@ -202,95 +156,13 @@ export default function SummaryClient() {
                     </CardContent>
                 </Card>
 
-                {/* Type */}
-                <Card>
-                    <CardContent className="p-3 space-y-2">
-                        <span className="text-xs font-medium text-muted-foreground">Type</span>
-                        <MultiSelect
-                            options={movementTypeOptions}
-                            selected={selectedMovementTypes}
-                            onSelectedChange={setSelectedMovementTypes}
-                            placeholder="All"
-                            className="w-full"
-                        />
-                    </CardContent>
-                </Card>
+                <TypeFilter selected={selectedMovementTypes} onSelectedChange={setSelectedMovementTypes} />
 
-                {/* Category / Subcategory tree */}
-                <Card className="flex-1 flex flex-col min-h-0">
-                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-muted-foreground">
-                                Categories / Subcategories
-                            </span>
-                            {selectedSubcategories.length > 0 && (
-                                <button
-                                    onClick={() => setSelectedSubcategories([])}
-                                    className="text-xs text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="h-3 w-3" />
-                                </button>
-                            )}
-                        </div>
-                        <div className="overflow-auto flex-1 min-h-0">
-                            {categoryTree.map(({ category, subcategories }) => {
-                                const allSelected = subcategories.every(s => selectedSubcategories.includes(s));
-                                const someSelected = subcategories.some(s => selectedSubcategories.includes(s));
-                                const collapsed = !expandedCategories.has(category);
-                                return (
-                                    <div key={category} className="mb-0.5">
-                                        <div className="flex items-center gap-0.5">
-                                            <button
-                                                onClick={() => toggleCollapse(category)}
-                                                className="p-0.5 text-muted-foreground hover:text-foreground"
-                                            >
-                                                <ChevronRight
-                                                    className={cn(
-                                                        "h-3 w-3 transition-transform",
-                                                        !collapsed && "rotate-90"
-                                                    )}
-                                                />
-                                            </button>
-                                            <button
-                                                onClick={() => toggleCategory(category)}
-                                                className={cn(
-                                                    "flex-1 text-left px-1.5 py-1 rounded text-xs truncate transition-colors font-medium",
-                                                    allSelected
-                                                        ? "bg-primary text-primary-foreground"
-                                                        : someSelected
-                                                          ? "bg-primary/20 text-primary"
-                                                          : "hover:bg-muted"
-                                                )}
-                                                title={category}
-                                            >
-                                                {category}
-                                            </button>
-                                        </div>
-                                        {!collapsed && (
-                                            <div className="ml-4 space-y-0.5 mt-0.5">
-                                                {subcategories.map(sub => (
-                                                    <button
-                                                        key={sub}
-                                                        onClick={() => toggleSubcategory(sub)}
-                                                        className={cn(
-                                                            "w-full text-left px-1.5 py-0.5 rounded text-xs truncate transition-colors",
-                                                            selectedSubcategories.includes(sub)
-                                                                ? "bg-primary text-primary-foreground"
-                                                                : "hover:bg-muted text-muted-foreground"
-                                                        )}
-                                                        title={sub}
-                                                    >
-                                                        {sub}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </CardContent>
-                </Card>
+                <CategoryTree
+                    data={data}
+                    selected={selectedSubcategories}
+                    onSelectedChange={setSelectedSubcategories}
+                />
             </div>
 
             {/* Main content */}
@@ -322,7 +194,6 @@ export default function SummaryClient() {
                     </div>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
-                    {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[80px] px-3 py-2 shrink-0">Period</div>

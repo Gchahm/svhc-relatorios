@@ -5,10 +5,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronRight, Receipt, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { CategoryTree } from "@/components/filters/CategoryTree";
+import { TypeFilter } from "@/components/filters/TypeFilter";
+import { Receipt } from "lucide-react";
 
 interface Entry {
     id: number;
@@ -67,7 +67,6 @@ export default function EntriesClient() {
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
     const [search, setSearch] = useState("");
-    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
     // Fetch available periods
     useEffect(() => {
@@ -105,48 +104,6 @@ export default function EntriesClient() {
             fetchEntries(selectedPeriod);
         }
     }, [selectedPeriod, fetchEntries]);
-
-    // Category → subcategory tree
-    const categoryTree = useMemo(() => {
-        const map = new Map<string, string[]>();
-        for (const e of entries) {
-            if (!map.has(e.category)) map.set(e.category, []);
-            const subs = map.get(e.category)!;
-            if (!subs.includes(e.subcategory)) subs.push(e.subcategory);
-        }
-        return [...map.entries()]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([cat, subs]) => ({ category: cat, subcategories: subs.sort() }));
-    }, [entries]);
-
-    const movementTypeOptions = [
-        { value: "D", label: "Debit (D)" },
-        { value: "C", label: "Credit (C)" },
-    ];
-
-    const toggleCollapse = (cat: string) => {
-        setExpandedCategories(prev => {
-            const next = new Set(prev);
-            if (next.has(cat)) next.delete(cat);
-            else next.add(cat);
-            return next;
-        });
-    };
-
-    const toggleCategory = (cat: string) => {
-        const node = categoryTree.find(n => n.category === cat);
-        if (!node) return;
-        const allSelected = node.subcategories.every(s => selectedSubcategories.includes(s));
-        if (allSelected) {
-            setSelectedSubcategories(prev => prev.filter(s => !node.subcategories.includes(s)));
-        } else {
-            setSelectedSubcategories(prev => [...new Set([...prev, ...node.subcategories])]);
-        }
-    };
-
-    const toggleSubcategory = (sub: string) => {
-        setSelectedSubcategories(prev => (prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]));
-    };
 
     // Reset client-side filters when period changes
     const handlePeriodChange = (value: string) => {
@@ -199,7 +156,6 @@ export default function EntriesClient() {
         <div className="flex-1 flex gap-4 min-h-0">
             {/* Sidebar filters */}
             <div className="w-[220px] shrink-0 flex flex-col gap-3 overflow-auto min-h-0">
-                {/* Period */}
                 <Card>
                     <CardContent className="p-3 space-y-2">
                         <span className="text-xs font-medium text-muted-foreground">Period</span>
@@ -218,21 +174,8 @@ export default function EntriesClient() {
                     </CardContent>
                 </Card>
 
-                {/* Type */}
-                <Card>
-                    <CardContent className="p-3 space-y-2">
-                        <span className="text-xs font-medium text-muted-foreground">Type</span>
-                        <MultiSelect
-                            options={movementTypeOptions}
-                            selected={selectedMovementTypes}
-                            onSelectedChange={setSelectedMovementTypes}
-                            placeholder="All"
-                            className="w-full"
-                        />
-                    </CardContent>
-                </Card>
+                <TypeFilter selected={selectedMovementTypes} onSelectedChange={setSelectedMovementTypes} />
 
-                {/* Search */}
                 <Card>
                     <CardContent className="p-3 space-y-2">
                         <span className="text-xs font-medium text-muted-foreground">Search</span>
@@ -245,81 +188,11 @@ export default function EntriesClient() {
                     </CardContent>
                 </Card>
 
-                {/* Category / Subcategory tree */}
-                <Card className="flex-1 flex flex-col min-h-0">
-                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-muted-foreground">
-                                Categories / Subcategories
-                            </span>
-                            {selectedSubcategories.length > 0 && (
-                                <button
-                                    onClick={() => setSelectedSubcategories([])}
-                                    className="text-xs text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="h-3 w-3" />
-                                </button>
-                            )}
-                        </div>
-                        <div className="overflow-auto flex-1 min-h-0">
-                            {categoryTree.map(({ category, subcategories }) => {
-                                const allSelected = subcategories.every(s => selectedSubcategories.includes(s));
-                                const someSelected = subcategories.some(s => selectedSubcategories.includes(s));
-                                const collapsed = !expandedCategories.has(category);
-                                return (
-                                    <div key={category} className="mb-0.5">
-                                        <div className="flex items-center gap-0.5">
-                                            <button
-                                                onClick={() => toggleCollapse(category)}
-                                                className="p-0.5 text-muted-foreground hover:text-foreground"
-                                            >
-                                                <ChevronRight
-                                                    className={cn(
-                                                        "h-3 w-3 transition-transform",
-                                                        !collapsed && "rotate-90"
-                                                    )}
-                                                />
-                                            </button>
-                                            <button
-                                                onClick={() => toggleCategory(category)}
-                                                className={cn(
-                                                    "flex-1 text-left px-1.5 py-1 rounded text-xs truncate transition-colors font-medium",
-                                                    allSelected
-                                                        ? "bg-primary text-primary-foreground"
-                                                        : someSelected
-                                                          ? "bg-primary/20 text-primary"
-                                                          : "hover:bg-muted"
-                                                )}
-                                                title={category}
-                                            >
-                                                {category}
-                                            </button>
-                                        </div>
-                                        {!collapsed && (
-                                            <div className="ml-4 space-y-0.5 mt-0.5">
-                                                {subcategories.map(sub => (
-                                                    <button
-                                                        key={sub}
-                                                        onClick={() => toggleSubcategory(sub)}
-                                                        className={cn(
-                                                            "w-full text-left px-1.5 py-0.5 rounded text-xs truncate transition-colors",
-                                                            selectedSubcategories.includes(sub)
-                                                                ? "bg-primary text-primary-foreground"
-                                                                : "hover:bg-muted text-muted-foreground"
-                                                        )}
-                                                        title={sub}
-                                                    >
-                                                        {sub}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </CardContent>
-                </Card>
+                <CategoryTree
+                    data={entries}
+                    selected={selectedSubcategories}
+                    onSelectedChange={setSelectedSubcategories}
+                />
             </div>
 
             {/* Main content */}
@@ -352,7 +225,6 @@ export default function EntriesClient() {
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
-                        {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
                             <div className="flex-1 px-3 py-2 min-w-0">Description</div>
@@ -362,7 +234,6 @@ export default function EntriesClient() {
                             <div className="w-[40px] px-3 py-2 shrink-0 text-center">Type</div>
                         </div>
 
-                        {/* Virtualized body */}
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
                             <div
                                 style={{
