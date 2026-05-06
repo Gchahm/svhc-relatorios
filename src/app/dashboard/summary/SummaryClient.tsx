@@ -80,10 +80,10 @@ export default function SummaryClient() {
     ];
 
     // Collapsed state for categories
-    const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
     const toggleCollapse = (cat: string) => {
-        setCollapsedCategories(prev => {
+        setExpandedCategories(prev => {
             const next = new Set(prev);
             if (next.has(cat)) next.delete(cat);
             else next.add(cat);
@@ -234,7 +234,7 @@ export default function SummaryClient() {
                             {categoryTree.map(({ category, subcategories }) => {
                                 const allSelected = subcategories.every(s => selectedSubcategories.includes(s));
                                 const someSelected = subcategories.some(s => selectedSubcategories.includes(s));
-                                const collapsed = collapsedCategories.has(category);
+                                const collapsed = !expandedCategories.has(category);
                                 return (
                                     <div key={category} className="mb-0.5">
                                         <div className="flex items-center gap-0.5">
