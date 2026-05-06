@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: "better-auth-cloudflare",
-    description: "Example app using our plugin",
+    title: "SVHC Fiscal",
+    description: "Fiscal auditing tool for condominium SVHC",
 };
 
 export default function RootLayout({

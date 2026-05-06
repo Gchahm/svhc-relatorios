@@ -6,9 +6,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
 import {
-    Github,
-    Package,
-    FileText,
     Receipt,
     BarChart3,
     FileSpreadsheet,
@@ -42,15 +39,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
         );
     }
 
-    const openAPISpec = await authInstance.api.generateOpenAPISchema();
-
     return (
         <div className="flex flex-col h-screen overflow-hidden font-[family-name:var(--font-geist-sans)]">
             <header className="w-full border-b shrink-0">
                 <div className="max-w-3xl mx-auto flex items-center justify-between px-8 py-2">
                     <nav className="flex items-center gap-4">
                         <Link href="/dashboard" className="text-sm font-semibold mr-2">
-                            Dashboard
+                            SVHC Fiscal
                         </Link>
                         <Link
                             href="/dashboard/reports"
@@ -126,40 +121,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <main className="flex-1 flex flex-col items-center p-8 min-h-0 overflow-auto">
                 <div className="w-full max-w-6xl flex-1 flex flex-col min-h-0">{children}</div>
             </main>
-
-            <footer className="w-full text-center text-sm text-gray-500 py-4 shrink-0">
-                <div className="space-y-3">
-                    <div>Powered by better-auth-cloudflare</div>
-                    <div className="flex items-center justify-center gap-4">
-                        <a
-                            href="https://github.com/zpg6/better-auth-cloudflare"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
-                        >
-                            <Github size={16} />
-                            <span>GitHub</span>
-                        </a>
-                        <a
-                            href="https://www.npmjs.com/package/better-auth-cloudflare"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
-                        >
-                            <Package size={16} />
-                            <span>npm</span>
-                        </a>
-                        <Link
-                            href="/api/auth/reference#tag/cloudflare/get/cloudflare/geolocation"
-                            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
-                            title={`OpenAPI v${openAPISpec.openapi} Schema`}
-                        >
-                            <FileText size={16} />
-                            <span>OpenAPI</span>
-                        </Link>
-                    </div>
-                </div>
-            </footer>
         </div>
     );
 }
