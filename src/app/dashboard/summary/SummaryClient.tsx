@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, X } from "lucide-react";
+import { BarChart3, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SummaryRow {
@@ -29,7 +29,6 @@ export default function SummaryClient() {
 
     // Filters
     const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
 
@@ -53,12 +52,18 @@ export default function SummaryClient() {
                 .map(v => ({ value: v, label: v })),
         [data]
     );
-    const categoryList = useMemo(() => [...new Set(data.map(r => r.category))].sort(), [data]);
-    const subcategoryList = useMemo(() => {
-        const filtered =
-            selectedCategories.length === 0 ? data : data.filter(r => selectedCategories.includes(r.category));
-        return [...new Set(filtered.map(r => r.subcategory))].sort();
-    }, [data, selectedCategories]);
+    // Category → subcategory tree
+    const categoryTree = useMemo(() => {
+        const map = new Map<string, string[]>();
+        for (const r of data) {
+            if (!map.has(r.category)) map.set(r.category, []);
+            const subs = map.get(r.category)!;
+            if (!subs.includes(r.subcategory)) subs.push(r.subcategory);
+        }
+        return [...map.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([cat, subs]) => ({ category: cat, subcategories: subs.sort() }));
+    }, [data]);
 
     // Derive available years from periods
     const years = useMemo(() => [...new Set(data.map(r => r.period.slice(0, 4)))].sort().reverse(), [data]);
@@ -74,16 +79,29 @@ export default function SummaryClient() {
         { value: "C", label: "Credit (C)" },
     ];
 
-    // Toggle helpers for lists
+    // Collapsed state for categories
+    const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
+    const toggleCollapse = (cat: string) => {
+        setCollapsedCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(cat)) next.delete(cat);
+            else next.add(cat);
+            return next;
+        });
+    };
+
+    // Toggle category: selects/deselects all its subcategories
     const toggleCategory = (cat: string) => {
-        const next = selectedCategories.includes(cat)
-            ? selectedCategories.filter(c => c !== cat)
-            : [...selectedCategories, cat];
-        setSelectedCategories(next);
-        // Prune invalid subcategories
-        if (next.length > 0) {
-            const validSubs = new Set(data.filter(r => next.includes(r.category)).map(r => r.subcategory));
-            setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
+        const node = categoryTree.find(n => n.category === cat);
+        if (!node) return;
+        const allSelected = node.subcategories.every(s => selectedSubcategories.includes(s));
+        if (allSelected) {
+            // Deselect all subcategories of this category
+            setSelectedSubcategories(prev => prev.filter(s => !node.subcategories.includes(s)));
+        } else {
+            // Select all subcategories of this category
+            setSelectedSubcategories(prev => [...new Set([...prev, ...node.subcategories])]);
         }
     };
 
@@ -96,7 +114,6 @@ export default function SummaryClient() {
         return data
             .filter(r => {
                 if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
-                if (selectedCategories.length > 0 && !selectedCategories.includes(r.category)) return false;
                 if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
                 if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
                 return true;
@@ -108,7 +125,7 @@ export default function SummaryClient() {
                 if (catCmp !== 0) return catCmp;
                 return a.subcategory.localeCompare(b.subcategory);
             });
-    }, [data, selectedPeriods, selectedCategories, selectedSubcategories, selectedMovementTypes]);
+    }, [data, selectedPeriods, selectedSubcategories, selectedMovementTypes]);
 
     // Totals
     const totals = useMemo(() => {
@@ -197,48 +214,13 @@ export default function SummaryClient() {
                     </CardContent>
                 </Card>
 
-                {/* Categories list */}
+                {/* Category / Subcategory tree */}
                 <Card className="flex-1 flex flex-col min-h-0">
                     <CardContent className="p-3 flex flex-col min-h-0 gap-1">
                         <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-muted-foreground">Categories</span>
-                            {selectedCategories.length > 0 && (
-                                <button
-                                    onClick={() => {
-                                        setSelectedCategories([]);
-                                        setSelectedSubcategories([]);
-                                    }}
-                                    className="text-xs text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="h-3 w-3" />
-                                </button>
-                            )}
-                        </div>
-                        <div className="overflow-auto flex-1 min-h-0 space-y-0.5">
-                            {categoryList.map(cat => (
-                                <button
-                                    key={cat}
-                                    onClick={() => toggleCategory(cat)}
-                                    className={cn(
-                                        "w-full text-left px-2 py-1 rounded text-xs truncate transition-colors",
-                                        selectedCategories.includes(cat)
-                                            ? "bg-primary text-primary-foreground"
-                                            : "hover:bg-muted"
-                                    )}
-                                    title={cat}
-                                >
-                                    {cat}
-                                </button>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Subcategories list */}
-                <Card className="flex-1 flex flex-col min-h-0">
-                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-muted-foreground">Subcategories</span>
+                            <span className="text-xs font-medium text-muted-foreground">
+                                Categories / Subcategories
+                            </span>
                             {selectedSubcategories.length > 0 && (
                                 <button
                                     onClick={() => setSelectedSubcategories([])}
@@ -248,22 +230,62 @@ export default function SummaryClient() {
                                 </button>
                             )}
                         </div>
-                        <div className="overflow-auto flex-1 min-h-0 space-y-0.5">
-                            {subcategoryList.map(sub => (
-                                <button
-                                    key={sub}
-                                    onClick={() => toggleSubcategory(sub)}
-                                    className={cn(
-                                        "w-full text-left px-2 py-1 rounded text-xs truncate transition-colors",
-                                        selectedSubcategories.includes(sub)
-                                            ? "bg-primary text-primary-foreground"
-                                            : "hover:bg-muted"
-                                    )}
-                                    title={sub}
-                                >
-                                    {sub}
-                                </button>
-                            ))}
+                        <div className="overflow-auto flex-1 min-h-0">
+                            {categoryTree.map(({ category, subcategories }) => {
+                                const allSelected = subcategories.every(s => selectedSubcategories.includes(s));
+                                const someSelected = subcategories.some(s => selectedSubcategories.includes(s));
+                                const collapsed = collapsedCategories.has(category);
+                                return (
+                                    <div key={category} className="mb-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                            <button
+                                                onClick={() => toggleCollapse(category)}
+                                                className="p-0.5 text-muted-foreground hover:text-foreground"
+                                            >
+                                                <ChevronRight
+                                                    className={cn(
+                                                        "h-3 w-3 transition-transform",
+                                                        !collapsed && "rotate-90"
+                                                    )}
+                                                />
+                                            </button>
+                                            <button
+                                                onClick={() => toggleCategory(category)}
+                                                className={cn(
+                                                    "flex-1 text-left px-1.5 py-1 rounded text-xs truncate transition-colors font-medium",
+                                                    allSelected
+                                                        ? "bg-primary text-primary-foreground"
+                                                        : someSelected
+                                                          ? "bg-primary/20 text-primary"
+                                                          : "hover:bg-muted"
+                                                )}
+                                                title={category}
+                                            >
+                                                {category}
+                                            </button>
+                                        </div>
+                                        {!collapsed && (
+                                            <div className="ml-4 space-y-0.5 mt-0.5">
+                                                {subcategories.map(sub => (
+                                                    <button
+                                                        key={sub}
+                                                        onClick={() => toggleSubcategory(sub)}
+                                                        className={cn(
+                                                            "w-full text-left px-1.5 py-0.5 rounded text-xs truncate transition-colors",
+                                                            selectedSubcategories.includes(sub)
+                                                                ? "bg-primary text-primary-foreground"
+                                                                : "hover:bg-muted text-muted-foreground"
+                                                        )}
+                                                        title={sub}
+                                                    >
+                                                        {sub}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>
