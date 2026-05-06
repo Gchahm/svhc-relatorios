@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { TypeFilter } from "@/components/filters/TypeFilter";
+import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt } from "lucide-react";
 
 interface Entry {
@@ -113,16 +114,27 @@ export default function EntriesClient() {
         setSearch("");
     };
 
-    // Apply client-side filters
+    // Sorting
+    const { sortKey, sortDir, toggleSort, sortFn } = useSort<Entry>("date", "asc");
+
+    // Apply client-side filters + sort
     const filtered = useMemo(() => {
         const searchLower = search.toLowerCase();
-        return entries.filter(e => {
+        const result = entries.filter(e => {
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
             if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(e.movementType)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
             return true;
         });
-    }, [entries, selectedSubcategories, selectedMovementTypes, search]);
+        return sortFn(result, {
+            date: e => e.date,
+            description: e => e.description.toLowerCase(),
+            category: e => e.category,
+            subcategory: e => e.subcategory,
+            amount: e => e.amount,
+            movementType: e => e.movementType,
+        });
+    }, [entries, selectedSubcategories, selectedMovementTypes, search, sortFn]);
 
     // Totals
     const totals = useMemo(() => {
@@ -226,12 +238,60 @@ export default function EntriesClient() {
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Description</div>
-                            <div className="w-[140px] px-3 py-2 shrink-0">Category</div>
-                            <div className="w-[140px] px-3 py-2 shrink-0">Subcategory</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Amount</div>
-                            <div className="w-[40px] px-3 py-2 shrink-0 text-center">Type</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">
+                                <SortableHeader
+                                    label="Date"
+                                    sortKey="date"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="flex-1 px-3 py-2 min-w-0">
+                                <SortableHeader
+                                    label="Description"
+                                    sortKey="description"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[140px] px-3 py-2 shrink-0">
+                                <SortableHeader
+                                    label="Category"
+                                    sortKey="category"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[140px] px-3 py-2 shrink-0">
+                                <SortableHeader
+                                    label="Subcategory"
+                                    sortKey="subcategory"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
+                                <SortableHeader
+                                    label="Amount"
+                                    sortKey="amount"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[40px] px-3 py-2 shrink-0 flex justify-center">
+                                <SortableHeader
+                                    label="Type"
+                                    sortKey="movementType"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">

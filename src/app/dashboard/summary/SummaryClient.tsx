@@ -8,6 +8,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { TypeFilter } from "@/components/filters/TypeFilter";
+import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { BarChart3, X } from "lucide-react";
 
 interface SummaryRow {
@@ -63,23 +64,26 @@ export default function SummaryClient() {
         setSelectedPeriods(yearPeriods);
     };
 
-    // Filter
+    // Sorting
+    const { sortKey, sortDir, toggleSort, sortFn } = useSort<SummaryRow>("period", "desc");
+
+    // Filter + sort
     const filtered = useMemo(() => {
-        return data
-            .filter(r => {
-                if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
-                if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
-                if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
-                return true;
-            })
-            .sort((a, b) => {
-                const periodCmp = b.period.localeCompare(a.period);
-                if (periodCmp !== 0) return periodCmp;
-                const catCmp = a.category.localeCompare(b.category);
-                if (catCmp !== 0) return catCmp;
-                return a.subcategory.localeCompare(b.subcategory);
-            });
-    }, [data, selectedPeriods, selectedSubcategories, selectedMovementTypes]);
+        const result = data.filter(r => {
+            if (selectedPeriods.length > 0 && !selectedPeriods.includes(r.period)) return false;
+            if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(r.subcategory)) return false;
+            if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(r.movementType)) return false;
+            return true;
+        });
+        return sortFn(result, {
+            period: r => r.period,
+            category: r => r.category,
+            subcategory: r => r.subcategory,
+            movementType: r => r.movementType,
+            total: r => r.total,
+            count: r => r.count,
+        });
+    }, [data, selectedPeriods, selectedSubcategories, selectedMovementTypes, sortFn]);
 
     // Totals
     const totals = useMemo(() => {
@@ -196,12 +200,60 @@ export default function SummaryClient() {
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
-                            <div className="w-[160px] px-3 py-2 shrink-0">Category</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Subcategory</div>
-                            <div className="w-[40px] px-3 py-2 shrink-0 text-center">Type</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Total</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Entries</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0">
+                                <SortableHeader
+                                    label="Period"
+                                    sortKey="period"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[160px] px-3 py-2 shrink-0">
+                                <SortableHeader
+                                    label="Category"
+                                    sortKey="category"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="flex-1 px-3 py-2 min-w-0">
+                                <SortableHeader
+                                    label="Subcategory"
+                                    sortKey="subcategory"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[40px] px-3 py-2 shrink-0 flex justify-center">
+                                <SortableHeader
+                                    label="Type"
+                                    sortKey="movementType"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
+                                <SortableHeader
+                                    label="Total"
+                                    sortKey="total"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 flex justify-end">
+                                <SortableHeader
+                                    label="Entries"
+                                    sortKey="count"
+                                    currentSort={sortKey}
+                                    currentDirection={sortDir}
+                                    onSort={toggleSort}
+                                />
+                            </div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
