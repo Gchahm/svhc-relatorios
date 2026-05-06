@@ -131,11 +131,13 @@ export default function SummaryClient() {
     const totals = useMemo(() => {
         let revenue = 0;
         let expenses = 0;
+        let totalEntries = 0;
         for (const r of filtered) {
             if (r.movementType === "C") revenue += r.total;
             else expenses += r.total;
+            totalEntries += r.count;
         }
-        return { revenue, expenses, net: revenue - expenses };
+        return { revenue, expenses, net: revenue - expenses, totalEntries };
     }, [filtered]);
 
     // Virtualizer
@@ -380,6 +382,22 @@ export default function SummaryClient() {
                                 })}
                             </div>
                         </div>
+
+                        {/* Footer */}
+                        {!loading && filtered.length > 0 && (
+                            <div className="flex items-center border-t bg-muted/50 text-sm font-medium shrink-0">
+                                <div className="w-[80px] px-3 py-2 shrink-0" />
+                                <div className="w-[160px] px-3 py-2 shrink-0" />
+                                <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
+                                <div className="w-[40px] px-3 py-2 shrink-0" />
+                                <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
+                                    {formatCurrency(totals.net)}
+                                </div>
+                                <div className="w-[70px] px-3 py-2 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {totals.totalEntries}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>
