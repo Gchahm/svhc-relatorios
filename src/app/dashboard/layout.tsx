@@ -42,76 +42,51 @@ export default async function DashboardLayout({ children }: { children: React.Re
     return (
         <div className="flex flex-col h-screen overflow-hidden font-[family-name:var(--font-geist-sans)]">
             <header className="w-full border-b shrink-0">
-                <div className="max-w-3xl mx-auto flex items-center justify-between px-8 py-2">
-                    <nav className="flex items-center gap-4">
-                        <Link href="/dashboard" className="text-sm font-semibold mr-2">
-                            SVHC Fiscal
-                        </Link>
-                        <Link
-                            href="/dashboard/reports"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                <div className="mx-auto flex items-center justify-between px-4 py-2">
+                    <Link href="/dashboard" className="text-sm font-semibold shrink-0">
+                        SVHC Fiscal
+                    </Link>
+
+                    <nav className="flex items-center gap-1 mx-4">
+                        {/* Financial */}
+                        <NavLink href="/dashboard/reports" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>
                             Reports
-                        </Link>
-                        <Link
-                            href="/dashboard/entries"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Receipt className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/entries" icon={<Receipt className="h-3.5 w-3.5" />}>
                             Entries
-                        </Link>
-                        <Link
-                            href="/dashboard/summary"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <BarChart3 className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/summary" icon={<BarChart3 className="h-3.5 w-3.5" />}>
                             Summary
-                        </Link>
-                        <Link
-                            href="/dashboard/vendors"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Store className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/comparison" icon={<ArrowLeftRight className="h-3.5 w-3.5" />}>
+                            Comparison
+                        </NavLink>
+
+                        <div className="w-px h-4 bg-gray-200 mx-1" />
+
+                        {/* Entities */}
+                        <NavLink href="/dashboard/vendors" icon={<Store className="h-3.5 w-3.5" />}>
                             Vendors
-                        </Link>
-                        <Link
-                            href="/dashboard/units"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Building2 className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/units" icon={<Building2 className="h-3.5 w-3.5" />}>
                             Units
-                        </Link>
-                        <Link
-                            href="/dashboard/fines"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <Gavel className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/fines" icon={<Gavel className="h-3.5 w-3.5" />}>
                             Fines
-                        </Link>
-                        <Link
-                            href="/dashboard/alerts"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <AlertTriangle className="h-3.5 w-3.5" />
+                        </NavLink>
+
+                        <div className="w-px h-4 bg-gray-200 mx-1" />
+
+                        {/* System */}
+                        <NavLink href="/dashboard/alerts" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
                             Alerts
-                        </Link>
-                        <Link
-                            href="/dashboard/comparison"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <ArrowLeftRight className="h-3.5 w-3.5" />
-                            Comparativo
-                        </Link>
-                        <Link
-                            href="/dashboard/scrape-runs"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <RefreshCw className="h-3.5 w-3.5" />
+                        </NavLink>
+                        <NavLink href="/dashboard/scrape-runs" icon={<RefreshCw className="h-3.5 w-3.5" />}>
                             Runs
-                        </Link>
+                        </NavLink>
                     </nav>
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-2 shrink-0">
                         <span className="text-sm text-gray-600">{session.user?.name || session.user?.email}</span>
                         <SignOutButton />
                     </div>
@@ -122,5 +97,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 <div className="w-full max-w-6xl flex-1 flex flex-col min-h-0">{children}</div>
             </main>
         </div>
+    );
+}
+
+function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: React.ReactNode }) {
+    return (
+        <Link
+            href={href}
+            className="flex items-center gap-1 px-2 py-1 rounded text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+        >
+            {icon}
+            {children}
+        </Link>
     );
 }
