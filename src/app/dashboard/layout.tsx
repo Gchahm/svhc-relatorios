@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
+import UserMenu from "./UserMenu";
 import {
     Receipt,
     BarChart3,
@@ -86,10 +87,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         </NavLink>
                     </nav>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-sm text-gray-600">{session.user?.name || session.user?.email}</span>
-                        <SignOutButton />
-                    </div>
+                    <UserMenu
+                        name={session.user?.name || session.user?.email || "User"}
+                        email={session.user?.email || ""}
+                    />
                 </div>
             </header>
 
