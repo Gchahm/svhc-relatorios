@@ -9,8 +9,6 @@ import {
     Github,
     Package,
     FileText,
-    User,
-    MapPin,
     Receipt,
     BarChart3,
     FileSpreadsheet,
@@ -53,20 +51,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     <nav className="flex items-center gap-4">
                         <Link href="/dashboard" className="text-sm font-semibold mr-2">
                             Dashboard
-                        </Link>
-                        <Link
-                            href="/dashboard/user-info"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <User className="h-3.5 w-3.5" />
-                            User Info
-                        </Link>
-                        <Link
-                            href="/dashboard/geolocation"
-                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                            <MapPin className="h-3.5 w-3.5" />
-                            Geolocation
                         </Link>
                         <Link
                             href="/dashboard/reports"
