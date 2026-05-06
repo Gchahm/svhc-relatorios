@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
@@ -60,6 +61,16 @@ export default function SummaryClient() {
             selectedCategories.length === 0 ? data : data.filter(r => selectedCategories.includes(r.category));
         return [...new Set(filtered.map(r => r.subcategory))].sort().map(v => ({ value: v, label: v }));
     }, [data, selectedCategories]);
+
+    // Derive available years from periods
+    const years = useMemo(() => [...new Set(data.map(r => r.period.slice(0, 4)))].sort().reverse(), [data]);
+
+    const allPeriods = useMemo(() => [...new Set(data.map(r => r.period))], [data]);
+
+    const selectYear = (year: string) => {
+        const yearPeriods = allPeriods.filter(p => p.startsWith(year));
+        setSelectedPeriods(yearPeriods);
+    };
 
     const movementTypeOptions = [
         { value: "D", label: "Debit (D)" },
@@ -134,15 +145,32 @@ export default function SummaryClient() {
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
-                        <div className="w-[200px]">
+                        <div>
                             <label className="block text-xs text-muted-foreground mb-1">Periods</label>
-                            <MultiSelect
-                                options={periodOptions}
-                                selected={selectedPeriods}
-                                onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
-                                className="w-full"
-                            />
+                            <div className="flex items-center gap-1.5">
+                                <MultiSelect
+                                    options={periodOptions}
+                                    selected={selectedPeriods}
+                                    onSelectedChange={setSelectedPeriods}
+                                    placeholder="All"
+                                    className="w-[200px]"
+                                />
+                                {years.map(year => (
+                                    <Button
+                                        key={year}
+                                        variant={
+                                            selectedPeriods.length > 0 && selectedPeriods.every(p => p.startsWith(year))
+                                                ? "default"
+                                                : "outline"
+                                        }
+                                        size="sm"
+                                        className="h-9 px-2.5 text-xs"
+                                        onClick={() => selectYear(year)}
+                                    >
+                                        {year}
+                                    </Button>
+                                ))}
+                            </div>
                         </div>
                         <div className="w-[200px]">
                             <label className="block text-xs text-muted-foreground mb-1">Category</label>
