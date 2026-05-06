@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Receipt } from "lucide-react";
+import { ChevronRight, Receipt, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Entry {
     id: number;
@@ -63,10 +64,10 @@ export default function EntriesClient() {
 
     // Filters
     const [selectedPeriod, setSelectedPeriod] = useState(getCurrentPeriod());
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [selectedMovementTypes, setSelectedMovementTypes] = useState<string[]>([]);
     const [search, setSearch] = useState("");
+    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
     // Fetch available periods
     useEffect(() => {
@@ -77,7 +78,6 @@ export default function EntriesClient() {
             })
             .then((data: string[]) => {
                 setPeriods(data);
-                // If current month doesn't exist in data, default to the most recent
                 if (data.length > 0 && !data.includes(selectedPeriod)) {
                     setSelectedPeriod(data[0]);
                 }
@@ -106,35 +106,51 @@ export default function EntriesClient() {
         }
     }, [selectedPeriod, fetchEntries]);
 
-    // Derive filter options from data
-    const categoryOptions = useMemo(
-        () => [...new Set(entries.map(e => e.category))].sort().map(v => ({ value: v, label: v })),
-        [entries]
-    );
-    const subcategoryOptions = useMemo(() => {
-        const filtered =
-            selectedCategories.length === 0 ? entries : entries.filter(e => selectedCategories.includes(e.category));
-        return [...new Set(filtered.map(e => e.subcategory))].sort().map(v => ({ value: v, label: v }));
-    }, [entries, selectedCategories]);
+    // Category → subcategory tree
+    const categoryTree = useMemo(() => {
+        const map = new Map<string, string[]>();
+        for (const e of entries) {
+            if (!map.has(e.category)) map.set(e.category, []);
+            const subs = map.get(e.category)!;
+            if (!subs.includes(e.subcategory)) subs.push(e.subcategory);
+        }
+        return [...map.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([cat, subs]) => ({ category: cat, subcategories: subs.sort() }));
+    }, [entries]);
 
     const movementTypeOptions = [
         { value: "D", label: "Debit (D)" },
         { value: "C", label: "Credit (C)" },
     ];
 
-    // Reset subcategories when categories change
-    const handleCategoriesChange = (values: string[]) => {
-        setSelectedCategories(values);
-        if (values.length > 0) {
-            const validSubs = new Set(entries.filter(e => values.includes(e.category)).map(e => e.subcategory));
-            setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
+    const toggleCollapse = (cat: string) => {
+        setExpandedCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(cat)) next.delete(cat);
+            else next.add(cat);
+            return next;
+        });
+    };
+
+    const toggleCategory = (cat: string) => {
+        const node = categoryTree.find(n => n.category === cat);
+        if (!node) return;
+        const allSelected = node.subcategories.every(s => selectedSubcategories.includes(s));
+        if (allSelected) {
+            setSelectedSubcategories(prev => prev.filter(s => !node.subcategories.includes(s)));
+        } else {
+            setSelectedSubcategories(prev => [...new Set([...prev, ...node.subcategories])]);
         }
+    };
+
+    const toggleSubcategory = (sub: string) => {
+        setSelectedSubcategories(prev => (prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]));
     };
 
     // Reset client-side filters when period changes
     const handlePeriodChange = (value: string) => {
         setSelectedPeriod(value);
-        setSelectedCategories([]);
         setSelectedSubcategories([]);
         setSelectedMovementTypes([]);
         setSearch("");
@@ -144,13 +160,12 @@ export default function EntriesClient() {
     const filtered = useMemo(() => {
         const searchLower = search.toLowerCase();
         return entries.filter(e => {
-            if (selectedCategories.length > 0 && !selectedCategories.includes(e.category)) return false;
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
             if (selectedMovementTypes.length > 0 && !selectedMovementTypes.includes(e.movementType)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
             return true;
         });
-    }, [entries, selectedCategories, selectedSubcategories, selectedMovementTypes, search]);
+    }, [entries, selectedSubcategories, selectedMovementTypes, search]);
 
     // Totals
     const totals = useMemo(() => {
@@ -160,7 +175,7 @@ export default function EntriesClient() {
             if (e.movementType === "C") revenue += e.amount;
             else expenses += e.amount;
         }
-        return { revenue, expenses, net: revenue - expenses };
+        return { revenue, expenses, net: revenue - expenses, count: filtered.length };
     }, [filtered]);
 
     // Virtualizer
@@ -181,94 +196,161 @@ export default function EntriesClient() {
     }
 
     return (
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex gap-4 min-h-0">
+            {/* Sidebar filters */}
+            <div className="w-[220px] shrink-0 flex flex-col gap-3 overflow-auto min-h-0">
+                {/* Period */}
+                <Card>
+                    <CardContent className="p-3 space-y-2">
+                        <span className="text-xs font-medium text-muted-foreground">Period</span>
+                        <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                            <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Select period" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {periods.map(p => (
+                                    <SelectItem key={p} value={p}>
+                                        {p}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </CardContent>
+                </Card>
+
+                {/* Type */}
+                <Card>
+                    <CardContent className="p-3 space-y-2">
+                        <span className="text-xs font-medium text-muted-foreground">Type</span>
+                        <MultiSelect
+                            options={movementTypeOptions}
+                            selected={selectedMovementTypes}
+                            onSelectedChange={setSelectedMovementTypes}
+                            placeholder="All"
+                            className="w-full"
+                        />
+                    </CardContent>
+                </Card>
+
+                {/* Search */}
+                <Card>
+                    <CardContent className="p-3 space-y-2">
+                        <span className="text-xs font-medium text-muted-foreground">Search</span>
+                        <Input
+                            placeholder="Search description..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className="h-9"
+                        />
+                    </CardContent>
+                </Card>
+
+                {/* Category / Subcategory tree */}
+                <Card className="flex-1 flex flex-col min-h-0">
+                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">
+                                Categories / Subcategories
+                            </span>
+                            {selectedSubcategories.length > 0 && (
+                                <button
+                                    onClick={() => setSelectedSubcategories([])}
+                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="overflow-auto flex-1 min-h-0">
+                            {categoryTree.map(({ category, subcategories }) => {
+                                const allSelected = subcategories.every(s => selectedSubcategories.includes(s));
+                                const someSelected = subcategories.some(s => selectedSubcategories.includes(s));
+                                const collapsed = !expandedCategories.has(category);
+                                return (
+                                    <div key={category} className="mb-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                            <button
+                                                onClick={() => toggleCollapse(category)}
+                                                className="p-0.5 text-muted-foreground hover:text-foreground"
+                                            >
+                                                <ChevronRight
+                                                    className={cn(
+                                                        "h-3 w-3 transition-transform",
+                                                        !collapsed && "rotate-90"
+                                                    )}
+                                                />
+                                            </button>
+                                            <button
+                                                onClick={() => toggleCategory(category)}
+                                                className={cn(
+                                                    "flex-1 text-left px-1.5 py-1 rounded text-xs truncate transition-colors font-medium",
+                                                    allSelected
+                                                        ? "bg-primary text-primary-foreground"
+                                                        : someSelected
+                                                          ? "bg-primary/20 text-primary"
+                                                          : "hover:bg-muted"
+                                                )}
+                                                title={category}
+                                            >
+                                                {category}
+                                            </button>
+                                        </div>
+                                        {!collapsed && (
+                                            <div className="ml-4 space-y-0.5 mt-0.5">
+                                                {subcategories.map(sub => (
+                                                    <button
+                                                        key={sub}
+                                                        onClick={() => toggleSubcategory(sub)}
+                                                        className={cn(
+                                                            "w-full text-left px-1.5 py-0.5 rounded text-xs truncate transition-colors",
+                                                            selectedSubcategories.includes(sub)
+                                                                ? "bg-primary text-primary-foreground"
+                                                                : "hover:bg-muted text-muted-foreground"
+                                                        )}
+                                                        title={sub}
+                                                    >
+                                                        {sub}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Main content */}
             <Card className="flex-1 flex flex-col min-h-0">
                 <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-xl">
-                        <Receipt className="h-5 w-5" />
-                        Entries
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2 text-xl">
+                            <Receipt className="h-5 w-5" />
+                            Entries
+                        </CardTitle>
+                        <div className="flex items-center gap-4 text-sm">
+                            <span className="text-muted-foreground">
+                                {loading ? "Loading..." : `${filtered.length} entries`}
+                            </span>
+                            {!loading && (
+                                <>
+                                    <Badge variant="outline" className="text-green-700 border-green-300">
+                                        Revenue: {formatCurrency(totals.revenue)}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-red-700 border-red-300">
+                                        Expenses: {formatCurrency(totals.expenses)}
+                                    </Badge>
+                                    <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
+                                        Net: {formatCurrency(totals.net)}
+                                    </Badge>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 </CardHeader>
-                <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-3 items-end">
-                        <div className="w-[140px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Period</label>
-                            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
-                                <SelectTrigger className="h-9">
-                                    <SelectValue placeholder="Select period" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {periods.map(p => (
-                                        <SelectItem key={p} value={p}>
-                                            {p}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Category</label>
-                            <MultiSelect
-                                options={categoryOptions}
-                                selected={selectedCategories}
-                                onSelectedChange={handleCategoriesChange}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Subcategory</label>
-                            <MultiSelect
-                                options={subcategoryOptions}
-                                selected={selectedSubcategories}
-                                onSelectedChange={setSelectedSubcategories}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Type</label>
-                            <MultiSelect
-                                options={movementTypeOptions}
-                                selected={selectedMovementTypes}
-                                onSelectedChange={setSelectedMovementTypes}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="flex-1 min-w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Search</label>
-                            <Input
-                                placeholder="Search description..."
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                className="h-9"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Summary */}
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${filtered.length} entries`}
-                        </span>
-                        {!loading && (
-                            <>
-                                <Badge variant="outline" className="text-green-700 border-green-300">
-                                    Revenue: {formatCurrency(totals.revenue)}
-                                </Badge>
-                                <Badge variant="outline" className="text-red-700 border-red-300">
-                                    Expenses: {formatCurrency(totals.expenses)}
-                                </Badge>
-                                <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
-                                    Net: {formatCurrency(totals.net)}
-                                </Badge>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Table */}
+                <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
@@ -333,6 +415,22 @@ export default function EntriesClient() {
                                 })}
                             </div>
                         </div>
+
+                        {/* Footer */}
+                        {!loading && filtered.length > 0 && (
+                            <div className="flex items-center border-t bg-muted/50 text-sm font-medium shrink-0">
+                                <div className="w-[90px] px-3 py-2 shrink-0" />
+                                <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
+                                <div className="w-[140px] px-3 py-2 shrink-0" />
+                                <div className="w-[140px] px-3 py-2 shrink-0" />
+                                <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
+                                    {formatCurrency(totals.net)}
+                                </div>
+                                <div className="w-[40px] px-3 py-2 shrink-0 text-center text-xs text-muted-foreground">
+                                    {totals.count}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>
