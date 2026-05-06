@@ -124,7 +124,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </header>
 
             <main className="flex-1 flex flex-col items-center p-8 min-h-0 overflow-auto">
-                <div className="w-full max-w-3xl flex-1 flex flex-col min-h-0">{children}</div>
+                <div className="w-full max-w-6xl flex-1 flex flex-col min-h-0">{children}</div>
             </main>
 
             <footer className="w-full text-center text-sm text-gray-500 py-4 shrink-0">

@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface SummaryRow {
     period: string;
@@ -52,19 +53,15 @@ export default function SummaryClient() {
                 .map(v => ({ value: v, label: v })),
         [data]
     );
-    const categoryOptions = useMemo(
-        () => [...new Set(data.map(r => r.category))].sort().map(v => ({ value: v, label: v })),
-        [data]
-    );
-    const subcategoryOptions = useMemo(() => {
+    const categoryList = useMemo(() => [...new Set(data.map(r => r.category))].sort(), [data]);
+    const subcategoryList = useMemo(() => {
         const filtered =
             selectedCategories.length === 0 ? data : data.filter(r => selectedCategories.includes(r.category));
-        return [...new Set(filtered.map(r => r.subcategory))].sort().map(v => ({ value: v, label: v }));
+        return [...new Set(filtered.map(r => r.subcategory))].sort();
     }, [data, selectedCategories]);
 
     // Derive available years from periods
     const years = useMemo(() => [...new Set(data.map(r => r.period.slice(0, 4)))].sort().reverse(), [data]);
-
     const allPeriods = useMemo(() => [...new Set(data.map(r => r.period))], [data]);
 
     const selectYear = (year: string) => {
@@ -77,13 +74,21 @@ export default function SummaryClient() {
         { value: "C", label: "Credit (C)" },
     ];
 
-    // Reset subcategories when categories change
-    const handleCategoriesChange = (values: string[]) => {
-        setSelectedCategories(values);
-        if (values.length > 0) {
-            const validSubs = new Set(data.filter(r => values.includes(r.category)).map(r => r.subcategory));
+    // Toggle helpers for lists
+    const toggleCategory = (cat: string) => {
+        const next = selectedCategories.includes(cat)
+            ? selectedCategories.filter(c => c !== cat)
+            : [...selectedCategories, cat];
+        setSelectedCategories(next);
+        // Prune invalid subcategories
+        if (next.length > 0) {
+            const validSubs = new Set(data.filter(r => next.includes(r.category)).map(r => r.subcategory));
             setSelectedSubcategories(prev => prev.filter(s => validSubs.has(s)));
         }
+    };
+
+    const toggleSubcategory = (sub: string) => {
+        setSelectedSubcategories(prev => (prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]));
     };
 
     // Filter
@@ -134,96 +139,165 @@ export default function SummaryClient() {
     }
 
     return (
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex gap-4 min-h-0">
+            {/* Sidebar filters */}
+            <div className="w-[220px] shrink-0 flex flex-col gap-3 overflow-auto min-h-0">
+                {/* Periods */}
+                <Card>
+                    <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">Periods</span>
+                            {selectedPeriods.length > 0 && (
+                                <button
+                                    onClick={() => setSelectedPeriods([])}
+                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                            {years.map(year => (
+                                <Button
+                                    key={year}
+                                    variant={
+                                        selectedPeriods.length > 0 && selectedPeriods.every(p => p.startsWith(year))
+                                            ? "default"
+                                            : "outline"
+                                    }
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => selectYear(year)}
+                                >
+                                    {year}
+                                </Button>
+                            ))}
+                        </div>
+                        <MultiSelect
+                            options={periodOptions}
+                            selected={selectedPeriods}
+                            onSelectedChange={setSelectedPeriods}
+                            placeholder="All periods"
+                            className="w-full"
+                        />
+                    </CardContent>
+                </Card>
+
+                {/* Type */}
+                <Card>
+                    <CardContent className="p-3 space-y-2">
+                        <span className="text-xs font-medium text-muted-foreground">Type</span>
+                        <MultiSelect
+                            options={movementTypeOptions}
+                            selected={selectedMovementTypes}
+                            onSelectedChange={setSelectedMovementTypes}
+                            placeholder="All"
+                            className="w-full"
+                        />
+                    </CardContent>
+                </Card>
+
+                {/* Categories list */}
+                <Card className="flex-1 flex flex-col min-h-0">
+                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">Categories</span>
+                            {selectedCategories.length > 0 && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedCategories([]);
+                                        setSelectedSubcategories([]);
+                                    }}
+                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="overflow-auto flex-1 min-h-0 space-y-0.5">
+                            {categoryList.map(cat => (
+                                <button
+                                    key={cat}
+                                    onClick={() => toggleCategory(cat)}
+                                    className={cn(
+                                        "w-full text-left px-2 py-1 rounded text-xs truncate transition-colors",
+                                        selectedCategories.includes(cat)
+                                            ? "bg-primary text-primary-foreground"
+                                            : "hover:bg-muted"
+                                    )}
+                                    title={cat}
+                                >
+                                    {cat}
+                                </button>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Subcategories list */}
+                <Card className="flex-1 flex flex-col min-h-0">
+                    <CardContent className="p-3 flex flex-col min-h-0 gap-1">
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">Subcategories</span>
+                            {selectedSubcategories.length > 0 && (
+                                <button
+                                    onClick={() => setSelectedSubcategories([])}
+                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-3 w-3" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="overflow-auto flex-1 min-h-0 space-y-0.5">
+                            {subcategoryList.map(sub => (
+                                <button
+                                    key={sub}
+                                    onClick={() => toggleSubcategory(sub)}
+                                    className={cn(
+                                        "w-full text-left px-2 py-1 rounded text-xs truncate transition-colors",
+                                        selectedSubcategories.includes(sub)
+                                            ? "bg-primary text-primary-foreground"
+                                            : "hover:bg-muted"
+                                    )}
+                                    title={sub}
+                                >
+                                    {sub}
+                                </button>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Main content */}
             <Card className="flex-1 flex flex-col min-h-0">
                 <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-xl">
-                        <BarChart3 className="h-5 w-5" />
-                        Summary by Subcategory
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2 text-xl">
+                            <BarChart3 className="h-5 w-5" />
+                            Summary by Subcategory
+                        </CardTitle>
+                        <div className="flex items-center gap-4 text-sm">
+                            <span className="text-muted-foreground">
+                                {loading ? "Loading..." : `${filtered.length} rows`}
+                            </span>
+                            {!loading && (
+                                <>
+                                    <Badge variant="outline" className="text-green-700 border-green-300">
+                                        Revenue: {formatCurrency(totals.revenue)}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-red-700 border-red-300">
+                                        Expenses: {formatCurrency(totals.expenses)}
+                                    </Badge>
+                                    <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
+                                        Net: {formatCurrency(totals.net)}
+                                    </Badge>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 </CardHeader>
-                <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-3 items-end">
-                        <div>
-                            <label className="block text-xs text-muted-foreground mb-1">Periods</label>
-                            <div className="flex items-center gap-1.5">
-                                <MultiSelect
-                                    options={periodOptions}
-                                    selected={selectedPeriods}
-                                    onSelectedChange={setSelectedPeriods}
-                                    placeholder="All"
-                                    className="w-[200px]"
-                                />
-                                {years.map(year => (
-                                    <Button
-                                        key={year}
-                                        variant={
-                                            selectedPeriods.length > 0 && selectedPeriods.every(p => p.startsWith(year))
-                                                ? "default"
-                                                : "outline"
-                                        }
-                                        size="sm"
-                                        className="h-9 px-2.5 text-xs"
-                                        onClick={() => selectYear(year)}
-                                    >
-                                        {year}
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Category</label>
-                            <MultiSelect
-                                options={categoryOptions}
-                                selected={selectedCategories}
-                                onSelectedChange={handleCategoriesChange}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Subcategory</label>
-                            <MultiSelect
-                                options={subcategoryOptions}
-                                selected={selectedSubcategories}
-                                onSelectedChange={setSelectedSubcategories}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                        <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Type</label>
-                            <MultiSelect
-                                options={movementTypeOptions}
-                                selected={selectedMovementTypes}
-                                onSelectedChange={setSelectedMovementTypes}
-                                placeholder="All"
-                                className="w-full"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Summary */}
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${filtered.length} rows`}
-                        </span>
-                        {!loading && (
-                            <>
-                                <Badge variant="outline" className="text-green-700 border-green-300">
-                                    Revenue: {formatCurrency(totals.revenue)}
-                                </Badge>
-                                <Badge variant="outline" className="text-red-700 border-red-300">
-                                    Expenses: {formatCurrency(totals.expenses)}
-                                </Badge>
-                                <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
-                                    Net: {formatCurrency(totals.net)}
-                                </Badge>
-                            </>
-                        )}
-                    </div>
-
+                <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
