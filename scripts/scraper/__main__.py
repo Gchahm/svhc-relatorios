@@ -5,6 +5,7 @@ BRCondos scraper — outputs one JSON file per period, compatible with import-to
 Usage:
     cd scripts
     uv run --with playwright --with python-dotenv -- python -m scraper scrape [options]
+    uv run --with playwright --with python-dotenv -- python -m scraper download-docs [options]
 """
 
 import argparse
@@ -12,7 +13,7 @@ import asyncio
 import logging
 import sys
 
-from .runner import run_scrape
+from .runner import run_download_docs, run_scrape
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +43,16 @@ def main():
         help="Output directory for period JSON files (default: ../data/scrape).",
     )
 
+    docs_parser = subparsers.add_parser("download-docs", help="Download documents for existing scraped JSON files")
+    docs_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only download docs for these periods (e.g. 2024-12 2025-01).",
+    )
+    docs_parser.add_argument(
+        "--data-dir", "-d", default="../data/scrape",
+        help="Directory containing period JSON files (default: ../data/scrape).",
+    )
+
     args = parser.parse_args()
 
     if args.command == "scrape":
@@ -51,6 +62,13 @@ def main():
                 book_ids=args.book_ids,
                 periodos_filter=args.periodo,
                 download_docs=args.download_docs,
+            )
+        )
+    elif args.command == "download-docs":
+        asyncio.run(
+            run_download_docs(
+                data_dir=args.data_dir,
+                periodos_filter=args.periodo,
             )
         )
     else:

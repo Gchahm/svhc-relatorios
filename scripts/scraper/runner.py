@@ -12,6 +12,7 @@ from .browser import BRCondosBrowser
 from .config import ACCOUNTABILITY_PATH, BRCONDOS_URL
 from .extractors.aprovadores import extract_aprovadores
 from .extractors.demonstrativo import extract_demonstrativo
+from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 
@@ -412,7 +413,6 @@ async def _scrape_periodo(
     if download_docs and doc_download_tasks:
         total_docs = sum(len(ids) for _, ids, _ in doc_download_tasks)
         logger.info("  Downloading %d documents for %d entries...", total_docs, len(doc_download_tasks))
-        from .extractors.documentos import download_entry_documents
 
         dest_dir = output_dir / periodo if output_dir else Path(f"data/scrape/{periodo}")
         downloaded = 0
@@ -429,9 +429,97 @@ async def _scrape_periodo(
 
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",
-        periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(doc_refs),
+        periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(documents_out),
     )
 
     return _build_period_data(
         refs, scrape_run, report, entries_out, subtotals_out, approvers_out, documents_out
     )
+
+
+async def run_download_docs(
+    data_dir: str,
+    periodos_filter: list[str] | None = None,
+) -> None:
+    """Download documents for existing scraped JSON files.
+
+    Reads each period JSON, downloads documents that don't have a file_path yet,
+    and updates the JSON files in-place.
+
+    Args:
+        data_dir: Directory containing period JSON files (e.g. data/scrape).
+        periodos_filter: Only process these periods (e.g. ["2024-12"]).
+    """
+    data_path = Path(data_dir)
+    json_files = sorted(data_path.glob("*.json"))
+
+    if periodos_filter:
+        json_files = [f for f in json_files if f.stem in periodos_filter]
+
+    if not json_files:
+        logger.info("No JSON files found in %s", data_path)
+        return
+
+    # Build work list: figure out which files have documents to download
+    work = []
+    for json_file in json_files:
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        docs = data.get("documents", [])
+        pending = [d for d in docs if not d.get("file_path")]
+        if not pending:
+            logger.info("%s: all %d documents already downloaded, skipping", json_file.stem, len(docs))
+            continue
+
+        # Build entry lookup: entry_id -> description
+        entry_map = {e["id"]: e["description"] for e in data.get("entries", [])}
+        work.append((json_file, data, pending, entry_map))
+        logger.info("%s: %d/%d documents to download", json_file.stem, len(pending), len(docs))
+
+    if not work:
+        logger.info("All documents already downloaded")
+        return
+
+    total_pending = sum(len(pending) for _, _, pending, _ in work)
+    logger.info("Will download %d documents across %d period(s)", total_pending, len(work))
+
+    browser = BRCondosBrowser()
+    try:
+        await browser.start()
+        await browser.login()
+
+        for json_file, data, pending, entry_map in work:
+            periodo = json_file.stem
+            dest_dir = data_path / periodo
+            logger.info("Processing %s (%d documents)...", periodo, len(pending))
+
+            # Group pending docs by entry_id for batch downloading
+            by_entry: dict[str, list[dict]] = defaultdict(list)
+            for doc in pending:
+                by_entry[doc["entry_id"]].append(doc)
+
+            downloaded = 0
+            for entry_id, entry_docs in by_entry.items():
+                description = entry_map.get(entry_id, entry_id)
+                ext_doc_ids = [d["external_document_id"] for d in entry_docs]
+
+                paths_by_id = await download_entry_documents(
+                    browser.page, ext_doc_ids, description, dest_dir
+                )
+
+                for doc in entry_docs:
+                    ext_id = doc["external_document_id"]
+                    if ext_id in paths_by_id:
+                        doc["file_path"] = ";".join(paths_by_id[ext_id])
+                        downloaded += 1
+
+            # Write updated JSON back
+            json_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.info("%s: downloaded %d/%d documents", periodo, downloaded, len(pending))
+
+    except Exception as e:
+        logger.error("Fatal error during document download: %s", e, exc_info=True)
+    finally:
+        await browser.close()
