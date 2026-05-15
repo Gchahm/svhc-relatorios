@@ -4,8 +4,8 @@ BRCondos scraper — outputs one JSON file per period, compatible with import-to
 
 Usage:
     cd scripts
-    uv run --with playwright --with python-dotenv -- python -m scraper scrape [options]
-    uv run --with playwright --with python-dotenv -- python -m scraper download-docs [options]
+    uv run python -m scraper scrape [options]
+    uv run python -m scraper download-docs [options]
 """
 
 import argparse
