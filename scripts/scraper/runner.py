@@ -219,7 +219,7 @@ async def run_scrape(
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     period_data = await _scrape_periodo(
-                        browser, periodo_info, scrape_run, download_docs
+                        browser, periodo_info, scrape_run, download_docs, out_path
                     )
                     # Write period file immediately to free memory
                     period_file = out_path / f"{periodo}.json"
@@ -287,6 +287,7 @@ async def _scrape_periodo(
     periodo_info: dict,
     scrape_run: dict,
     download_docs: bool,
+    output_dir: Path | None = None,
 ) -> dict:
     """Scrape a single period and return the JSON data dict."""
     book_id = periodo_info["book_id"]
@@ -340,15 +341,21 @@ async def _scrape_periodo(
     # Build entries and document refs
     entries_out = []
     documents_out = []
-    doc_refs = []
+    doc_download_tasks = []  # (entry_description, documento_ids, doc_records)
     for lanc in lancamentos_data:
         raw_descricao = lanc["descricao"]
         entry_id = _random_id()
+        description = _strip_fornecedor_prefix(raw_descricao)
+        documento_ids = lanc.get("documento_ids") or []
+        # Backward compat: single documento_id field
+        if not documento_ids and lanc.get("documento_id"):
+            documento_ids = [lanc["documento_id"]]
+
         entries_out.append({
             "id": entry_id,
             "report_id": report_id,
             "date": lanc["data"].isoformat(),
-            "description": _strip_fornecedor_prefix(raw_descricao),
+            "description": description,
             "amount": lanc["valor"],
             "movement_type": lanc["tipo_movimento"],
             "subcategory_id": refs.resolve_subcategory(
@@ -356,24 +363,25 @@ async def _scrape_periodo(
             ),
             "unit_id": refs.resolve_unit(raw_descricao),
             "vendor_id": refs.resolve_vendor(raw_descricao),
-            "external_document_id": lanc["documento_id"],
+            "external_document_id": documento_ids[0] if documento_ids else None,
             "source_url": source_url,
             "created_at": now,
             "updated_at": now,
         })
 
-        if lanc["documento_id"]:
-            doc_id = _random_id()
-            documents_out.append({
-                "id": doc_id,
-                "entry_id": entry_id,
-                "external_document_id": lanc["documento_id"],
-                "file_path": None,
-            })
-            doc_refs.append({
-                "doc_id": doc_id,
-                "brcondos_document_id": lanc["documento_id"],
-            })
+        if documento_ids:
+            entry_doc_records = []
+            for ext_doc_id in documento_ids:
+                doc_id = _random_id()
+                doc_record = {
+                    "id": doc_id,
+                    "entry_id": entry_id,
+                    "external_document_id": ext_doc_id,
+                    "file_path": None,
+                }
+                documents_out.append(doc_record)
+                entry_doc_records.append(doc_record)
+            doc_download_tasks.append((description, documento_ids, entry_doc_records))
 
     # Build category subtotals
     subtotals_out = []
@@ -401,20 +409,23 @@ async def _scrape_periodo(
         })
 
     # Download documents
-    if download_docs and doc_refs:
-        logger.info("  Downloading %d documents...", len(doc_refs))
-        from .extractors.documentos import download_all_documentos
+    if download_docs and doc_download_tasks:
+        total_docs = sum(len(ids) for _, ids, _ in doc_download_tasks)
+        logger.info("  Downloading %d documents for %d entries...", total_docs, len(doc_download_tasks))
+        from .extractors.documentos import download_entry_documents
 
-        raw_refs = [{"lancamento_id": 0, "brcondos_document_id": r["brcondos_document_id"]} for r in doc_refs]
-        paths = await download_all_documentos(browser.page, raw_refs, periodo)
-        for ref in doc_refs:
-            brcondos_id = ref["brcondos_document_id"]
-            if brcondos_id in paths:
-                for doc in documents_out:
-                    if doc["id"] == ref["doc_id"]:
-                        doc["file_path"] = paths[brcondos_id]
-                        break
-        logger.info("  Documents saved: %d/%d", len(paths), len(doc_refs))
+        dest_dir = output_dir / periodo if output_dir else Path(f"data/scrape/{periodo}")
+        downloaded = 0
+        for description, documento_ids, doc_records in doc_download_tasks:
+            paths_by_id = await download_entry_documents(
+                browser.page, documento_ids, description, dest_dir
+            )
+            for doc_record in doc_records:
+                ext_id = doc_record["external_document_id"]
+                if ext_id in paths_by_id:
+                    doc_record["file_path"] = ";".join(paths_by_id[ext_id])
+                    downloaded += 1
+        logger.info("  Documents saved: %d/%d", downloaded, total_docs)
 
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",

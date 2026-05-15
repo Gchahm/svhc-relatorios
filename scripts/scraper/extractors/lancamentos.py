@@ -102,14 +102,16 @@ async def extract_lancamentos_from_tab(
             tipo_el = await tds[4].query_selector(".font-weight-700, .font-weight-600")
             tipo_text = (await tipo_el.inner_text()).strip() if tipo_el else "D"
 
-            doc_link = await row.query_selector('a[href*="/Dashboard/ViewDocuments/"]')
-            documento_id = None
-            if doc_link:
+            doc_links = await row.query_selector_all('a[href*="/Dashboard/ViewDocuments/"]')
+            documento_ids = []
+            for doc_link in doc_links:
                 href = await doc_link.get_attribute("href")
                 if href:
                     match = re.search(r"/ViewDocuments/(\d+)", href)
                     if match:
-                        documento_id = int(match.group(1))
+                        doc_id = int(match.group(1))
+                        if doc_id not in documento_ids:
+                            documento_ids.append(doc_id)
 
             lancamentos.append({
                 "data": parse_date(date_text),
@@ -118,7 +120,7 @@ async def extract_lancamentos_from_tab(
                 "tipo_movimento": tipo_text if tipo_text in ("D", "C") else "D",
                 "categoria": categoria,
                 "subcategoria": group_id,
-                "documento_id": documento_id,
+                "documento_ids": documento_ids,
             })
 
     logger.info(
