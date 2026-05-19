@@ -31,20 +31,45 @@ RETRY_BASE_DELAY = 5
 
 # ─── Deterministic UUID helpers ──────────────────────────────────────────────
 
+def _det_id(*parts: str) -> str:
+    """Generate a deterministic UUID from string parts."""
+    return str(uuid.uuid5(NAMESPACE, ":".join(parts)))
+
+
 def _category_id(name: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, f"category:{name}"))
+    return _det_id("category", name)
 
 
 def _subcategory_id(category_id: str, name: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, f"subcategory:{category_id}:{name}"))
+    return _det_id("subcategory", category_id, name)
 
 
 def _vendor_id(name: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, f"vendor:{name}"))
+    return _det_id("vendor", name)
 
 
 def _unit_id(code: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, f"unit:{code}"))
+    return _det_id("unit", code)
+
+
+def _report_id(period: str) -> str:
+    return _det_id("report", period)
+
+
+def _entry_id(period: str, date_str: str, description: str, amount: float, subcategory_id: str, index: int) -> str:
+    return _det_id("entry", period, date_str, description, str(amount), subcategory_id, str(index))
+
+
+def _document_id(entry_id: str, external_document_id: int) -> str:
+    return _det_id("document", entry_id, str(external_document_id))
+
+
+def _subtotal_id(period: str, subcategory_id: str, movement_type: str) -> str:
+    return _det_id("subtotal", period, subcategory_id, movement_type)
+
+
+def _approver_id(period: str, name: str) -> str:
+    return _det_id("approver", period, name)
 
 
 def _random_id() -> str:
@@ -323,7 +348,7 @@ async def _scrape_periodo(
     aprovadores_data = await extract_aprovadores(browser.page)
 
     # Build report
-    report_id = _random_id()
+    report_id = _report_id(periodo)
     report = {
         "id": report_id,
         "scrape_run_id": scrape_run["id"],
@@ -342,26 +367,34 @@ async def _scrape_periodo(
     # Build entries and document refs
     entries_out = []
     documents_out = []
-    doc_download_tasks = []  # (entry_description, documento_ids, doc_records)
+    doc_download_tasks = []
+    entry_key_counts: dict[tuple, int] = defaultdict(int)  # track duplicates for deterministic IDs
     for lanc in lancamentos_data:
         raw_descricao = lanc["descricao"]
-        entry_id = _random_id()
         description = _strip_fornecedor_prefix(raw_descricao)
         documento_ids = lanc.get("documento_ids") or []
         # Backward compat: single documento_id field
         if not documento_ids and lanc.get("documento_id"):
             documento_ids = [lanc["documento_id"]]
 
+        subcategory_id = refs.resolve_subcategory(
+            lanc["categoria"], lanc["subcategoria"], lanc["tipo_movimento"]
+        )
+        date_str = lanc["data"].isoformat()
+
+        # Occurrence index handles entries with identical natural keys
+        natural_key = (date_str, description, lanc["valor"], subcategory_id)
+        entry_key_counts[natural_key] += 1
+        entry_id = _entry_id(periodo, date_str, description, lanc["valor"], subcategory_id, entry_key_counts[natural_key])
+
         entries_out.append({
             "id": entry_id,
             "report_id": report_id,
-            "date": lanc["data"].isoformat(),
+            "date": date_str,
             "description": description,
             "amount": lanc["valor"],
             "movement_type": lanc["tipo_movimento"],
-            "subcategory_id": refs.resolve_subcategory(
-                lanc["categoria"], lanc["subcategoria"], lanc["tipo_movimento"]
-            ),
+            "subcategory_id": subcategory_id,
             "unit_id": refs.resolve_unit(raw_descricao),
             "vendor_id": refs.resolve_vendor(raw_descricao),
             "external_document_id": documento_ids[0] if documento_ids else None,
@@ -373,7 +406,7 @@ async def _scrape_periodo(
         if documento_ids:
             entry_doc_records = []
             for ext_doc_id in documento_ids:
-                doc_id = _random_id()
+                doc_id = _document_id(entry_id, ext_doc_id)
                 doc_record = {
                     "id": doc_id,
                     "entry_id": entry_id,
@@ -382,17 +415,18 @@ async def _scrape_periodo(
                 }
                 documents_out.append(doc_record)
                 entry_doc_records.append(doc_record)
-            doc_download_tasks.append((description, documento_ids, entry_doc_records))
+            doc_download_tasks.append((entry_id, documento_ids, entry_doc_records))
 
     # Build category subtotals
     subtotals_out = []
     for sub in subtotais_data:
+        sub_id = refs.resolve_subcategory(
+            sub["categoria"], sub["subcategoria"], sub["tipo_movimento"]
+        )
         subtotals_out.append({
-            "id": _random_id(),
+            "id": _subtotal_id(periodo, sub_id, sub["tipo_movimento"]),
             "report_id": report_id,
-            "subcategory_id": refs.resolve_subcategory(
-                sub["categoria"], sub["subcategoria"], sub["tipo_movimento"]
-            ),
+            "subcategory_id": sub_id,
             "amount": sub["valor"],
             "movement_type": sub["tipo_movimento"],
             "created_at": now,
@@ -402,10 +436,11 @@ async def _scrape_periodo(
     # Build approvers
     approvers_out = []
     for aprov in aprovadores_data:
+        name = _normalize_whitespace(aprov["nome"])
         approvers_out.append({
-            "id": _random_id(),
+            "id": _approver_id(periodo, name),
             "report_id": report_id,
-            "name": _normalize_whitespace(aprov["nome"]),
+            "name": name,
             "status": aprov["status"],
         })
 
@@ -416,9 +451,9 @@ async def _scrape_periodo(
 
         dest_dir = output_dir / periodo if output_dir else Path(f"data/scrape/{periodo}")
         downloaded = 0
-        for description, documento_ids, doc_records in doc_download_tasks:
+        for entry_id, documento_ids, doc_records in doc_download_tasks:
             paths_by_id = await download_entry_documents(
-                browser.page, documento_ids, description, dest_dir
+                browser.page, documento_ids, entry_id, dest_dir
             )
             for doc_record in doc_records:
                 ext_id = doc_record["external_document_id"]
@@ -470,16 +505,14 @@ async def run_download_docs(
             logger.info("%s: all %d documents already downloaded, skipping", json_file.stem, len(docs))
             continue
 
-        # Build entry lookup: entry_id -> description
-        entry_map = {e["id"]: e["description"] for e in data.get("entries", [])}
-        work.append((json_file, data, pending, entry_map))
+        work.append((json_file, data, pending))
         logger.info("%s: %d/%d documents to download", json_file.stem, len(pending), len(docs))
 
     if not work:
         logger.info("All documents already downloaded")
         return
 
-    total_pending = sum(len(pending) for _, _, pending, _ in work)
+    total_pending = sum(len(pending) for _, _, pending in work)
     logger.info("Will download %d documents across %d period(s)", total_pending, len(work))
 
     browser = BRCondosBrowser()
@@ -487,7 +520,7 @@ async def run_download_docs(
         await browser.start()
         await browser.login()
 
-        for json_file, data, pending, entry_map in work:
+        for json_file, data, pending in work:
             periodo = json_file.stem
             dest_dir = data_path / periodo
             logger.info("Processing %s (%d documents)...", periodo, len(pending))
@@ -499,11 +532,10 @@ async def run_download_docs(
 
             downloaded = 0
             for entry_id, entry_docs in by_entry.items():
-                description = entry_map.get(entry_id, entry_id)
                 ext_doc_ids = [d["external_document_id"] for d in entry_docs]
 
                 paths_by_id = await download_entry_documents(
-                    browser.page, ext_doc_ids, description, dest_dir
+                    browser.page, ext_doc_ids, entry_id, dest_dir
                 )
 
                 for doc in entry_docs:

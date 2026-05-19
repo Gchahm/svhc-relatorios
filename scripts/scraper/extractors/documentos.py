@@ -1,5 +1,4 @@
 import logging
-import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -8,13 +7,6 @@ from playwright.async_api import Page
 from ..config import BRCONDOS_URL
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_filename(text: str, max_len: int = 80) -> str:
-    """Sanitize text for use as a filename component."""
-    safe = re.sub(r'[^\w.\- ]', '_', text)
-    safe = re.sub(r'_+', '_', safe).strip('_ ')
-    return safe[:max_len]
 
 
 def _extension_from_url(url: str) -> str:
@@ -93,23 +85,17 @@ async def _download_single_document(
 async def download_entry_documents(
     page: Page,
     documento_ids: list[int],
-    entry_description: str,
+    entry_id: str,
     dest_dir: Path,
 ) -> dict[int, list[str]]:
     """Download all documents for a single entry.
 
-    Files are named based on the entry description so they can be matched back.
-
-    Args:
-        page: Playwright page (used for browser context).
-        documento_ids: List of BRCondos document IDs for this entry.
-        entry_description: Entry description used for file naming.
-        dest_dir: Directory to save files (e.g. data/scrape/2024-12).
+    Files are named by entry_id so they can be matched back.
 
     Returns:
         dict mapping brcondos_document_id -> list of local file paths.
     """
-    base_name = _sanitize_filename(entry_description)
+    base_name = entry_id
     results: dict[int, list[str]] = {}
 
     for i, doc_id in enumerate(documento_ids):
