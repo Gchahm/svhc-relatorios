@@ -52,3 +52,6 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .venv/
+
+# Scraper data
+scripts/data/
