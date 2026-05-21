@@ -1,8 +1,8 @@
 # Scripts
 
 All scripts output per-period JSON files to `data/scrape/` (one file per month, e.g. `2026-01.json`).
-Reference data (categories, vendors, units, subcategories) uses deterministic UUIDs so the same
-entity always gets the same ID across files — duplicates are safely ignored on import.
+All entities use deterministic UUIDs — the same data always produces the same IDs, so re-scraping
+a period safely upserts via `INSERT OR REPLACE`.
 
 ## Scraper
 
@@ -11,11 +11,16 @@ Scrapes accountability data from BRCondos portal.
 ### Setup
 
 ```bash
+cd scripts
+
+# Install dependencies
+uv sync
+
 # Install playwright browser (one-time)
-uv run --with playwright -- playwright install chromium
+uv run playwright install chromium
 ```
 
-Requires env vars in `.env` at the project root:
+Requires env vars in `scripts/.env`:
 
 ```
 BRCONDOS_URL=https://ssl.brcondos.com.br
@@ -30,16 +35,17 @@ HEADLESS=true
 cd scripts
 
 # Scrape all new periods (skips those with existing JSON files)
-uv run --with playwright --with python-dotenv -- python -m scraper scrape
+uv run python -m scraper scrape
 
 # Scrape specific periods
-uv run --with playwright --with python-dotenv -- python -m scraper scrape --periodo 2026-01 2025-12
+uv run python -m scraper scrape --periodo 2026-01 2025-12
 
 # Also download document files
-uv run --with playwright --with python-dotenv -- python -m scraper scrape --download-docs
+uv run python -m scraper scrape --download-docs
 
-# Custom output directory
-uv run --with playwright --with python-dotenv -- python -m scraper scrape -o ../data/scrape
+# Download documents for already-scraped periods (updates JSON in-place)
+uv run python -m scraper download-docs
+uv run python -m scraper download-docs --periodo 2024-12
 ```
 
 ## Import into D1
@@ -64,11 +70,15 @@ node scripts/import-to-d1.mjs --dry-run
 
 ```bash
 # 1. Scrape
-cd scripts && uv run --with playwright --with python-dotenv -- python -m scraper scrape && cd ..
+cd scripts && uv run python -m scraper scrape && cd ..
 
 # 2. Import into local D1
 node scripts/import-to-d1.mjs
 
 # 3. Import into production D1
 node scripts/import-to-d1.mjs --remote
+
+# 4. Download documents (optional, can be done later)
+cd scripts && uv run python -m scraper download-docs && cd ..
+node scripts/import-to-d1.mjs --remote  # re-import to update file_path
 ```
