@@ -16,6 +16,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from .analise import run_analysis
 from .runner import run_download_docs, run_scrape
 
 logging.basicConfig(
@@ -88,6 +89,8 @@ def _ask_periods(existing: list[str], action: str) -> list[str] | None:
     """Ask user which periods to process. Returns None for 'all'."""
     if action == "scrape":
         choices = ["All new periods", "Full year", "Specific periods"]
+    elif action == "analyze":
+        choices = ["All periods", "Full year", "Specific periods"]
     else:
         choices = ["All periods with pending docs", "Full year", "Specific periods"]
 
@@ -140,7 +143,7 @@ def interactive():
     if existing:
         print(f"Found {len(existing)} existing period(s) in {DATA_DIR}/")
 
-    action = _pick("What would you like to do?", ["Scrape periods", "Download documents"])
+    action = _pick("What would you like to do?", ["Scrape periods", "Download documents", "Analyze data"])
 
     if action == "Scrape periods":
         periods = _ask_periods(existing, "scrape")
@@ -165,7 +168,7 @@ def interactive():
             )
         )
 
-    else:
+    elif action == "Download documents":
         if not existing:
             print("\nNo scraped data found. Run scrape first.")
             return
@@ -187,6 +190,24 @@ def interactive():
                 periodos_filter=periods,
             )
         )
+
+    else:  # Analyze data
+        if not existing:
+            print("\nNo scraped data found. Run scrape first.")
+            return
+
+        periods = _ask_periods(existing, "analyze")
+
+        if periods:
+            print(f"\nWill analyze: {', '.join(periods)}")
+        else:
+            print("\nWill analyze all periods")
+
+        if not _yes_no("Proceed?", default=True):
+            print("Aborted.")
+            return
+
+        run_analysis(data_dir=DATA_DIR, periods_filter=periods)
 
 
 def main():
@@ -226,6 +247,16 @@ def main():
         help="Directory containing period JSON files (default: ../data/scrape).",
     )
 
+    analyze_parser = subparsers.add_parser("analyze", help="Run financial analysis on scraped data")
+    analyze_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only analyze these periods (e.g. 2024-12 2025-01).",
+    )
+    analyze_parser.add_argument(
+        "--data-dir", "-d", default=DATA_DIR,
+        help="Directory containing period JSON files (default: ../data/scrape).",
+    )
+
     args = parser.parse_args()
 
     if args.command == "scrape":
@@ -243,6 +274,11 @@ def main():
                 data_dir=args.data_dir,
                 periodos_filter=args.periodo,
             )
+        )
+    elif args.command == "analyze":
+        run_analysis(
+            data_dir=args.data_dir,
+            periods_filter=args.periodo,
         )
     else:
         parser.print_help()

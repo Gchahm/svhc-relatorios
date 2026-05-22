@@ -16,10 +16,9 @@ from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 
-logger = logging.getLogger(__name__)
+from .utils import det_id as _det_id, now_ms as _now_ms
 
-# Fixed namespace for deterministic UUIDs on reference data
-NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "svhc.fiscal")
+logger = logging.getLogger(__name__)
 
 _BLOCO_PATTERN = re.compile(r"BLOCO ([A-Z]), N° (\d+)")
 _FORNECEDOR_PATTERN = re.compile(r"^(.+?) - PAGAMENTO")
@@ -30,11 +29,6 @@ RETRY_BASE_DELAY = 5
 
 
 # ─── Deterministic UUID helpers ──────────────────────────────────────────────
-
-def _det_id(*parts: str) -> str:
-    """Generate a deterministic UUID from string parts."""
-    return str(uuid.uuid5(NAMESPACE, ":".join(parts)))
-
 
 def _category_id(name: str) -> str:
     return _det_id("category", name)
@@ -77,9 +71,6 @@ def _random_id() -> str:
 
 
 # ─── Text helpers ────────────────────────────────────────────────────────────
-
-def _now_ms() -> int:
-    return int(datetime.now().timestamp() * 1000)
 
 
 def _normalize_whitespace(text: str) -> str:
