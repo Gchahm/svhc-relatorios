@@ -17,6 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .analise import run_analysis
+from .analise.documentos import run_document_analysis
 from .runner import run_download_docs, run_scrape
 
 logging.basicConfig(
@@ -143,7 +144,9 @@ def interactive():
     if existing:
         print(f"Found {len(existing)} existing period(s) in {DATA_DIR}/")
 
-    action = _pick("What would you like to do?", ["Scrape periods", "Download documents", "Analyze data"])
+    action = _pick("What would you like to do?", [
+        "Scrape periods", "Download documents", "Analyze data", "Analyze documents (VLM)",
+    ])
 
     if action == "Scrape periods":
         periods = _ask_periods(existing, "scrape")
@@ -191,7 +194,7 @@ def interactive():
             )
         )
 
-    else:  # Analyze data
+    elif action == "Analyze data":
         if not existing:
             print("\nNo scraped data found. Run scrape first.")
             return
@@ -208,6 +211,42 @@ def interactive():
             return
 
         run_analysis(data_dir=DATA_DIR, periods_filter=periods)
+
+    else:  # Analyze documents (VLM)
+        if not existing:
+            print("\nNo scraped data found. Run scrape first.")
+            return
+
+        periods = _ask_periods(existing, "analyze")
+        min_amount = None
+        raw = input("\nMinimum expense amount (R$) [0]: ").strip()
+        if raw:
+            try:
+                min_amount = float(raw)
+            except ValueError:
+                pass
+
+        limit = None
+        raw = input("Max documents to analyze [all]: ").strip()
+        if raw:
+            try:
+                limit = int(raw)
+            except ValueError:
+                pass
+
+        reanalyze = _yes_no("Re-analyze already analyzed docs?")
+
+        if not _yes_no("Proceed?", default=True):
+            print("Aborted.")
+            return
+
+        run_document_analysis(
+            data_dir=DATA_DIR,
+            periods_filter=periods,
+            limit=limit,
+            min_amount=min_amount,
+            reanalyze=reanalyze,
+        )
 
 
 def main():
@@ -257,6 +296,28 @@ def main():
         help="Directory containing period JSON files (default: ../data/scrape).",
     )
 
+    adoc_parser = subparsers.add_parser("analyze-docs", help="Analyze document images with VLM")
+    adoc_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only analyze these periods (e.g. 2024-12 2025-01).",
+    )
+    adoc_parser.add_argument(
+        "--data-dir", "-d", default=DATA_DIR,
+        help="Directory containing period JSON files (default: ../data/scrape).",
+    )
+    adoc_parser.add_argument(
+        "--min-amount", type=float,
+        help="Only analyze documents for entries >= this amount.",
+    )
+    adoc_parser.add_argument(
+        "--limit", type=int,
+        help="Maximum number of documents to analyze.",
+    )
+    adoc_parser.add_argument(
+        "--reanalyze", action="store_true",
+        help="Re-analyze already analyzed documents.",
+    )
+
     args = parser.parse_args()
 
     if args.command == "scrape":
@@ -279,6 +340,14 @@ def main():
         run_analysis(
             data_dir=args.data_dir,
             periods_filter=args.periodo,
+        )
+    elif args.command == "analyze-docs":
+        run_document_analysis(
+            data_dir=args.data_dir,
+            periods_filter=args.periodo,
+            limit=args.limit,
+            min_amount=args.min_amount,
+            reanalyze=args.reanalyze,
         )
     else:
         parser.print_help()
