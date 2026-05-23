@@ -202,6 +202,7 @@ export default function DocumentAnalysesClient() {
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
+                            <div className="w-[70px] px-3 py-2 shrink-0">ID</div>
                             <div className="w-[80px] px-3 py-2 shrink-0">
                                 <SortableHeader
                                     label="Date"
@@ -286,6 +287,12 @@ export default function DocumentAnalysesClient() {
                                                 }}
                                                 title={row.serviceDescription || row.error || ""}
                                             >
+                                                <div
+                                                    className="w-[70px] px-3 shrink-0 text-muted-foreground text-[10px] font-mono truncate"
+                                                    title={row.id}
+                                                >
+                                                    {row.id.slice(0, 8)}
+                                                </div>
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.entryDate}
                                                 </div>
