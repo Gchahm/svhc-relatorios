@@ -34,6 +34,7 @@ export async function GET() {
             serviceDescription: documentAnalyses.serviceDescription,
             error: documentAnalyses.error,
             // Entry data
+            entryId: entries.id,
             entryDate: entries.date,
             entryDescription: entries.description,
             entryAmount: entries.amount,

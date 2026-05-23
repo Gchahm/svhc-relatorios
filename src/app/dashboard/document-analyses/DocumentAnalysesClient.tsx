@@ -23,6 +23,7 @@ interface DocAnalysisRow {
     documentNumber: string | null;
     serviceDescription: string | null;
     error: string | null;
+    entryId: string;
     entryDate: string;
     entryDescription: string;
     entryAmount: number;
@@ -211,7 +212,7 @@ export default function DocumentAnalysesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="flex-1 px-3 py-2 min-w-0">ID</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">Entry ID</div>
                             <div className="w-[100px] px-3 py-2 shrink-0">
                                 <SortableHeader
                                     label="Vendor"
@@ -282,7 +283,7 @@ export default function DocumentAnalysesClient() {
                                                     {row.entryDate}
                                                 </div>
                                                 <div className="flex-1 px-3 min-w-0 text-xs font-mono text-muted-foreground">
-                                                    {row.id}
+                                                    {row.entryId}
                                                 </div>
                                                 <div
                                                     className="w-[100px] px-3 shrink-0 truncate text-xs text-muted-foreground"
