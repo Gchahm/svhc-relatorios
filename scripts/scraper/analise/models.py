@@ -6,6 +6,8 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from ..utils import now_ms
+
 
 @dataclass
 class Alert:
@@ -21,6 +23,7 @@ class Alert:
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "created_at": now_ms(),
             "type": self.type,
             "severity": self.severity,
             "title": self.title,
