@@ -1,4 +1,4 @@
-.PHONY: scrape setup analyze analyze-docs setup-vlm
+.PHONY: scrape setup analyze analyze-docs setup-vlm sync-dev sync-prod
 
 setup:
 	cd scripts && uv sync && uv run playwright install chromium
@@ -14,3 +14,9 @@ analyze:
 
 analyze-docs:
 	cd scripts && uv run python -m scraper analyze-docs
+
+sync-dev:
+	node scripts/import-to-d1.mjs
+
+sync-prod:
+	node scripts/import-to-d1.mjs --remote
