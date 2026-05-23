@@ -1,7 +1,7 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
 import { documentAnalyses, documents, entries, subcategories, categories, vendors } from "@/db/fiscal.schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -34,7 +34,7 @@ export async function GET() {
             serviceDescription: documentAnalyses.serviceDescription,
             error: documentAnalyses.error,
             // Entry data
-            entryId: entries.id,
+            entryId: sql<string>`${entries.id}`.as("entry_id"),
             entryDate: entries.date,
             entryDescription: entries.description,
             entryAmount: entries.amount,
