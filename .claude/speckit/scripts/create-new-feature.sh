@@ -5,7 +5,6 @@ set -e
 JSON_MODE=false
 SHORT_NAME=""
 BRANCH_NUMBER=""
-TICKET=""
 ARGS=()
 i=1
 while [ $i -le $# ]; do
@@ -41,32 +40,18 @@ while [ $i -le $# ]; do
             fi
             BRANCH_NUMBER="$next_arg"
             ;;
-        --ticket)
-            if [ $((i + 1)) -gt $# ]; then
-                echo 'Error: --ticket requires a value' >&2
-                exit 1
-            fi
-            i=$((i + 1))
-            next_arg="${!i}"
-            if [[ "$next_arg" == --* ]]; then
-                echo 'Error: --ticket requires a value' >&2
-                exit 1
-            fi
-            TICKET="$next_arg"
-            ;;
         --help|-h)
-            echo "Usage: $0 [--json] [--short-name <name>] [--ticket KEY | --number N] <feature_description>"
+            echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>"
             echo ""
             echo "Options:"
             echo "  --json              Output in JSON format"
             echo "  --short-name <name> Provide a custom short name (2-4 words) for the branch"
-            echo "  --ticket KEY        Jira ticket key (e.g. PLT-4414 or 4414); produces <PROJECT>-<ISSUE>-<slug>"
-            echo "                      branches per .specifyrc. Takes precedence over --number."
-            echo "  --number N          Legacy: zero-padded sequential prefix (e.g. 005-<slug>)"
+            echo "  --number N          Override the zero-padded sequential prefix (e.g. 005-<slug>);"
+            echo "                      defaults to the next available number across specs/ and branches."
             echo "  --help, -h          Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0 'Reorder table rows' --ticket PLT-4414 --short-name 'reorder-rows'"
+            echo "  $0 'Reorder table rows' --short-name 'reorder-rows'"
             echo "  $0 'Add user authentication system' --short-name 'user-auth'"
             echo "  $0 'Implement OAuth2 integration for API' --number 5"
             exit 0
@@ -196,37 +181,12 @@ mkdir -p "$SPECS_DIR"
 
 # Load project naming config from the skill-bundled .specifyrc
 # (../.specifyrc relative to the scripts dir).
-# Provides SPECIFY_JIRA_PROJECT and SPECIFY_BRANCH_PATTERN.
+# Provides SPECIFY_BRANCH_PATTERN and SPECIFY_BRANCH_EXAMPLE.
 SPECIFYRC="$SCRIPT_DIR/../.specifyrc"
 if [ -f "$SPECIFYRC" ]; then
     # shellcheck disable=SC1090
     source "$SPECIFYRC"
 fi
-
-# Normalize a ticket reference into a <PROJECT>-<ISSUE> key.
-# Accepts "PLT-4414", "plt4414", or a bare "4414" (prefixed with SPECIFY_JIRA_PROJECT).
-normalize_ticket() {
-    local raw project letters digits
-    raw="$(echo "$1" | tr -d '[:space:]')"
-    project="$2"
-
-    if [[ "$raw" =~ ^[0-9]+$ ]]; then
-        if [ -z "$project" ]; then
-            echo "Error: --ticket given a bare number but SPECIFY_JIRA_PROJECT is unset in .specifyrc" >&2
-            return 1
-        fi
-        echo "${project}-${raw}"
-        return 0
-    fi
-
-    letters="$(echo "$raw" | grep -oE '^[A-Za-z]+' | tr '[:lower:]' '[:upper:]')"
-    digits="$(echo "$raw" | grep -oE '[0-9]+$')"
-    if [ -z "$letters" ] || [ -z "$digits" ]; then
-        echo "Error: --ticket '$1' is not a valid Jira key (expected like PLT-4414)" >&2
-        return 1
-    fi
-    echo "${letters}-${digits}"
-}
 
 # Function to generate branch name with stop word filtering and length filtering
 generate_branch_name() {
@@ -285,33 +245,26 @@ else
     BRANCH_SUFFIX=$(generate_branch_name "$FEATURE_DESCRIPTION")
 fi
 
-# Build the branch prefix.
-# Ticket mode (--ticket / .specifyrc): <PROJECT>-<ISSUE>-<slug>, e.g. PLT-4414-reorder-rows.
-# Legacy mode: zero-padded auto-incremented prefix, e.g. 005-<slug>.
-if [ -n "$TICKET" ]; then
-    FEATURE_NUM=$(normalize_ticket "$TICKET" "${SPECIFY_JIRA_PROJECT:-}") || exit 1
-    BRANCH_NAME="${FEATURE_NUM}-${BRANCH_SUFFIX}"
-
-    if [ -n "${SPECIFY_BRANCH_PATTERN:-}" ] && [[ ! "$BRANCH_NAME" =~ $SPECIFY_BRANCH_PATTERN ]]; then
-        echo "Error: generated branch '$BRANCH_NAME' does not match SPECIFY_BRANCH_PATTERN ($SPECIFY_BRANCH_PATTERN)" >&2
-        exit 1
+# Build the branch prefix: a zero-padded auto-incremented number, e.g. 005-<slug>.
+# Determine branch number
+if [ -z "$BRANCH_NUMBER" ]; then
+    if [ "$HAS_GIT" = true ]; then
+        # Check existing branches on remotes
+        BRANCH_NUMBER=$(check_existing_branches "$SPECS_DIR")
+    else
+        # Fall back to local directory check
+        HIGHEST=$(get_highest_from_specs "$SPECS_DIR")
+        BRANCH_NUMBER=$((HIGHEST + 1))
     fi
-else
-    # Determine branch number
-    if [ -z "$BRANCH_NUMBER" ]; then
-        if [ "$HAS_GIT" = true ]; then
-            # Check existing branches on remotes
-            BRANCH_NUMBER=$(check_existing_branches "$SPECS_DIR")
-        else
-            # Fall back to local directory check
-            HIGHEST=$(get_highest_from_specs "$SPECS_DIR")
-            BRANCH_NUMBER=$((HIGHEST + 1))
-        fi
-    fi
+fi
 
-    # Force base-10 interpretation to prevent octal conversion (e.g., 010 → 8 in octal, but should be 10 in decimal)
-    FEATURE_NUM=$(printf "%03d" "$((10#$BRANCH_NUMBER))")
-    BRANCH_NAME="${FEATURE_NUM}-${BRANCH_SUFFIX}"
+# Force base-10 interpretation to prevent octal conversion (e.g., 010 → 8 in octal, but should be 10 in decimal)
+FEATURE_NUM=$(printf "%03d" "$((10#$BRANCH_NUMBER))")
+BRANCH_NAME="${FEATURE_NUM}-${BRANCH_SUFFIX}"
+
+if [ -n "${SPECIFY_BRANCH_PATTERN:-}" ] && [[ ! "$BRANCH_NAME" =~ $SPECIFY_BRANCH_PATTERN ]]; then
+    echo "Error: generated branch '$BRANCH_NAME' does not match SPECIFY_BRANCH_PATTERN ($SPECIFY_BRANCH_PATTERN)" >&2
+    exit 1
 fi
 
 # GitHub enforces a 244-byte limit on branch names

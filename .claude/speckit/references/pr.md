@@ -15,7 +15,7 @@ Create a pull request for the current speckit feature, with a link to the featur
 
 ### Prerequisites
 
-- On a feature branch matching `SPECIFY_BRANCH_PATTERN` from `.specifyrc` (e.g. `PROJ-123-short-name`)
+- On a feature branch matching `SPECIFY_BRANCH_PATTERN` from `.specifyrc` (e.g. `001-short-name`)
 - Committed changes ready for PR
 - A feature spec at `specs/<branch-name>/spec.md`
 - `gh` CLI authenticated (`gh auth login`)
@@ -60,7 +60,7 @@ https://github.com/<org>/<repo>/tree/<default-branch>/specs/<branch-name>/spec.m
 If specs live in a separate repo, use that repo's base URL and its layout (some store features at the
 repo root, i.e. `<branch-name>/spec.md`).
 
-Example: `https://github.com/<org>/<repo>/tree/main/specs/PROJ-123-short-name/spec.md`
+Example: `https://github.com/<org>/<repo>/tree/main/specs/001-short-name/spec.md`
 
 ### Step 4: Create the PR
 
@@ -87,7 +87,7 @@ Example:
 ```markdown
 Add user preference endpoints for theme and notification settings.
 
-**Spec**: https://github.com/<org>/<repo>/tree/main/specs/PROJ-123-short-name/spec.md
+**Spec**: https://github.com/<org>/<repo>/tree/main/specs/001-short-name/spec.md
 ```
 
 ### Step 5: Report results
@@ -98,7 +98,7 @@ Add user preference endpoints for theme and notification settings.
 
 ### Error handling
 
-- **Not on a feature branch**: guide the user to create one matching `SPECIFY_BRANCH_PATTERN` (e.g. `PROJ-123-short-name`)
+- **Not on a feature branch**: guide the user to create one matching `SPECIFY_BRANCH_PATTERN` (e.g. `001-short-name`)
 - **No spec directory**: suggest running `speckit specify` first
 - **No commits to PR**: guide the user to commit changes first
 - **gh not authenticated**: `gh auth login`

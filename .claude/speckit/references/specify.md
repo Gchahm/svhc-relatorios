@@ -24,21 +24,16 @@ Given that feature description, do this:
      - "Create a dashboard for analytics" → "analytics-dashboard"
      - "Fix payment processing timeout bug" → "fix-payment-timeout"
 
-2. **Identify the Jira ticket and create the feature branch**:
+2. **Create the feature branch**:
 
-   This project names branches `<PROJECT>-<ISSUE>-<short-name>` (e.g. `PLT-4414-reorder-rows`),
-   per `SPECIFY_BRANCH_PATTERN` / `SPECIFY_JIRA_PROJECT` in `.claude/skills/speckit/.specifyrc`.
-   The issue number comes from Jira, not auto-incremented.
+   This project names branches `<NNN>-<short-name>` (e.g. `001-reorder-rows`),
+   per `SPECIFY_BRANCH_PATTERN` in `.claude/skills/speckit/.specifyrc`.
+   The number is a zero-padded sequential prefix, auto-incremented from existing specs/branches.
 
-   a. Determine the ticket key:
-      - Look for a Jira key in the feature description or the current branch name
-        (e.g. `PLT-4414`, or a bare `4414` which is prefixed with the project from `.specifyrc`).
-      - If none is present, ask the user for the Jira ticket number before proceeding.
-
-   b. Run the script with `--ticket` and `--short-name` (run it **only once** per feature):
-      - `.claude/skills/speckit/scripts/create-new-feature.sh --json --ticket PLT-4414 --short-name "your-short-name" "$ARGUMENTS"`
-      - The script reads `.specifyrc`, builds `<PROJECT>-<ISSUE>-<short-name>`, validates it against
-        `SPECIFY_BRANCH_PATTERN`, creates the branch, and scaffolds the spec dir.
+   Run the script with `--short-name` (run it **only once** per feature):
+   - `.claude/skills/speckit/scripts/create-new-feature.sh --json --short-name "your-short-name" "$ARGUMENTS"`
+   - The script reads `.specifyrc`, picks the next available number, builds `<NNN>-<short-name>`,
+     validates it against `SPECIFY_BRANCH_PATTERN`, creates the branch, and scaffolds the spec dir.
 
    **IMPORTANT**:
    - You must only ever run this script once per feature

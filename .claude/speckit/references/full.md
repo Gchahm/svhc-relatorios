@@ -64,7 +64,7 @@ After all phases complete, provide a single summary:
 ## Example
 
 ```
-speckit full PLT-2343 Build user preference endpoints for theme and notification settings
+speckit full Build user preference endpoints for theme and notification settings
 ```
 
 This will run the entire pipeline and only stop to report the final PR URL.

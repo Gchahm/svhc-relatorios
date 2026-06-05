@@ -47,15 +47,16 @@ They resolve the repo root via git and read the bundled `.specifyrc` for branch 
 
 ## Branch / spec naming
 
-Branches and spec dirs are named `<PROJECT>-<ISSUE>-<short-name>` (e.g. `PROJ-123-reorder-rows`),
-governed by `.specifyrc` in this folder (`SPECIFY_BRANCH_PATTERN`, `SPECIFY_JIRA_PROJECT`).
-The issue number is the Jira ticket, not auto-incremented. Specs live in `specs/<branch-name>/`.
+Branches and spec dirs are named `<NNN>-<short-name>` (e.g. `001-reorder-rows`),
+governed by `.specifyrc` in this folder (`SPECIFY_BRANCH_PATTERN`). The number is a
+zero-padded sequential prefix, auto-incremented from existing specs/branches. Specs
+live in `specs/<branch-name>/`.
 
 ## State detection (replaces phase handoffs)
 
 The workflow state is on disk — no need to track it separately. Resolve the active feature
-directory from the current branch (or the `SPECIFY_FEATURE` env var, or a ticket the user names),
-glob `specs/<PROJECT>-<ISSUE>-*`, and list its contents to see which phases have run:
+directory from the current branch (or the `SPECIFY_FEATURE` env var, or a feature the user names),
+glob `specs/<NNN>-*`, and list its contents to see which phases have run:
 
 | Artifact present | Phase completed | Typical next phase |
 |------------------|-----------------|--------------------|
