@@ -66,3 +66,12 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
 - **Path alias:** `@/*` maps to `./src/*`
 - **Environment:** Cloudflare bindings defined in `wrangler.toml`: `DATABASE` (D1), `KV`, `ASSETS`; env vars: `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`
 - **Pre-commit:** Always run `pnpm lint` and `pnpm format` before committing to ensure code passes ESLint and Prettier
+
+## Agents
+
+- **PM agent** (`.claude/agents/pm.md`, feature `001-repo-self-assessment`): a standalone,
+  separate-context subagent that inventories repository capabilities, measures them against the
+  fraud/forgery-detection goal (`docs/SCOPE-fraud-detection.md`), and writes a dated assessment
+  report to `docs/assessments/` plus a ranked next-feature recommendation. On acceptance it drops
+  a self-contained feature description into `specs/_handoff/` for a separate speckit-running agent
+  to pick up. Advisory only — it never modifies app code, schema, or data.
