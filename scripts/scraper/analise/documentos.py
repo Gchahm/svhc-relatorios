@@ -226,17 +226,27 @@ _ROLE_ALIASES = {
 def _map_artifact_role(parsed: dict) -> str:
     """Map the VLM classification to a normalized artifact role.
 
-    Prefers the explicit `papel_artefato`; falls back to `tipo_documento`.
+    Prefers the explicit `papel_artefato`, falling back to `tipo_documento`, then
+    reconciles against stronger signals: a populated `valor_pago` or a
+    comprovante/recibo `tipo_documento` means a payment proof even if the model
+    mislabeled `papel_artefato` (observed: a payment proof tagged "boleto"). This
+    matters because the amount roll-up prefers payment_proof over boleto — a
+    misclassified payment proof would let a boleto's value win when it shouldn't.
     Returns one of invoice/nfse/boleto/payment_proof/other.
     """
     valid = {"invoice", "nfse", "boleto", "payment_proof", "other"}
     role = str(parsed.get("papel_artefato") or "").strip().lower()
-    if role in valid:
-        return role
-    if role in _ROLE_ALIASES:
-        return _ROLE_ALIASES[role]
+    if role not in valid:
+        role = _ROLE_ALIASES.get(role)
     tipo = str(parsed.get("tipo_documento") or "").strip().lower()
-    return _ROLE_ALIASES.get(tipo, "other")
+    if role is None:
+        role = _ROLE_ALIASES.get(tipo, "other")
+
+    # Reconcile: payment-proof signals override a non-payment label.
+    has_paid = _parse_brl_value(parsed.get("valor_pago")) is not None
+    if role != "payment_proof" and (has_paid or tipo in ("comprovante", "recibo")):
+        role = "payment_proof"
+    return role
 
 
 def _analyze_page(model, processor, path: str) -> tuple[dict | None, str, str | None]:
@@ -385,8 +395,10 @@ def analyze_single_document(
             logger.info("    page %d/%d (%s)...", idx + 1, len(paths), page_label)
 
         parsed, raw_text, error = _analyze_page(model, processor, path)
-        record.raw_text = raw_text or None
         if parsed is None:
+            # Keep raw text only when parsing failed (per the record contract);
+            # on success the structured `response` is the source of truth.
+            record.raw_text = raw_text or None
             record.parse_error = error or "failed to parse VLM response"
         else:
             record.response = parsed
