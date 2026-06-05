@@ -209,6 +209,33 @@ export const documentAnalyses = sqliteTable(
     table => [index("document_analyses_document_id_idx").on(table.documentId)]
 );
 
+// ─── Document Analysis Records (registro_analise) ────────────────────────────
+// Normalized per-page (and per-analysis-kind) records for a document analysis.
+// One row per page per analysis_type; many per document, more than one per page
+// allowed so future analysis kinds (e.g. forgery detection) attach without a
+// schema change. The roll-up lives on document_analyses; per-page detail here.
+
+export const documentAnalysisRecords = sqliteTable(
+    "document_analysis_records",
+    {
+        id: uuid(),
+        documentAnalysisId: text("document_analysis_id")
+            .notNull()
+            .references(() => documentAnalyses.id),
+        analysisType: text("analysis_type", { length: 50 }).notNull(), // e.g. page_extraction
+        pageIndex: integer("page_index"), // 0-based index into the file_path page list
+        pageLabel: text("page_label", { length: 20 }), // e.g. p3 (the _pN suffix) or pageN
+        artifactRole: text("artifact_role", { length: 30 }), // invoice/nfse/boleto/payment_proof/other
+        response: text("response"), // JSON-serialized parsed page values
+        rawText: text("raw_text"), // VLM raw text, kept when parsing failed
+        parseError: text("parse_error"), // error when image missing/unreadable or unparseable
+        analyzedAt: integer("analyzed_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    table => [index("document_analysis_records_document_analysis_id_idx").on(table.documentAnalysisId)]
+);
+
 // ─── Alerts (alerta) ─────────────────────────────────────────────────────────
 
 export const alerts = sqliteTable(
@@ -316,9 +343,17 @@ export const documentsRelations = relations(documents, ({ one }) => ({
     analysis: one(documentAnalyses),
 }));
 
-export const documentAnalysesRelations = relations(documentAnalyses, ({ one }) => ({
+export const documentAnalysesRelations = relations(documentAnalyses, ({ one, many }) => ({
     document: one(documents, {
         fields: [documentAnalyses.documentId],
         references: [documents.id],
+    }),
+    records: many(documentAnalysisRecords),
+}));
+
+export const documentAnalysisRecordsRelations = relations(documentAnalysisRecords, ({ one }) => ({
+    documentAnalysis: one(documentAnalyses, {
+        fields: [documentAnalysisRecords.documentAnalysisId],
+        references: [documentAnalyses.id],
     }),
 }));

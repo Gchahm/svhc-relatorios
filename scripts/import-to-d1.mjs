@@ -43,6 +43,7 @@ const TABLE_ORDER = [
     "approvers",
     "documents",
     "document_analyses",
+    "document_analysis_records",
     "alerts",
 ];
 
@@ -50,6 +51,12 @@ function escapeSQL(value) {
     if (value === null || value === undefined) return "NULL";
     if (typeof value === "number") return String(value);
     if (typeof value === "boolean") return value ? "1" : "0";
+    // Objects/arrays (e.g. a record's structured `response`) must be JSON-serialized,
+    // not coerced via String() — which would silently store "[object Object]".
+    if (typeof value === "object") {
+        const json = JSON.stringify(value).replace(/'/g, "''");
+        return `'${json}'`;
+    }
     const str = String(value).replace(/'/g, "''");
     return `'${str}'`;
 }
@@ -111,6 +118,20 @@ for (const data of datasets) {
             const id = row.id;
             if (id && seenIds[table].has(id)) continue;
             if (id) seenIds[table].add(id);
+
+            // Per-page analysis records are nested under their document analysis in
+            // the period JSON; lift them into the normalized table (document_analyses
+            // precedes document_analysis_records in TABLE_ORDER) and strip the nested
+            // key so the parent INSERT only carries real columns.
+            if (table === "document_analyses" && Array.isArray(row.analysis_records)) {
+                for (const rec of row.analysis_records) {
+                    if (rec.id && seenIds["document_analysis_records"].has(rec.id)) continue;
+                    if (rec.id) seenIds["document_analysis_records"].add(rec.id);
+                    merged["document_analysis_records"].push(rec);
+                }
+                delete row.analysis_records;
+            }
+
             merged[table].push(row);
         }
     }

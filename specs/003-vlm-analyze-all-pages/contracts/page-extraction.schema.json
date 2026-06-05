@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "page-extraction.schema.json",
+  "title": "VLM page_extraction response",
+  "description": "The JSON a single VLM pass must return for one page image. Stored verbatim (stringified) in document_analysis_records.response; the document-level roll-up reads valor_pago/valor_liquido/valor_total out of these across pages.",
+  "type": "object",
+  "properties": {
+    "papel_artefato": {
+      "description": "Artifact role of THIS page. Maps to document_analysis_records.artifact_role.",
+      "type": "string",
+      "enum": ["invoice", "nfse", "boleto", "payment_proof", "other"]
+    },
+    "tipo_documento": {
+      "description": "Existing free-form document type label (NF-e/DANFE/boleto/recibo/comprovante/outro).",
+      "type": ["string", "null"]
+    },
+    "valor_total": {
+      "description": "Gross/total value on the page (existing field). Null if not found.",
+      "type": ["number", "string", "null"]
+    },
+    "valor_liquido": {
+      "description": "Net value after retentions (ISS/INSS/IR). Null if not present on the page.",
+      "type": ["number", "string", "null"]
+    },
+    "valor_pago": {
+      "description": "Amount actually paid (payment proofs / comprovante). Null if the page is not a payment artifact.",
+      "type": ["number", "string", "null"]
+    },
+    "cnpj_emitente": {
+      "type": ["string", "null"],
+      "description": "Issuer CNPJ, format XX.XXX.XXX/XXXX-XX. Null if not found."
+    },
+    "nome_emitente": {
+      "type": ["string", "null"],
+      "description": "Issuer company name. Null if not found."
+    },
+    "data_emissao": {
+      "type": ["string", "null"],
+      "description": "Issue date DD/MM/YYYY. Null if not found."
+    },
+    "numero_documento": {
+      "type": ["string", "null"],
+      "description": "Document number. Null if not found."
+    },
+    "descricao_servico": {
+      "type": ["string", "null"],
+      "description": "Brief service/product description. Null if not found."
+    }
+  },
+  "required": ["papel_artefato"],
+  "additionalProperties": true
+}
