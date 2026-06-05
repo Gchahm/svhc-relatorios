@@ -1,0 +1,20 @@
+# Speckit Configuration
+# This file configures project-specific settings for the speckit workflow.
+# Upstream scripts should read from this file to customize behavior.
+
+# Feature branch naming pattern
+# Format: JIRA_PROJECT-ISSUE_NUMBER-feature-description
+# Example: PLT-2343-user-preferences
+#
+# Pattern regex: ^[A-Z]+-[0-9]+-
+# This replaces the default pattern: ^[0-9]{3}-
+SPECIFY_BRANCH_PATTERN="^[A-Z]+-[0-9]+-"
+SPECIFY_BRANCH_EXAMPLE="PLT-2343-feature-name"
+
+# Jira project key (used for validation and linking)
+SPECIFY_JIRA_PROJECT="PLT"
+
+# Spec directory structure
+# Features are stored at: specs/<branch-name>/
+# Example: specs/PLT-2343-user-preferences/spec.md
+SPECIFY_SPEC_ROOT="specs"
