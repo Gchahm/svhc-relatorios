@@ -67,6 +67,8 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
 - **Environment:** Cloudflare bindings defined in `wrangler.toml`: `DATABASE` (D1), `KV`, `ASSETS`; env vars: `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`
 - **Pre-commit:** Always run `pnpm lint` and `pnpm format` before committing to ensure code passes ESLint and Prettier
 - **Document analysis (VLM):** `analyze-docs` (`scripts/scraper/analise/documentos.py`) analyzes **every** page image in a document's `;`-separated `file_path` (one VLM pass per page), not just page 1. Each page yields a `page_extraction` record nested as `analysis_records` under its `document_analyses` object in the period JSON; `scripts/import-to-d1.mjs` flattens these into the `document_analysis_records` table on import. The `document_analyses` row is a heterogeneity-aware roll-up (amount validated against paid/net when a payment artifact is present); per-artifact values (gross/net/paid) live in the per-page records, not the roll-up. `document_analyses.raw_response` is legacy and no longer populated.
+- **Shared-NF grouping & reconciliation:** The source system attaches one Nota Fiscal to several entries (line-item splits, or principal vs. `JUROS/MULTAS`). Documents are grouped by **byte-identical page content** (`scripts/scraper/analise/nf_groups.py` — `file_path` and `external_document_id` differ per sibling, and the extracted NF number is noisy, so content hash is the authoritative key). For a multi-entry group, `analyze-docs` runs the VLM **once** per unique NF and fans the extraction out to siblings, then validates `amount_match` by reconciling **`sum(sibling amounts)` against the NF gross total** (`nf_total_for_reconciliation` prefers the invoice `valor_total`, else the roll-up), not the full total against each fractional entry — this removes the false mismatches on splits. Single-entry documents keep the original per-entry comparison. Tolerance is reused (`nf_groups.reconcile_group`: within 5% relative OR R$ 0.05 absolute → `reconciled`; sum > total → `over_claim`; sum < total → `under_claim`).
+- **Duplicate-billing alert:** `check_duplicate_billing` (`scripts/scraper/analise/checks/advanced.py`, run by `analyze`/`run_all_checks`) emits a `critical` alert of type `duplicate_billing` when a shared NF's sibling entries sum to **more** than the NF total (an over-claim — the same NF claimed above its face value), distinct from a legitimate split (`reconciled`, no alert) and an incomplete split (`under_claim`, plain mismatch, no over-claim alert). It reads the NF total from the persisted `document_analyses`, so run `analyze-docs` before `analyze`; a group with no extractable NF total is skipped. No D1 schema change — the alert flows through the existing `alerts` table/view.
 
 ## Agents
 
@@ -78,8 +80,12 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   to pick up. Advisory only — it never modifies app code, schema, or data.
 
 ## Active Technologies
+
 - TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (dialog, badge, card), lucide-react, @tanstack/react-virtual (existing list) (004-doc-analysis-detail)
 - Cloudflare D1 (SQLite) — tables `document_analyses`, `document_analysis_records` (read-only here) (004-doc-analysis-detail)
+- Python 3.11+ (scraper/analysis pipeline under `scripts/scraper/`) + `mlx_vlm` (VLM, already used by `documentos.py`); stdlib `hashlib` for content hashing; no new third-party deps (005-nf-multi-entry-reconciliation)
+- Period JSON files under `data/scrape/<YYYY-MM>.json` (source of truth for the pipeline); Cloudflare D1 downstream via `scripts/import-to-d1.mjs` (read/import only, schema unchanged) (005-nf-multi-entry-reconciliation)
 
 ## Recent Changes
+
 - 004-doc-analysis-detail: Added TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (dialog, badge, card), lucide-react, @tanstack/react-virtual (existing list)

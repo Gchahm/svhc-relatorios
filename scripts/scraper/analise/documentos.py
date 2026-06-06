@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from ..utils import det_id, now_ms
+from .nf_groups import group_documents, reconcile_group
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,94 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     result.extracted_amount = amount
 
 
+def nf_total_for_reconciliation(record_responses, fallback: float | None = None) -> float | None:
+    """The NF face value to reconcile a shared-NF group's sibling sum against.
+
+    Prefers the invoice's GROSS ``valor_total`` (entries on a split are gross
+    allocations of the invoice, so gross is the correct target — the roll-up
+    ``extracted_amount`` may be a net/paid value that would never sum to the
+    siblings). Falls back to the rolled-up amount, then ``None``.
+
+    ``record_responses`` is an iterable of per-page parsed response dicts (the
+    same shape produced by the VLM and persisted under ``analysis_records``), so
+    this is shared by the analysis stage and the duplicate-billing check.
+    """
+    for resp in record_responses:
+        if not resp:
+            continue
+        gross = _parse_brl_value(resp.get("valor_total"))
+        if gross is not None and gross > 0:
+            return gross
+    return fallback
+
+
+def _apply_group_amount_match(result: "DocAnalysisResult", sibling_sum: float) -> str | None:
+    """Override ``amount_match`` from group reconciliation; returns the outcome.
+
+    For a shared NF the meaningful question is whether the sibling entries sum to
+    the NF total, not whether each fractional entry equals the full total. A
+    non-reconcilable group (no extractable NF total) is left untouched so it
+    degrades gracefully rather than falsely reconciling.
+    """
+    nf_total = nf_total_for_reconciliation((r.response for r in result.records), result.extracted_amount)
+    outcome = reconcile_group(sibling_sum, nf_total)
+    if outcome == "reconciled":
+        result.amount_match = True
+    elif outcome in ("over_claim", "under_claim"):
+        result.amount_match = False
+    return outcome
+
+
+def _fanout_result(
+    rep: "DocAnalysisResult",
+    document_id: str,
+    entry_id: str,
+    entry_amount: float,
+    vendor_name: str | None,
+    period: str,
+) -> "DocAnalysisResult":
+    """Build a sibling's analysis by reusing a representative's VLM extraction.
+
+    Siblings sharing one byte-identical NF need not be re-analyzed (Story 3): we
+    copy the representative's page records and roll-up, re-key the records to the
+    sibling's own analysis id, and re-derive the entry-specific vendor/date
+    checks against the sibling's entry. ``amount_match`` is set later from group
+    reconciliation, so it is not computed here.
+    """
+    new = DocAnalysisResult(document_id=document_id, entry_id=entry_id, entry_amount=entry_amount)
+    new.error = rep.error
+    new.document_type = rep.document_type
+    new.extracted_amount = rep.extracted_amount
+    new.extracted_cnpj = rep.extracted_cnpj
+    new.issuer_name = rep.issuer_name
+    new.extracted_date = rep.extracted_date
+    new.document_number = rep.document_number
+    new.service_description = rep.service_description
+
+    new_analysis_id = det_id("doc_analysis", document_id)
+    for r in rep.records:
+        new.records.append(
+            PageAnalysisRecord(
+                document_analysis_id=new_analysis_id,
+                analysis_type=r.analysis_type,
+                page_index=r.page_index,
+                page_label=r.page_label,
+                artifact_role=r.artifact_role,
+                response=r.response,
+                raw_text=r.raw_text,
+                parse_error=r.parse_error,
+            )
+        )
+
+    # Entry-specific validations re-derived for this sibling.
+    if new.issuer_name and vendor_name:
+        a = _normalize_name(new.issuer_name)
+        b = _normalize_name(vendor_name)
+        new.vendor_match = a in b or b in a
+    new.date_match = _check_date_in_period(new.extracted_date, period)
+    return new
+
+
 def analyze_single_document(
     file_path: str,
     entry_amount: float,
@@ -482,8 +571,11 @@ def run_document_analysis(
     entry_id_filter = set(entry_ids) if entry_ids else None
     targeted = document_id_filter is not None or entry_id_filter is not None
 
-    # Collect documents to analyze
-    work: list[tuple[str, dict, dict, dict]] = []  # (period, doc, entry, period_data.raw)
+    # Collect documents to analyze. Each item carries its shared-NF group key,
+    # the summed sibling amounts, and the group size so the processing loop can
+    # reconcile against the group and deduplicate the VLM pass.
+    # (period, doc, entry, period_data.raw, group_key, sibling_sum, group_size)
+    work: list[tuple[str, dict, dict, dict, str, float, int]] = []
     for period_key, period_data in periods.items():
         # Build entry lookup
         entry_map = {e["id"]: e for e in period_data.entries}
@@ -492,6 +584,25 @@ def run_document_analysis(
         existing = set()
         if not reanalyze and not targeted:
             existing = {a["document_id"] for a in period_data.raw.get("document_analyses", [])}
+
+        # Group sibling documents by byte-identical NF content. Sums are over the
+        # FULL group (every sibling entry), not the filtered work list, so a
+        # sibling dropped by min_amount/limit/already-analyzed still counts toward
+        # the reconciliation total.
+        with_path = [d for d in period_data.documents if d.get("file_path")]
+        groups = group_documents(with_path)
+        group_of: dict[str, str] = {}
+        group_sum: dict[str, float] = {}
+        group_size: dict[str, int] = {}
+        for gkey, gdocs in groups.items():
+            group_size[gkey] = len(gdocs)
+            total = 0.0
+            for gdoc in gdocs:
+                group_of[gdoc["id"]] = gkey
+                gentry = entry_map.get(gdoc["entry_id"])
+                if gentry:
+                    total += gentry["amount"]
+            group_sum[gkey] = total
 
         for doc in period_data.documents:
             if not doc.get("file_path"):
@@ -507,7 +618,10 @@ def run_document_analysis(
                 continue
             if min_amount and entry["amount"] < min_amount:
                 continue
-            work.append((period_key, doc, entry, period_data.raw))
+            gkey = group_of[doc["id"]]
+            work.append(
+                (period_key, doc, entry, period_data.raw, gkey, group_sum[gkey], group_size[gkey])
+            )
 
     # Sort by amount descending (analyze most expensive first)
     work.sort(key=lambda x: x[2]["amount"], reverse=True)
@@ -523,26 +637,52 @@ def run_document_analysis(
 
     data_path = Path(data_dir)
     results: list[DocAnalysisResult] = []
+    # First analyzed result per (period, NF group): siblings reuse it instead of
+    # re-running the VLM on a byte-identical NF (Story 3).
+    representatives: dict[tuple[str, str], DocAnalysisResult] = {}
 
-    for i, (period_key, doc, entry, raw) in enumerate(work, 1):
+    for i, (period_key, doc, entry, raw, gkey, sibling_sum, gsize) in enumerate(work, 1):
         vendor_name = None
         if entry.get("vendor_id"):
             vendor_name = refs.vendor_name(entry["vendor_id"])
 
-        logger.info(
-            "[%d/%d] Analyzing doc %s (R$ %.2f, %s)...",
-            i, len(work), doc["id"][:8], entry["amount"],
-            entry["description"][:40],
-        )
+        rep = representatives.get((period_key, gkey)) if gsize > 1 else None
+        if rep is not None and not rep.error:
+            # Reuse the shared NF analysis; no second VLM pass.
+            logger.info(
+                "[%d/%d] Reusing NF-group analysis for doc %s (R$ %.2f, %s)...",
+                i, len(work), doc["id"][:8], entry["amount"], entry["description"][:40],
+            )
+            result = _fanout_result(
+                rep, doc["id"], entry["id"], entry["amount"], vendor_name, period_key
+            )
+        else:
+            if gsize > 1:
+                logger.info(
+                    "[%d/%d] Analyzing NF group of %d, doc %s (R$ %.2f, %s)...",
+                    i, len(work), gsize, doc["id"][:8], entry["amount"], entry["description"][:40],
+                )
+            else:
+                logger.info(
+                    "[%d/%d] Analyzing doc %s (R$ %.2f, %s)...",
+                    i, len(work), doc["id"][:8], entry["amount"], entry["description"][:40],
+                )
+            result = analyze_single_document(
+                file_path=doc["file_path"],
+                entry_amount=entry["amount"],
+                vendor_name=vendor_name,
+                period=period_key,
+                document_id=doc["id"],
+                entry_id=entry["id"],
+            )
+            if gsize > 1 and not result.error:
+                representatives[(period_key, gkey)] = result
 
-        result = analyze_single_document(
-            file_path=doc["file_path"],
-            entry_amount=entry["amount"],
-            vendor_name=vendor_name,
-            period=period_key,
-            document_id=doc["id"],
-            entry_id=entry["id"],
-        )
+        # For a shared NF, reconcile the sibling sum against the NF total instead
+        # of comparing the full total to this single fractional entry.
+        if gsize > 1 and not result.error:
+            _apply_group_amount_match(result, sibling_sum)
+
         results.append(result)
 
         # Write back immediately so partial results are inspectable mid-run
