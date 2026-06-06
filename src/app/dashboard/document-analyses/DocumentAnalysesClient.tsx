@@ -7,8 +7,9 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { FileSearch } from "lucide-react";
+import DocumentAnalysisDetailDialog from "./DocumentAnalysisDetailDialog";
 
-interface DocAnalysisRow {
+export interface DocAnalysisRow {
     id: string;
     documentId: string;
     analyzedAt: number;
@@ -60,6 +61,7 @@ export default function DocumentAnalysesClient() {
 
     const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
     const [selectedMatchStatus, setSelectedMatchStatus] = useState<string[]>([]);
+    const [selectedAnalysis, setSelectedAnalysis] = useState<DocAnalysisRow | null>(null);
 
     useEffect(() => {
         fetch("/api/document-analyses")
@@ -272,12 +274,13 @@ export default function DocumentAnalysesClient() {
                                         return (
                                             <div
                                                 key={row.id}
-                                                className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full"
+                                                className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full cursor-pointer"
                                                 style={{
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
-                                                title={row.serviceDescription || row.error || ""}
+                                                title={row.serviceDescription || row.error || "Click for detail"}
+                                                onClick={() => setSelectedAnalysis(row)}
                                             >
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.entryDate}
@@ -320,6 +323,13 @@ export default function DocumentAnalysesClient() {
                     </div>
                 </CardContent>
             </Card>
+
+            <DocumentAnalysisDetailDialog
+                analysis={selectedAnalysis}
+                onOpenChange={open => {
+                    if (!open) setSelectedAnalysis(null);
+                }}
+            />
         </div>
     );
 }
