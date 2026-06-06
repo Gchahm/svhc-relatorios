@@ -317,6 +317,14 @@ def main():
         "--reanalyze", action="store_true",
         help="Re-analyze already analyzed documents.",
     )
+    adoc_parser.add_argument(
+        "--document-id", type=str, nargs="*",
+        help="Only analyze these document ids. Implies --reanalyze for them.",
+    )
+    adoc_parser.add_argument(
+        "--entry-id", type=str, nargs="*",
+        help="Only analyze documents for these entry ids. Implies --reanalyze for them.",
+    )
 
     args = parser.parse_args()
 
@@ -348,6 +356,8 @@ def main():
             limit=args.limit,
             min_amount=args.min_amount,
             reanalyze=args.reanalyze,
+            document_ids=args.document_id,
+            entry_ids=args.entry_id,
         )
     else:
         parser.print_help()

@@ -457,11 +457,17 @@ def run_document_analysis(
     limit: int | None = None,
     min_amount: float | None = None,
     reanalyze: bool = False,
+    document_ids: list[str] | None = None,
+    entry_ids: list[str] | None = None,
 ) -> None:
     """Analyze document images for scraped periods.
 
     Reads period JSONs, finds documents with file_path set,
     runs VLM analysis, and writes results to document_analyses in the JSON.
+
+    `document_ids` / `entry_ids` restrict the run to specific documents (useful
+    for validating a single doc). Targeting specific ids implies re-analysis of
+    those, so an already-analyzed doc is re-run rather than skipped.
     """
     from pathlib import Path
 
@@ -472,18 +478,27 @@ def run_document_analysis(
         logger.info("No periods to analyze")
         return
 
+    document_id_filter = set(document_ids) if document_ids else None
+    entry_id_filter = set(entry_ids) if entry_ids else None
+    targeted = document_id_filter is not None or entry_id_filter is not None
+
     # Collect documents to analyze
     work: list[tuple[str, dict, dict, dict]] = []  # (period, doc, entry, period_data.raw)
     for period_key, period_data in periods.items():
         # Build entry lookup
         entry_map = {e["id"]: e for e in period_data.entries}
-        # Build existing analyses set
+        # Build existing analyses set. Targeting specific ids implies reanalyze
+        # for them, so they are never skipped as "already analyzed".
         existing = set()
-        if not reanalyze:
+        if not reanalyze and not targeted:
             existing = {a["document_id"] for a in period_data.raw.get("document_analyses", [])}
 
         for doc in period_data.documents:
             if not doc.get("file_path"):
+                continue
+            if document_id_filter is not None and doc["id"] not in document_id_filter:
+                continue
+            if entry_id_filter is not None and doc["entry_id"] not in entry_id_filter:
                 continue
             if doc["id"] in existing:
                 continue
