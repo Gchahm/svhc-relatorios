@@ -76,3 +76,10 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   report to `docs/assessments/` plus a ranked next-feature recommendation. On acceptance it drops
   a self-contained feature description into `specs/_handoff/` for a separate speckit-running agent
   to pick up. Advisory only — it never modifies app code, schema, or data.
+
+## Active Technologies
+- TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (dialog, badge, card), lucide-react, @tanstack/react-virtual (existing list) (004-doc-analysis-detail)
+- Cloudflare D1 (SQLite) — tables `document_analyses`, `document_analysis_records` (read-only here) (004-doc-analysis-detail)
+
+## Recent Changes
+- 004-doc-analysis-detail: Added TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (dialog, badge, card), lucide-react, @tanstack/react-virtual (existing list)

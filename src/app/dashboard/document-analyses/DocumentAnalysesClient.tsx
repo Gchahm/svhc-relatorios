@@ -7,8 +7,9 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { FileSearch } from "lucide-react";
+import DocumentAnalysisDetailDialog from "./DocumentAnalysisDetailDialog";
 
-interface DocAnalysisRow {
+export interface DocAnalysisRow {
     id: string;
     documentId: string;
     analyzedAt: number;
@@ -60,6 +61,7 @@ export default function DocumentAnalysesClient() {
 
     const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
     const [selectedMatchStatus, setSelectedMatchStatus] = useState<string[]>([]);
+    const [selectedAnalysis, setSelectedAnalysis] = useState<DocAnalysisRow | null>(null);
 
     useEffect(() => {
         fetch("/api/document-analyses")
@@ -212,8 +214,7 @@ export default function DocumentAnalysesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Entry ID</div>
-                            <div className="w-[100px] px-3 py-2 shrink-0">
+                            <div className="flex-1 px-3 py-2 min-w-0">
                                 <SortableHeader
                                     label="Vendor"
                                     sortKey="vendorName"
@@ -272,21 +273,19 @@ export default function DocumentAnalysesClient() {
                                         return (
                                             <div
                                                 key={row.id}
-                                                className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full"
+                                                className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full cursor-pointer"
                                                 style={{
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
-                                                title={row.serviceDescription || row.error || ""}
+                                                title={row.serviceDescription || row.error || "Click for detail"}
+                                                onClick={() => setSelectedAnalysis(row)}
                                             >
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.entryDate}
                                                 </div>
-                                                <div className="flex-1 px-3 min-w-0 text-xs font-mono text-muted-foreground">
-                                                    {row.entryId}
-                                                </div>
                                                 <div
-                                                    className="w-[100px] px-3 shrink-0 truncate text-xs text-muted-foreground"
+                                                    className="flex-1 px-3 min-w-0 truncate text-xs text-muted-foreground"
                                                     title={row.vendorName || ""}
                                                 >
                                                     {row.vendorName || "—"}
@@ -320,6 +319,13 @@ export default function DocumentAnalysesClient() {
                     </div>
                 </CardContent>
             </Card>
+
+            <DocumentAnalysisDetailDialog
+                analysis={selectedAnalysis}
+                onOpenChange={open => {
+                    if (!open) setSelectedAnalysis(null);
+                }}
+            />
         </div>
     );
 }
