@@ -187,9 +187,21 @@ export default function DocumentAnalysisDetailDialog({
                             </div>
                         )}
 
+                        {/* Entry (source) — for cross-checking against the original record */}
+                        <section className="space-y-3">
+                            <h3 className="text-sm font-semibold">Entry (source)</h3>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                                <Field label="Category" value={analysis.categoryName} />
+                                <Field label="Subcategory" value={analysis.subcategoryName} />
+                                <Field label="Vendor" value={analysis.vendorName} />
+                                <Field label="Date" value={analysis.entryDate} />
+                                <Field label="Description" value={analysis.entryDescription} />
+                            </div>
+                        </section>
+
                         {/* Roll-up */}
                         <section className="space-y-3">
-                            <h3 className="text-sm font-semibold">Roll-up</h3>
+                            <h3 className="text-sm font-semibold">Roll-up (extracted)</h3>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                                 <Field label="Issuer" value={analysis.issuerName} />
                                 <Field label="CNPJ" value={analysis.extractedCnpj} />
