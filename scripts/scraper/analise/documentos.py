@@ -323,11 +323,13 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     result.service_description = first_field("descricao_servico")
 
     # Amount precedence: payment_proof paid -> boleto -> invoice net -> gross.
+    # Treat non-positive as missing: a spurious `valor_pago: 0.0` must not win
+    # and force extracted_amount to 0 when a real value is present elsewhere.
     def pick(records, *keys):
         for r in records:
             for key in keys:
                 val = _parse_brl_value(r.response.get(key))
-                if val is not None:
+                if val is not None and val > 0:
                     return val
         return None
 
