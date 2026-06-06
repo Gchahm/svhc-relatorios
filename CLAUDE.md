@@ -66,6 +66,7 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
 - **Path alias:** `@/*` maps to `./src/*`
 - **Environment:** Cloudflare bindings defined in `wrangler.toml`: `DATABASE` (D1), `KV`, `ASSETS`; env vars: `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`
 - **Pre-commit:** Always run `pnpm lint` and `pnpm format` before committing to ensure code passes ESLint and Prettier
+- **Document analysis (VLM):** `analyze-docs` (`scripts/scraper/analise/documentos.py`) analyzes **every** page image in a document's `;`-separated `file_path` (one VLM pass per page), not just page 1. Each page yields a `page_extraction` record nested as `analysis_records` under its `document_analyses` object in the period JSON; `scripts/import-to-d1.mjs` flattens these into the `document_analysis_records` table on import. The `document_analyses` row is a heterogeneity-aware roll-up (amount validated against paid/net when a payment artifact is present); per-artifact values (gross/net/paid) live in the per-page records, not the roll-up. `document_analyses.raw_response` is legacy and no longer populated.
 
 ## Agents
 
