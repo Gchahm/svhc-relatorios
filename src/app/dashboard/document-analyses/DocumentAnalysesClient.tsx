@@ -214,8 +214,7 @@ export default function DocumentAnalysesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Entry ID</div>
-                            <div className="w-[100px] px-3 py-2 shrink-0">
+                            <div className="flex-1 px-3 py-2 min-w-0">
                                 <SortableHeader
                                     label="Vendor"
                                     sortKey="vendorName"
@@ -285,11 +284,8 @@ export default function DocumentAnalysesClient() {
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.entryDate}
                                                 </div>
-                                                <div className="flex-1 px-3 min-w-0 text-xs font-mono text-muted-foreground">
-                                                    {row.entryId}
-                                                </div>
                                                 <div
-                                                    className="w-[100px] px-3 shrink-0 truncate text-xs text-muted-foreground"
+                                                    className="flex-1 px-3 min-w-0 truncate text-xs text-muted-foreground"
                                                     title={row.vendorName || ""}
                                                 >
                                                     {row.vendorName || "—"}
