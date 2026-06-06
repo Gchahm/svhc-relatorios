@@ -6,10 +6,3 @@ dependencies = [
     "playwright",
     "python-dotenv",
 ]
-
-[project.optional-dependencies]
-vlm = [
-    "mlx-vlm>=0.4.4",
-    "torch>=2.11.0",
-    "torchvision>=0.26.0",
-]

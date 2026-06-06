@@ -17,7 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .analise import run_analysis
-from .analise.documentos import run_document_analysis
+from .analise.extractions import apply_extractions, plan_extractions
 from .runner import run_download_docs, run_scrape
 
 logging.basicConfig(
@@ -145,7 +145,8 @@ def interactive():
         print(f"Found {len(existing)} existing period(s) in {DATA_DIR}/")
 
     action = _pick("What would you like to do?", [
-        "Scrape periods", "Download documents", "Analyze data", "Analyze documents (VLM)",
+        "Scrape periods", "Download documents", "Analyze data",
+        "Plan document extraction", "Apply document extractions",
     ])
 
     if action == "Scrape periods":
@@ -212,7 +213,7 @@ def interactive():
 
         run_analysis(data_dir=DATA_DIR, periods_filter=periods)
 
-    else:  # Analyze documents (VLM)
+    elif action == "Plan document extraction":
         if not existing:
             print("\nNo scraped data found. Run scrape first.")
             return
@@ -240,12 +241,32 @@ def interactive():
             print("Aborted.")
             return
 
-        run_document_analysis(
+        plan_extractions(
             data_dir=DATA_DIR,
             periods_filter=periods,
             limit=limit,
             min_amount=min_amount,
             reanalyze=reanalyze,
+        )
+        print(
+            "\nManifest written. Next: run the `analyze-docs` agent in Claude Code to produce\n"
+            "<period>.extractions.json, then choose 'Apply document extractions'."
+        )
+
+    else:  # Apply document extractions
+        if not existing:
+            print("\nNo scraped data found. Run scrape first.")
+            return
+
+        periods = _ask_periods(existing, "analyze")
+
+        if not _yes_no("Proceed?", default=True):
+            print("Aborted.")
+            return
+
+        apply_extractions(
+            data_dir=DATA_DIR,
+            periods_filter=periods,
         )
 
 
@@ -296,34 +317,50 @@ def main():
         help="Directory containing period JSON files (default: ../data/scrape).",
     )
 
-    adoc_parser = subparsers.add_parser("analyze-docs", help="Analyze document images with VLM")
-    adoc_parser.add_argument(
-        "--periodo", type=str, nargs="*",
-        help="Only analyze these periods (e.g. 2024-12 2025-01).",
+    plan_parser = subparsers.add_parser(
+        "docs-plan",
+        help="Plan document extraction: write <period>.extract-todo.json for the analyze-docs agent",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only plan these periods (e.g. 2024-12 2025-01).",
+    )
+    plan_parser.add_argument(
         "--data-dir", "-d", default=DATA_DIR,
         help="Directory containing period JSON files (default: ../data/scrape).",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
         "--min-amount", type=float,
-        help="Only analyze documents for entries >= this amount.",
+        help="Only plan documents for entries >= this amount.",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
         "--limit", type=int,
-        help="Maximum number of documents to analyze.",
+        help="Maximum number of documents to plan.",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
         "--reanalyze", action="store_true",
-        help="Re-analyze already analyzed documents.",
+        help="Re-plan already analyzed documents.",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
         "--document-id", type=str, nargs="*",
-        help="Only analyze these document ids. Implies --reanalyze for them.",
+        help="Only plan these document ids. Implies --reanalyze for them.",
     )
-    adoc_parser.add_argument(
+    plan_parser.add_argument(
         "--entry-id", type=str, nargs="*",
-        help="Only analyze documents for these entry ids. Implies --reanalyze for them.",
+        help="Only plan documents for these entry ids. Implies --reanalyze for them.",
+    )
+
+    apply_parser = subparsers.add_parser(
+        "apply-extractions",
+        help="Merge agent-produced <period>.extractions.json into period JSON as document_analyses",
+    )
+    apply_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only apply these periods (default: all periods with a manifest).",
+    )
+    apply_parser.add_argument(
+        "--data-dir", "-d", default=DATA_DIR,
+        help="Directory containing period JSON files (default: ../data/scrape).",
     )
 
     args = parser.parse_args()
@@ -349,8 +386,8 @@ def main():
             data_dir=args.data_dir,
             periods_filter=args.periodo,
         )
-    elif args.command == "analyze-docs":
-        run_document_analysis(
+    elif args.command == "docs-plan":
+        plan_extractions(
             data_dir=args.data_dir,
             periods_filter=args.periodo,
             limit=args.limit,
@@ -358,6 +395,11 @@ def main():
             reanalyze=args.reanalyze,
             document_ids=args.document_id,
             entry_ids=args.entry_id,
+        )
+    elif args.command == "apply-extractions":
+        apply_extractions(
+            data_dir=args.data_dir,
+            periods_filter=args.periodo,
         )
     else:
         parser.print_help()
