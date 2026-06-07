@@ -1,0 +1,12 @@
+{
+    "papel_artefato": "invoice | nfse | boleto | payment_proof | other",
+    "tipo_documento": "NF-e | DANFE | boleto | recibo | comprovante | outro | null",
+    "valor_total": "gross/total value as a number, or null",
+    "valor_liquido": "net value after retentions (ISS/INSS/IR) as a number, or null",
+    "valor_pago": "amount actually paid (payment proofs only) as a number, or null",
+    "cnpj_emitente": "XX.XXX.XXX/XXXX-XX or null",
+    "nome_emitente": "issuer company name or null",
+    "data_emissao": "DD/MM/YYYY or null",
+    "numero_documento": "document number or null",
+    "descricao_servico": "brief description of the service/product or null"
+}

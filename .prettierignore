@@ -9,3 +9,8 @@ node_modules
 dist
 build
 .wrangler
+
+# Claude Code tooling: agent/skill instructions and their YAML frontmatter.
+# Not app source — Prettier's JS-oriented formatting (4-space YAML, prose handling)
+# is unwanted here and can mangle hand-authored skill files.
+.claude

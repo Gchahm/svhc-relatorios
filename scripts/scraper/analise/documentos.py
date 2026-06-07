@@ -9,50 +9,10 @@ import logging
 import pathlib
 import re
 from dataclasses import dataclass, field
-from datetime import date
-
 from ..utils import det_id, now_ms
 from .nf_groups import group_documents, reconcile_group
 
 logger = logging.getLogger(__name__)
-
-_model = None
-_processor = None
-
-
-def _load_model():
-    """Lazy-load the VLM model on first use."""
-    global _model, _processor
-    if _model is not None:
-        return _model, _processor
-
-    from mlx_vlm import load
-
-    model_name = "mlx-community/Qwen2.5-VL-7B-Instruct-8bit"
-    logger.info("Loading VLM model: %s", model_name)
-    _model, _processor = load(model_name)
-    logger.info("VLM model loaded")
-    return _model, _processor
-
-
-EXTRACT_PROMPT = """Analyze this fiscal document image (Brazilian receipt/invoice/DANFE/boleto).
-This is ONE page of a document; classify what THIS page is and extract its values.
-Extract the following information as JSON:
-
-{
-  "papel_artefato": "invoice" or "nfse" or "boleto" or "payment_proof" or "other",
-  "tipo_documento": "NF-e" or "DANFE" or "boleto" or "recibo" or "comprovante" or "outro",
-  "valor_total": numeric gross/total value (use null if not found),
-  "valor_liquido": numeric net value after retentions (ISS/INSS/IR) (use null if not present),
-  "valor_pago": numeric amount actually paid, for payment proofs (use null if not a payment artifact),
-  "cnpj_emitente": "XX.XXX.XXX/XXXX-XX" (use null if not found),
-  "nome_emitente": "company name" (use null if not found),
-  "data_emissao": "DD/MM/YYYY" (use null if not found),
-  "numero_documento": "document number" (use null if not found),
-  "descricao_servico": "brief description of service/product" (use null if not found)
-}
-
-Return ONLY the JSON, no other text."""
 
 
 @dataclass
@@ -130,8 +90,12 @@ class DocAnalysisResult:
         }
 
 
-def _parse_vlm_response(text: str) -> dict | None:
-    """Extract JSON from VLM response, handling markdown fences."""
+def _parse_json_blob(text: str) -> dict | None:
+    """Extract a JSON object from free text, handling markdown fences.
+
+    Tolerant parser shared by the (legacy) VLM path and any caller that needs to
+    recover a JSON object from a string-wrapped extraction.
+    """
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -248,41 +212,6 @@ def _map_artifact_role(parsed: dict) -> str:
     if role != "payment_proof" and (has_paid or tipo in ("comprovante", "recibo")):
         role = "payment_proof"
     return role
-
-
-def _analyze_page(model, processor, path: str) -> tuple[dict | None, str, str | None]:
-    """Run one VLM pass on a single image.
-
-    Returns (parsed_dict | None, raw_text, error | None). A failure here never
-    raises — the caller records it per page and continues with the next page.
-    """
-    try:
-        from mlx_vlm import generate
-        from mlx_vlm.prompt_utils import apply_chat_template
-
-        formatted_prompt = apply_chat_template(
-            processor,
-            config=model.config,
-            prompt=EXTRACT_PROMPT,
-            images=[path],
-            num_images=1,
-        )
-        result_obj = generate(
-            model,
-            processor,
-            formatted_prompt,
-            image=path,
-            max_tokens=500,
-            verbose=False,
-        )
-        raw_text = result_obj.text if hasattr(result_obj, "text") else str(result_obj)
-    except Exception as e:  # noqa: BLE001 - one bad page must not abort the document
-        return None, "", str(e)
-
-    parsed = _parse_vlm_response(raw_text)
-    if parsed is None:
-        return None, raw_text, "failed to parse VLM response"
-    return parsed, raw_text, None
 
 
 def _rollup_document_fields(result: "DocAnalysisResult") -> None:
@@ -432,20 +361,28 @@ def _fanout_result(
     return new
 
 
-def analyze_single_document(
+# An extraction provider maps a page image path to its parsed fields. It returns
+# (parsed_fields, None) on success or (None, error_reason) on failure. This is the
+# single seam that decouples the deterministic analysis from where the extraction
+# comes from (a Claude vision agent's extractions file today; the VLM previously).
+ExtractionProvider = "Callable[[str], tuple[dict | None, str | None]]"
+
+
+def build_document_analysis(
     file_path: str,
     entry_amount: float,
     vendor_name: str | None,
     period: str,
     document_id: str,
     entry_id: str,
+    provider,
 ) -> DocAnalysisResult:
-    """Analyze every page of a document with the VLM and validate against entry data.
+    """Build a document's analysis from per-page extractions supplied by ``provider``.
 
-    Runs one VLM pass per page image (paths joined by ";"), emits one
-    page_extraction record per page, then derives the document-level roll-up
-    across all pages. A missing/unreadable or unparseable page is recorded and
-    skipped — it does not abort the document.
+    Emits one page_extraction record per page image (paths joined by ";"), then
+    derives the document-level roll-up across all pages and validates it against
+    the entry. A page the provider cannot extract is recorded with a parse_error
+    and skipped — it does not abort the document.
     """
     result = DocAnalysisResult(
         document_id=document_id,
@@ -459,14 +396,6 @@ def analyze_single_document(
         result.error = "no page images in file_path"
         return result
 
-    try:
-        model, processor = _load_model()
-    except Exception as e:
-        result.error = f"failed to load model: {e}"
-        logger.warning("VLM model load failed for doc %s: %s", document_id[:8], e)
-        return result
-
-    multipage = len(paths) > 1
     any_success = False
     for idx, path in enumerate(paths):
         page_label = _page_label_from_path(path, idx)
@@ -476,21 +405,9 @@ def analyze_single_document(
             page_label=page_label,
         )
 
-        if not pathlib.Path(path).exists():
-            record.parse_error = f"file not found: {path}"
-            result.records.append(record)
-            continue
-
-        # One VLM call per page; log progress so multi-page docs don't look stuck.
-        if multipage:
-            logger.info("    page %d/%d (%s)...", idx + 1, len(paths), page_label)
-
-        parsed, raw_text, error = _analyze_page(model, processor, path)
+        parsed, error = provider(path)
         if parsed is None:
-            # Keep raw text only when parsing failed (per the record contract);
-            # on success the structured `response` is the source of truth.
-            record.raw_text = raw_text or None
-            record.parse_error = error or "failed to parse VLM response"
+            record.parse_error = error or "no extraction for page"
         else:
             record.response = parsed
             record.artifact_role = _map_artifact_role(parsed)
@@ -499,7 +416,6 @@ def analyze_single_document(
 
     if not any_success:
         result.error = "no page produced a parseable response"
-        logger.warning("VLM analysis produced no parseable page for doc %s", document_id[:8])
         return result
 
     # Roll up document-level fields from the per-page records (heterogeneity-aware).
@@ -540,55 +456,50 @@ def _merge_and_write(data_path, period_key: str, raw: dict, result: "DocAnalysis
     )
 
 
-def run_document_analysis(
-    data_dir: str,
-    periods_filter: list[str] | None = None,
-    limit: int | None = None,
+@dataclass
+class WorkItem:
+    """One document selected for analysis, with its shared-NF group context."""
+
+    period: str
+    document: dict
+    entry: dict
+    raw: dict
+    group_key: str
+    sibling_sum: float  # sum of entry amounts over the FULL group (pre-filter)
+    group_size: int
+
+
+def select_work(
+    periods,
+    *,
     min_amount: float | None = None,
+    limit: int | None = None,
     reanalyze: bool = False,
     document_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
-) -> None:
-    """Analyze document images for scraped periods.
+) -> list[WorkItem]:
+    """Select documents to analyze, grouped by byte-identical NF content.
 
-    Reads period JSONs, finds documents with file_path set,
-    runs VLM analysis, and writes results to document_analyses in the JSON.
-
-    `document_ids` / `entry_ids` restrict the run to specific documents (useful
-    for validating a single doc). Targeting specific ids implies re-analysis of
-    those, so an already-analyzed doc is re-run rather than skipped.
+    The single source of truth for "what to analyze", shared by the legacy VLM
+    runner and the agent-flow planner. Applies the id/min-amount filters and
+    skip-already-analyzed (unless ``reanalyze`` or specific ids are targeted),
+    computes each group's FULL sibling sum + size (so a sibling dropped by a
+    filter still counts toward reconciliation), sorts by entry amount descending,
+    and truncates to ``limit``.
     """
-    from pathlib import Path
-
-    from .loader import load_all_periods
-
-    periods, refs = load_all_periods(data_dir, periods_filter)
-    if not periods:
-        logger.info("No periods to analyze")
-        return
-
     document_id_filter = set(document_ids) if document_ids else None
     entry_id_filter = set(entry_ids) if entry_ids else None
     targeted = document_id_filter is not None or entry_id_filter is not None
 
-    # Collect documents to analyze. Each item carries its shared-NF group key,
-    # the summed sibling amounts, and the group size so the processing loop can
-    # reconcile against the group and deduplicate the VLM pass.
-    # (period, doc, entry, period_data.raw, group_key, sibling_sum, group_size)
-    work: list[tuple[str, dict, dict, dict, str, float, int]] = []
+    work: list[WorkItem] = []
     for period_key, period_data in periods.items():
-        # Build entry lookup
         entry_map = {e["id"]: e for e in period_data.entries}
-        # Build existing analyses set. Targeting specific ids implies reanalyze
-        # for them, so they are never skipped as "already analyzed".
+        # Targeting specific ids implies reanalyze for them, so they are never
+        # skipped as "already analyzed".
         existing = set()
         if not reanalyze and not targeted:
             existing = {a["document_id"] for a in period_data.raw.get("document_analyses", [])}
 
-        # Group sibling documents by byte-identical NF content. Sums are over the
-        # FULL group (every sibling entry), not the filtered work list, so a
-        # sibling dropped by min_amount/limit/already-analyzed still counts toward
-        # the reconciliation total.
         with_path = [d for d in period_data.documents if d.get("file_path")]
         groups = group_documents(with_path)
         group_of: dict[str, str] = {}
@@ -620,88 +531,17 @@ def run_document_analysis(
                 continue
             gkey = group_of[doc["id"]]
             work.append(
-                (period_key, doc, entry, period_data.raw, gkey, group_sum[gkey], group_size[gkey])
+                WorkItem(period_key, doc, entry, period_data.raw, gkey, group_sum[gkey], group_size[gkey])
             )
 
-    # Sort by amount descending (analyze most expensive first)
-    work.sort(key=lambda x: x[2]["amount"], reverse=True)
-
+    work.sort(key=lambda w: w.entry["amount"], reverse=True)
     if limit:
         work = work[:limit]
+    return work
 
-    if not work:
-        logger.info("No documents to analyze")
-        return
 
-    logger.info("Will analyze %d document(s)", len(work))
-
-    data_path = Path(data_dir)
-    results: list[DocAnalysisResult] = []
-    # First analyzed result per (period, NF group): siblings reuse it instead of
-    # re-running the VLM on a byte-identical NF (Story 3).
-    representatives: dict[tuple[str, str], DocAnalysisResult] = {}
-
-    for i, (period_key, doc, entry, raw, gkey, sibling_sum, gsize) in enumerate(work, 1):
-        vendor_name = None
-        if entry.get("vendor_id"):
-            vendor_name = refs.vendor_name(entry["vendor_id"])
-
-        rep = representatives.get((period_key, gkey)) if gsize > 1 else None
-        if rep is not None and not rep.error:
-            # Reuse the shared NF analysis; no second VLM pass.
-            logger.info(
-                "[%d/%d] Reusing NF-group analysis for doc %s (R$ %.2f, %s)...",
-                i, len(work), doc["id"][:8], entry["amount"], entry["description"][:40],
-            )
-            result = _fanout_result(
-                rep, doc["id"], entry["id"], entry["amount"], vendor_name, period_key
-            )
-        else:
-            if gsize > 1:
-                logger.info(
-                    "[%d/%d] Analyzing NF group of %d, doc %s (R$ %.2f, %s)...",
-                    i, len(work), gsize, doc["id"][:8], entry["amount"], entry["description"][:40],
-                )
-            else:
-                logger.info(
-                    "[%d/%d] Analyzing doc %s (R$ %.2f, %s)...",
-                    i, len(work), doc["id"][:8], entry["amount"], entry["description"][:40],
-                )
-            result = analyze_single_document(
-                file_path=doc["file_path"],
-                entry_amount=entry["amount"],
-                vendor_name=vendor_name,
-                period=period_key,
-                document_id=doc["id"],
-                entry_id=entry["id"],
-            )
-            if gsize > 1 and not result.error:
-                representatives[(period_key, gkey)] = result
-
-        # For a shared NF, reconcile the sibling sum against the NF total instead
-        # of comparing the full total to this single fractional entry.
-        if gsize > 1 and not result.error:
-            _apply_group_amount_match(result, sibling_sum)
-
-        results.append(result)
-
-        # Write back immediately so partial results are inspectable mid-run
-        # and survive an interruption.
-        _merge_and_write(data_path, period_key, raw, result)
-
-        # Log status
-        status = []
-        if result.amount_match is not None:
-            status.append(f"amount={'OK' if result.amount_match else 'MISMATCH'}")
-        if result.vendor_match is not None:
-            status.append(f"vendor={'OK' if result.vendor_match else 'MISMATCH'}")
-        if result.date_match is not None:
-            status.append(f"date={'OK' if result.date_match else 'MISMATCH'}")
-        if result.error:
-            status.append(f"error={result.error}")
-        logger.info("  -> %s %s", result.document_type or "?", " | ".join(status))
-
-    # Print summary
+def summarize_results(results: list["DocAnalysisResult"]) -> None:
+    """Print the document-analysis summary + mismatch list to stdout."""
     analyzed = [r for r in results if not r.error]
     errors = [r for r in results if r.error]
     amount_ok = sum(1 for r in analyzed if r.amount_match is True)
