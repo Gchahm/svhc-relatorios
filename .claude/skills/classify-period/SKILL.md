@@ -27,7 +27,7 @@ Examples: `2025-12` (whole period) · `2025-12 --document-id 1cad144b… f24a099
 1. **Ensure the manifest (run `docs-plan` yourself).** From `scripts/`, run docs-plan for the period, passing through any scope flags from `$ARGUMENTS`:
 
    ```bash
-   cd scripts && uv run python -m scraper docs-plan --periodo <period> [--document-id <ids…>] [--entry-id <ids…>]
+   cd scripts && uv run python -m analysis docs-plan --periodo <period> [--document-id <ids…>] [--entry-id <ids…>]
    ```
 
    This writes/overwrites `data/scrape/<period>.extract-todo.json` scoped to what was asked. Passing `--document-id`/`--entry-id` re-plans those documents even if already analyzed (targeting implies re-analysis). If docs-plan reports **"Nothing to extract"**, there is nothing to classify — report that and stop.
@@ -38,7 +38,7 @@ Examples: `2025-12` (whole period) · `2025-12 --document-id 1cad144b… f24a099
 
 4. **Confirm completeness.** After the batch returns, check (with Glob) that every page from the manifest now has a sibling `.classify.json`. Re-dispatch `classify-doc-page` for any page still missing one.
 
-5. **Report.** State how many pages were classified for the scope, and that the next step — the deterministic merge — is `cd scripts && uv run python -m scraper apply-extractions --periodo <period>` (run by your caller).
+5. **Report.** State how many pages were classified for the scope, and that the next step — the deterministic merge — is `cd scripts && uv run python -m analysis apply-extractions --periodo <period>` (run by your caller).
 
 # Boundaries (non-negotiable)
 
