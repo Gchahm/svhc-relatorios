@@ -80,10 +80,12 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   to pick up. Advisory only — it never modifies app code, schema, or data.
 - **analyze-docs agent** (`.claude/agents/analyze-docs.md`, feature `006-analyze-docs-agent`): the
   Claude-vision replacement for the retired mlx_vlm extraction step. Given a period it reads the
-  work manifest (`docs-plan`), views each representative page image with the Read tool, and writes a
-  per-page extractions file (`<period>.extractions.json`); the deterministic `apply-extractions`
-  command then merges those into `document_analyses`. It only reads images and writes the
-  extractions file — `apply-extractions` is the sole writer of the analyses.
+  work manifest **already produced by `docs-plan`** (it does not generate the manifest, and has no
+  `Bash`), views each representative page image with the Read tool, and writes a per-page extractions
+  file (`<period>.extractions.json`). The maintainer then runs `docs-plan` (before) and
+  `apply-extractions` (after); the agent only reads images and writes the extractions file —
+  `apply-extractions` is the sole writer of the analyses. If the manifest is missing, the agent stops
+  and asks the maintainer to run `docs-plan` first.
 
 ## Active Technologies
 

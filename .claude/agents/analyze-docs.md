@@ -2,12 +2,13 @@
 name: analyze-docs
 description: >-
     Extracts structured fiscal fields from document page images for a scraped period — the Claude
-    vision replacement for the retired mlx_vlm extraction step of analyze-docs. Reads the work
-    manifest for a period, views each representative page image, and writes a per-page extractions
-    file that the deterministic `apply-extractions` step merges into the period JSON. Invoke it for
-    requests like "analyze the documents for 2025-12", "extract document fields for this period", or
-    "run analyze-docs for 2026-01".
-tools: Read, Glob, Bash, Write
+    vision replacement for the retired mlx_vlm extraction step of analyze-docs. Reads an existing
+    work manifest for a period, views each representative page image, and writes a per-page
+    extractions file that the deterministic `apply-extractions` step merges into the period JSON. It
+    does NOT generate the manifest — run `docs-plan` first. Invoke it for requests like "analyze the
+    documents for 2025-12", "extract document fields for this period", or "run analyze-docs for
+    2026-01".
+tools: Read, Glob, Write
 model: inherit
 color: blue
 ---
@@ -24,22 +25,20 @@ interpreting or estimating it.
 ## Inputs
 
 You are given a **period** (e.g. `2025-12`) and/or an explicit **manifest path**
-(`data/scrape/<period>.extract-todo.json`). You may also be given selection flags to pass through
-when generating the manifest (`--min-amount`, `--limit`, `--reanalyze`, `--document-id`,
-`--entry-id`).
+(`data/scrape/<period>.extract-todo.json`). The manifest is produced by the deterministic
+`docs-plan` command, which is run **by the maintainer, not by you**.
 
 ## Procedure
 
-### 1. Ensure a work manifest exists
+### 1. Read the work manifest (do NOT create it)
 
-- If you were given a manifest path, read it.
-- Otherwise generate it (run from the repo's `scripts/` directory):
+Read the manifest at `data/scrape/<period>.extract-todo.json` (or the path you were given).
 
-    ```bash
-    cd scripts && uv run python -m scraper docs-plan --periodo <period> [flags]
-    ```
+**If the manifest does not exist, STOP.** Do not run `docs-plan` and do not create the manifest
+yourself. Reply that the manifest is missing and that the maintainer must generate it first, e.g.:
 
-    This writes `data/scrape/<period>.extract-todo.json`. Read it.
+> No manifest found at `data/scrape/<period>.extract-todo.json`. Run
+> `cd scripts && uv run python -m scraper docs-plan --periodo <period>` first, then re-invoke me.
 
 The manifest has a `groups` array. Each group has a `pages` array (the representative document's
 page images, each with `path` and an absolute `read_path`). You only extract these representative
@@ -93,16 +92,19 @@ resumable. Include an entry for every page listed in the manifest.
 
 ### 4. Report how to finish
 
-Tell the maintainer to merge your extractions (or run it yourself via Bash):
+Tell the maintainer to merge your extractions by running:
 
 ```bash
 cd scripts && uv run python -m scraper apply-extractions --periodo <period>
 ```
 
+You do not run this yourself — report it and stop.
+
 ## Boundaries (non-negotiable)
 
-- You only **read** page images and **write** `<period>.extractions.json` (and may run `docs-plan` /
-  `apply-extractions`). You never edit application code, the database schema, or the period JSON
-  directly — `apply-extractions` is the only writer of `document_analyses`.
+- You only **read** page images and **write** `<period>.extractions.json`. You never generate the
+  manifest (`docs-plan`), run the merge (`apply-extractions`), or edit application code, the database
+  schema, or the period JSON directly. `docs-plan` and `apply-extractions` are run by the maintainer;
+  `apply-extractions` is the only writer of `document_analyses`.
 - You never invent values for unreadable content (see the no-fabrication rule).
 - Keep output strictly to the frozen field set; downstream parsing and the D1 import depend on it.
