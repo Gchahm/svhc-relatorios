@@ -19,7 +19,10 @@ from pathlib import Path
 
 from .analise import run_analysis
 from .analise.extractions import apply_extractions, plan_extractions, summarize_mismatches
-from .runner import run_download_docs, run_scrape
+
+# NOTE: the scraping side (`.runner` -> `.browser` -> playwright) is imported lazily,
+# inside the scrape/download-docs branches only, so the analysis commands
+# (docs-plan/apply-extractions/analyze/mismatches) run without the Playwright stack.
 
 logging.basicConfig(
     level=logging.INFO,
@@ -165,6 +168,8 @@ def interactive():
             print("Aborted.")
             return
 
+        from .runner import run_scrape
+
         asyncio.run(
             run_scrape(
                 output_dir=DATA_DIR,
@@ -188,6 +193,8 @@ def interactive():
         if not _yes_no("Proceed?", default=True):
             print("Aborted.")
             return
+
+        from .runner import run_download_docs
 
         asyncio.run(
             run_download_docs(
@@ -388,6 +395,8 @@ def main():
     args = parser.parse_args()
 
     if args.command == "scrape":
+        from .runner import run_scrape
+
         asyncio.run(
             run_scrape(
                 output_dir=args.output_dir,
@@ -397,6 +406,8 @@ def main():
             )
         )
     elif args.command == "download-docs":
+        from .runner import run_download_docs
+
         asyncio.run(
             run_download_docs(
                 data_dir=args.data_dir,

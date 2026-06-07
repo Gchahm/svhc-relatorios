@@ -89,6 +89,8 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   `007-classification-improve-loop`).
 
 ## Active Technologies
+- Python 3.12+ (`scripts/`), managed by `uv`. + scraper = `playwright` + `python-dotenv`; analysis = **stdlib only** (008-decouple-analysis-scripts)
+- period JSON under `data/scrape/<YYYY-MM>.json` (source of truth); intermediate working (008-decouple-analysis-scripts)
 
 - Python 3.11+ (scraper/analysis pipeline under `scripts/scraper/`); Markdown + Python stdlib only (`json`, `pathlib`, `hashlib`, `re`, `argparse`). (006-analyze-docs-agent)
 - Period JSON files under `data/scrape/<YYYY-MM>.json` (source of truth). Two new (006-analyze-docs-agent)
