@@ -3,6 +3,16 @@
 **Branch**: `006-analyze-docs-agent` | **Date**: 2026-06-06 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `/specs/006-analyze-docs-agent/spec.md`
 
+> **Post-implementation evolution note.** This plan describes the first cut: one `analyze-docs`
+> subagent that reads images and writes a single `<period>.extractions.json`, consumed by
+> `apply-extractions`. The implementation then evolved (see the updated contracts + `data-model.md`):
+> per-page reading moved into the **`classify-doc-page`** skill (with **`classify-period`**
+> orchestrating a period/subset), each page now has its own **`<image>.classify.json`**, and
+> `FileExtractionProvider` reads those siblings. The `analyze-docs` agent became the context-isolated
+> vision/analysis step that delegates to the skills and returns a terse `mismatches` summary. The
+> deterministic core (grouping, roll-up, reconciliation, fan-out, import contract, duplicate-billing)
+> is unchanged. `research.md` and `tasks.md` are kept as point-in-time phase records.
+
 ## Summary
 
 Replace only the per-page image→structured-fields extraction step of the document-analysis stage

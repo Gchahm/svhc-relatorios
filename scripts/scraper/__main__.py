@@ -11,13 +11,14 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 from .analise import run_analysis
-from .analise.extractions import apply_extractions, plan_extractions
+from .analise.extractions import apply_extractions, plan_extractions, summarize_mismatches
 from .runner import run_download_docs, run_scrape
 
 logging.basicConfig(
@@ -249,8 +250,8 @@ def interactive():
             reanalyze=reanalyze,
         )
         print(
-            "\nManifest written. Next: run the `analyze-docs` agent in Claude Code to produce\n"
-            "<period>.extractions.json, then choose 'Apply document extractions'."
+            "\nManifest written. Next: classify each page in Claude Code (the classify-doc-page\n"
+            "skill writes <image>.classify.json), then choose 'Apply document extractions'."
         )
 
     else:  # Apply document extractions
@@ -352,7 +353,7 @@ def main():
 
     apply_parser = subparsers.add_parser(
         "apply-extractions",
-        help="Merge agent-produced <period>.extractions.json into period JSON as document_analyses",
+        help="Merge per-page <image>.classify.json files into period JSON as document_analyses",
     )
     apply_parser.add_argument(
         "--periodo", type=str, nargs="*",
@@ -361,6 +362,27 @@ def main():
     apply_parser.add_argument(
         "--data-dir", "-d", default=DATA_DIR,
         help="Directory containing period JSON files (default: ../data/scrape).",
+    )
+
+    mismatch_parser = subparsers.add_parser(
+        "mismatches",
+        help="Print a terse JSON summary of classification mismatches (amount/vendor/date/error/duplicate-billing)",
+    )
+    mismatch_parser.add_argument(
+        "--periodo", type=str, nargs="*",
+        help="Only summarize these periods (e.g. 2024-12 2025-01).",
+    )
+    mismatch_parser.add_argument(
+        "--data-dir", "-d", default=DATA_DIR,
+        help="Directory containing period JSON files (default: ../data/scrape).",
+    )
+    mismatch_parser.add_argument(
+        "--document-id", type=str, nargs="*",
+        help="Only summarize mismatches for these document ids.",
+    )
+    mismatch_parser.add_argument(
+        "--entry-id", type=str, nargs="*",
+        help="Only summarize mismatches for these entry ids.",
     )
 
     args = parser.parse_args()
@@ -401,6 +423,14 @@ def main():
             data_dir=args.data_dir,
             periods_filter=args.periodo,
         )
+    elif args.command == "mismatches":
+        rows = summarize_mismatches(
+            data_dir=args.data_dir,
+            periods_filter=args.periodo,
+            document_ids=args.document_id,
+            entry_ids=args.entry_id,
+        )
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
     else:
         parser.print_help()
         sys.exit(1)

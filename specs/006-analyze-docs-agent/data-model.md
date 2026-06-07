@@ -26,8 +26,8 @@ modification (SC-003).
 
 ## New — Work manifest (`<period>.extract-todo.json`)
 
-Written by `docs-plan`; read by the agent and by `apply-extractions`. Carries everything needed so
-`apply` never re-runs selection.
+Written by `docs-plan`; read by the `classify-period` skill and by `apply-extractions`. Carries
+everything needed so `apply` never re-runs selection.
 
 ```jsonc
 {
@@ -45,7 +45,7 @@ Written by `docs-plan`; read by the agent and by `apply-extractions`. Carries ev
                     "page_index": 0,
                     "page_label": "p1",
                     "path": "../data/scrape/2025-12/<id>_p1.jpg", // extraction key (relative-to-scripts)
-                    "read_path": "/abs/path/.../<id>_p1.jpg", // absolute, for the agent's Read tool
+                    "read_path": "/abs/path/.../<id>_p1.jpg", // absolute, for the skill's Read tool
                 },
             ],
             "members": [
@@ -71,63 +71,74 @@ Written by `docs-plan`; read by the agent and by `apply-extractions`. Carries ev
   reconciliation, even for members excluded from extraction by filters.
 - Singletons (no shared NF, or unhashable pages) are groups of `group_size: 1`.
 
-## New — Extractions file (`<period>.extractions.json`)
+## New — Per-page classification files (`<image-stem>.classify.json`)
 
-Written by the agent; read by `apply-extractions`. A map from a page `path` (the manifest's
-`pages[].path`) to either the extracted fields or a per-page error.
+> **Evolution note:** originally a single `<period>.extractions.json` map written by the agent. Now
+> one file **per page image**, written next to the image by the `classify-doc-page` skill, and read
+> by `apply-extractions`. Per-page values/errors are unchanged; only the layout and producer changed.
+
+Written by the `classify-doc-page` skill (one per page); read by `apply-extractions`. Each file is
+either the extracted fields or a per-page error.
 
 ```jsonc
+// …/<id>_p1.classify.json
 {
-    "../data/scrape/2025-12/<id>_p1.jpg": {
-        "papel_artefato": "invoice",
-        "tipo_documento": "NF-e",
-        "valor_total": 617.25,
-        "valor_liquido": null,
-        "valor_pago": null,
-        "cnpj_emitente": "12.345.678/0001-90",
-        "nome_emitente": "ACME LTDA",
-        "data_emissao": "03/12/2025",
-        "numero_documento": "12345",
-        "descricao_servico": "Serviço de limpeza",
-    },
-    "../data/scrape/2025-12/<id>_p2.jpg": { "error": "page illegible" },
+    "papel_artefato": "invoice",
+    "tipo_documento": "NF-e",
+    "valor_total": 617.25,
+    "valor_liquido": null,
+    "valor_pago": null,
+    "cnpj_emitente": "12.345.678/0001-90",
+    "nome_emitente": "ACME LTDA",
+    "data_emissao": "03/12/2025",
+    "numero_documento": "12345",
+    "descricao_servico": "Serviço de limpeza",
 }
+// …/<id>_p2.classify.json  ->  { "error": "page illegible" }
 ```
 
 **Rules / validation**:
 
-- A value object is EITHER the page-extraction fields (see `contracts/page-extraction-fields.md`)
-  OR `{ "error": "<reason>" }` — never both.
+- Each file is EITHER the page-extraction fields (see `contracts/page-extraction-fields.md`) OR
+  `{ "error": "<reason>" }` — never both.
 - Amounts may be numeric or BRL-formatted strings; absent fields are `null` (never invented).
-- Keyed by the exact `path` string from the manifest, so the deterministic provider matches
-  unambiguously. A page present in the manifest but absent from the extractions file is treated as a
-  per-page error (`"no extraction for page"`) — it does not abort the document.
+- The sibling path is derived from the image path (`extractions.classify_path_for`). A manifest page
+  whose `.classify.json` is missing is treated as a per-page error
+  (`"no classification for page (run classify-doc-page)"`) — it does not abort the document.
+
+## New — Mismatch summary (vision-step hand-back)
+
+The terse, machine-readable list the `analyze-docs` agent returns (via the `mismatches` command):
+one item per mismatch — `kind` (amount / vendor / date / page-error / duplicate_billing), its
+document/entry, and ledger-vs-extracted values. This is the context-clean hand-back to a caller
+(no images or artifacts). See feature `007-classification-improve-loop`.
 
 ## Entity relationships
 
 ```
-Period JSON ──(docs-plan: select_work + group_documents)──▶ Work manifest
+Period JSON ──(docs-plan: select_work + group_documents)──▶ Work manifest (scoped to period or doc subset)
                                                                   │
                 Work manifest.groups[].pages[].read_path ─────────┤
                                                                   ▼
-                                                       analyze-docs AGENT (vision)
-                                                                  │ writes
+                                   classify-period → classify-doc-page SKILLS (vision, per page)
+                                                                  │ each writes
                                                                   ▼
-                                                          Extractions file
+                                                  <image>.classify.json (one per page)
                                                                   │
-Work manifest + Extractions file ──(apply-extractions)──▶ document_analyses (+ records)
-   │  per representative: provider → PageAnalysisRecord → _map_artifact_role → _rollup
+Work manifest + per-page classify files ──(apply-extractions)──▶ document_analyses (+ records)
+   │  per representative: FileExtractionProvider → PageAnalysisRecord → _map_artifact_role → _rollup
    │  per group: _apply_group_amount_match / reconcile_group ; fan out via _fanout_result
    │  per member: entry vendor/date/amount validation ; _merge_and_write into Period JSON
    ▼
-duplicate_billing check (unchanged) reads persisted document_analyses
+analyze (checks, incl. duplicate_billing) ──▶ mismatches summary ──▶ analyze-docs agent return value
 ```
 
 ## In-memory provider seam
 
 `ExtractionProvider`: callable `path -> (parsed: dict | None, error: str | None)`.
 
-- `FileExtractionProvider(extractions: dict)` returns `(fields, None)` for a fields object,
-  `(None, reason)` for an `{error}` object, and `(None, "no extraction for page")` when the path is
-  absent. This is the single seam that replaced the VLM; `build_document_analysis` calls it per page
-  instead of the removed `_analyze_page`.
+- `FileExtractionProvider()` (stateless) resolves the page image's sibling `.classify.json`
+  (`classify_path_for`) and returns `(fields, None)` for a fields object, `(None, reason)` for an
+  `{error}` object, and `(None, "no classification for page …")` when the file is absent/unreadable.
+  This is the single seam that replaced the VLM; `build_document_analysis` calls it per page instead
+  of the removed `_analyze_page`.

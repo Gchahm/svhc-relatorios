@@ -79,13 +79,13 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   a self-contained feature description into `specs/_handoff/` for a separate speckit-running agent
   to pick up. Advisory only — it never modifies app code, schema, or data.
 - **analyze-docs agent** (`.claude/agents/analyze-docs.md`, feature `006-analyze-docs-agent`): the
-  Claude-vision replacement for the retired mlx_vlm extraction step. Given a period it reads the
-  work manifest **already produced by `docs-plan`** (it does not generate the manifest, and has no
-  `Bash`), views each representative page image with the Read tool, and writes a per-page extractions
-  file (`<period>.extractions.json`). The maintainer then runs `docs-plan` (before) and
-  `apply-extractions` (after); the agent only reads images and writes the extractions file —
-  `apply-extractions` is the sole writer of the analyses. If the manifest is missing, the agent stops
-  and asks the maintainer to run `docs-plan` first.
+  context-isolated **vision/analysis step**. Given a period (or a `--document-id`/`--entry-id`
+  subset) it runs the whole classification analysis and returns ONLY a terse mismatch summary, so a
+  caller (e.g. an orchestrator) stays context-clean. It does **not** read page images itself —
+  it `docs-plan`s the (scoped) manifest, delegates page reading to the `classify-period` /
+  `classify-doc-page` skills, then runs `apply-extractions` → `analyze` → `mismatches` and hands back
+  that JSON. Tools: `Bash, Skill, Read, Glob`. Deciding true-vs-false on a mismatch, and any fix, are
+  separate steps (see feature `007-classification-improve-loop`).
 
 ## Active Technologies
 

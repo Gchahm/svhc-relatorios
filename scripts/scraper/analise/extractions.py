@@ -1,20 +1,22 @@
-"""Agent-driven document extraction: plan -> (Claude vision agent) -> apply.
+"""Agent-driven document extraction: plan -> (Claude vision) -> apply.
 
 This module replaces the local-VLM extraction step. The flow is three touchpoints
-around a Claude vision subagent (`.claude/agents/analyze-docs.md`):
+around a Claude vision skill (`.claude/skills/classify-doc-page`, usually driven
+per period by `.claude/skills/classify-period`):
 
 1. ``plan_extractions`` selects + groups the documents to analyze (reusing
    ``select_work``) and writes a work manifest ``<period>.extract-todo.json``.
-2. The agent reads that manifest, views each representative page image, and writes
-   a per-page ``<period>.extractions.json`` mapping a page ``path`` to its parsed
+2. The vision skill views each representative page image and writes, **next to the
+   image**, a per-page ``<image-stem>.classify.json`` holding that page's parsed
    fields (or ``{"error": ...}``).
-3. ``apply_extractions`` consumes the manifest + extractions and runs the existing
+3. ``apply_extractions`` consumes the manifest, reads each page's sibling
+   ``.classify.json`` (via ``FileExtractionProvider``), and runs the existing
    deterministic roll-up / group reconciliation / sibling fan-out / entry
    validation / write-back, producing ``document_analyses`` identical in shape to
    the old flow.
 
-The contracts for the two files live under
-``specs/006-analyze-docs-agent/contracts/``.
+The manifest contract lives under ``specs/006-analyze-docs-agent/contracts/``; the
+per-page classification contract is ``.claude/skills/classify-doc-page``.
 """
 
 import json
@@ -42,9 +44,17 @@ def extract_todo_path(data_dir: str, period: str) -> Path:
     return Path(data_dir) / f"{period}.extract-todo.json"
 
 
-def extractions_path(data_dir: str, period: str) -> Path:
-    """Path of the agent-produced extractions file for a period."""
-    return Path(data_dir) / f"{period}.extractions.json"
+CLASSIFY_SUFFIX = ".classify.json"
+
+
+def classify_path_for(image_path: str | Path) -> Path:
+    """Sibling classification file for a page image.
+
+    `classify-doc-page` writes its result next to the image, replacing the image
+    extension with ``.classify.json`` (e.g. ``<id>_p1.png`` -> ``<id>_p1.classify.json``).
+    """
+    p = Path(image_path)
+    return p.with_name(p.stem + CLASSIFY_SUFFIX)
 
 
 def _read_json(path: Path) -> dict:
@@ -56,30 +66,34 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 class FileExtractionProvider:
-    """Extraction provider backed by an agent-written extractions map.
+    """Extraction provider backed by per-image ``<image-stem>.classify.json`` files.
 
-    Maps a page ``path`` to ``(fields, None)`` for a fields object, ``(None,
-    reason)`` for an ``{"error": ...}`` object, and ``(None, "no extraction for
-    page")`` when the path is absent — matching the ``ExtractionProvider`` seam in
-    ``documentos.build_document_analysis``.
+    For a page image path it loads the sibling classification file written by the
+    `classify-doc-page` skill and returns ``(fields, None)`` for a fields object,
+    ``(None, reason)`` for an ``{"error": ...}`` object, and
+    ``(None, "no classification for page")`` when the file is absent — matching the
+    ``ExtractionProvider`` seam in ``documentos.build_document_analysis``. Stateless:
+    each lookup resolves the sibling file fresh, so a page classified after the run
+    started is still picked up.
     """
 
-    def __init__(self, extractions: dict | None):
-        self._ex = extractions or {}
-
     def __call__(self, path: str) -> tuple[dict | None, str | None]:
-        val = self._ex.get(path)
-        if val is None:
-            return None, "no extraction for page"
+        cp = classify_path_for(path)
+        if not cp.exists():
+            return None, "no classification for page (run classify-doc-page)"
+        try:
+            val = json.loads(cp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            return None, f"invalid classification json ({cp.name}): {e}"
         # Tolerate a string-wrapped JSON object just in case.
         if isinstance(val, str):
             val = _parse_json_blob(val)
             if val is None:
-                return None, "unparseable extraction entry"
+                return None, f"unparseable classification json ({cp.name})"
         if not isinstance(val, dict):
-            return None, "invalid extraction entry"
+            return None, f"invalid classification entry ({cp.name})"
         if "error" in val:
-            return None, str(val.get("error") or "extraction error")
+            return None, str(val.get("error") or "classification error")
         return val, None
 
 
@@ -181,7 +195,7 @@ def plan_extractions(
         logger.info("Wrote %s: %d group(s), %d page(s) to extract", path, len(out_groups), total_pages)
 
     print(f"\nPlanned {total_groups} group(s), {total_pages} representative page(s) across {len(by_period)} period(s).")
-    print("Next: run the analyze-docs agent to produce <period>.extractions.json, then `apply-extractions`.")
+    print("Next: classify each page (the classify-doc-page skill writes <image>.classify.json), then `apply-extractions`.")
 
 
 def _periods_with_manifests(data_dir: str) -> list[str]:
@@ -193,12 +207,14 @@ def apply_extractions(
     data_dir: str,
     periods_filter: list[str] | None = None,
 ) -> None:
-    """Merge agent extractions into period JSON(s) as ``document_analyses``.
+    """Merge per-page classifications into period JSON(s) as ``document_analyses``.
 
-    For each period with a manifest, reads the extractions file, rebuilds the
-    representative document's analysis via the deterministic pipeline, reconciles
-    shared-NF groups, fans the extraction out to sibling members, and writes the
-    results back — the same output the old VLM runner produced.
+    For each period with a manifest, rebuilds the representative document's analysis
+    from each page's sibling ``<image-stem>.classify.json`` (via
+    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction
+    out to sibling members, and writes the results back — the same output the old
+    VLM runner produced. A page whose ``.classify.json`` is missing is recorded as a
+    per-page error and does not abort the document.
     """
     data_path = Path(data_dir)
     target_periods = periods_filter or _periods_with_manifests(data_dir)
@@ -206,19 +222,15 @@ def apply_extractions(
         logger.info("No manifests found; run docs-plan first")
         return
 
+    provider = FileExtractionProvider()
     all_results: list[DocAnalysisResult] = []
     for period in target_periods:
         todo_path = extract_todo_path(data_dir, period)
         if not todo_path.exists():
             logger.warning("No manifest for %s (%s); run docs-plan first", period, todo_path)
             continue
-        ex_path = extractions_path(data_dir, period)
-        if not ex_path.exists():
-            logger.warning("No extractions for %s (%s); run the analyze-docs agent first", period, ex_path)
-            continue
 
         manifest = _read_json(todo_path)
-        provider = FileExtractionProvider(_read_json(ex_path))
         period_json = data_path / f"{period}.json"
         raw = json.loads(period_json.read_text(encoding="utf-8"))
 
@@ -231,7 +243,9 @@ def apply_extractions(
             if rep_member is None:
                 continue
 
-            rep_file_path = ";".join(p["path"] for p in group["pages"])
+            # Use the absolute read_path so the sibling .classify.json resolves
+            # regardless of the current working directory; fall back to path.
+            rep_file_path = ";".join(p.get("read_path") or p["path"] for p in group["pages"])
             rep_result = build_document_analysis(
                 rep_file_path,
                 rep_member["entry_amount"],
@@ -272,3 +286,87 @@ def apply_extractions(
         logger.info("No extractions applied")
         return
     summarize_results(all_results)
+
+
+def summarize_mismatches(
+    data_dir: str,
+    periods_filter: list[str] | None = None,
+    *,
+    document_ids: list[str] | None = None,
+    entry_ids: list[str] | None = None,
+) -> list[dict]:
+    """Terse, machine-readable list of classification mismatches for a caller/loop.
+
+    Read-only (no model, no writes): joins the persisted ``document_analyses``
+    (amount / vendor / date / page-error) and ``duplicate_billing`` alerts with the
+    ledger entries, optionally scoped to specific document or entry ids. This is the
+    concise hand-back the vision step returns instead of dumping page images or full
+    artifacts. Run after ``apply_extractions`` (for the analyses) and ``analyze``
+    (for the alerts).
+    """
+    periods, refs = load_all_periods(data_dir, periods_filter)
+    doc_filter = set(document_ids) if document_ids else None
+    entry_filter = set(entry_ids) if entry_ids else None
+
+    out: list[dict] = []
+    for period, pd in periods.items():
+        entry_map = {e["id"]: e for e in pd.entries}
+        doc_map = {d["id"]: d for d in pd.documents}
+
+        for a in pd.raw.get("document_analyses", []):
+            doc = doc_map.get(a["document_id"])
+            entry_id = doc.get("entry_id") if doc else None
+            if doc_filter is not None and a["document_id"] not in doc_filter:
+                continue
+            if entry_filter is not None and entry_id not in entry_filter:
+                continue
+            entry = entry_map.get(entry_id) if entry_id else None
+            base = {"period": period, "document_id": a["document_id"], "entry_id": entry_id}
+
+            if a.get("error"):
+                out.append({**base, "kind": "page-error", "detail": a["error"]})
+                continue
+            if a.get("amount_match") == 0:
+                out.append(
+                    {
+                        **base,
+                        "kind": "amount",
+                        "ledger_amount": entry.get("amount") if entry else None,
+                        "extracted_amount": a.get("extracted_amount"),
+                    }
+                )
+            if a.get("vendor_match") == 0:
+                vendor = refs.vendor_name(entry["vendor_id"]) if entry and entry.get("vendor_id") else None
+                out.append(
+                    {**base, "kind": "vendor", "ledger_vendor": vendor, "extracted_issuer": a.get("issuer_name")}
+                )
+            if a.get("date_match") == 0:
+                out.append({**base, "kind": "date", "expected_period": period, "extracted_date": a.get("extracted_date")})
+
+        for al in pd.raw.get("alerts", []):
+            if al.get("type") != "duplicate_billing":
+                continue
+            meta = {}
+            if al.get("metadata"):
+                try:
+                    meta = json.loads(al["metadata"])
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            docids = meta.get("document_ids", []) or []
+            entids = meta.get("entry_ids", []) or []
+            if doc_filter is not None and not (set(docids) & doc_filter):
+                continue
+            if entry_filter is not None and not (set(entids) & entry_filter):
+                continue
+            out.append(
+                {
+                    "period": period,
+                    "kind": "duplicate_billing",
+                    "document_ids": docids,
+                    "entry_ids": entids,
+                    "nf_total": meta.get("nf_total"),
+                    "sum_entries": meta.get("sum_entries"),
+                    "over_claim": meta.get("over_claim"),
+                }
+            )
+    return out

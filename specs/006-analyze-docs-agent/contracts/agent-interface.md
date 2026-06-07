@@ -1,7 +1,14 @@
 # Contract: `analyze-docs` agent interface
 
-The agent lives at `.claude/agents/analyze-docs.md` (a Claude Code subagent, same convention as
-`pm.md`). It is invoked inside a Claude Code session.
+The agent lives at `.claude/agents/analyze-docs.md` (a Claude Code subagent). It is invoked inside a
+Claude Code session, typically delegated to by an orchestrator.
+
+> **Evolution note:** this agent originally did the vision itself (read each page image and wrote a
+> single `<period>.extractions.json`). It is now the **context-isolated vision/analysis step**: it
+> delegates page reading to the `classify-doc-page` / `classify-period` skills, runs the deterministic
+> pipeline, and hands back only a terse mismatch summary. The per-page reading + the
+> `<image>.classify.json` contract now live with `classify-doc-page` (see
+> `.claude/skills/classify-doc-page` and `contracts/extractions.schema.md`).
 
 ## Frontmatter
 
@@ -9,48 +16,45 @@ The agent lives at `.claude/agents/analyze-docs.md` (a Claude Code subagent, sam
 ---
 name: analyze-docs
 description: >-
-    Extracts structured fiscal fields from document page images for a scraped period — the Claude
-    vision replacement for the retired mlx_vlm extraction step. Reads an existing work manifest for
-    a period, views each representative page image, and writes a per-page extractions file that the
-    deterministic `apply-extractions` step merges into the period JSON. It does NOT generate the
-    manifest. Invoke it for requests like "analyze the documents for 2025-12" or "extract document
-    fields for this period".
-tools: Read, Glob, Write
+    The context-isolated VISION/ANALYSIS step. Runs document-classification analysis for a whole
+    scraped period OR a specified subset of documents, and returns ONLY a terse mismatch summary.
+    Delegates page reading to the classify-doc-page / classify-period skills (never reads page images
+    itself), then runs the deterministic merge + checks.
+tools: Bash, Skill, Read, Glob
 model: inherit
 color: blue
 ---
 ```
 
-`Read` is required for native image vision; `Write` to emit the extractions file; `Glob` to locate
-the manifest. The agent intentionally has **no `Bash`** — it does not run `docs-plan` or
-`apply-extractions`; those are the maintainer's deterministic steps.
+`Bash` runs the pipeline commands; `Skill` invokes `classify-period`; `Read`/`Glob` inspect the
+manifest/results. It does **not** read page images — that is delegated to the skills.
 
 ## Inputs
 
-- A **period** (e.g. `2025-12`) and/or an explicit **manifest path**
-  (`data/scrape/<period>.extract-todo.json`). The manifest must already exist (produced by the
-  maintainer running `docs-plan`); the agent never generates it.
+- A **period** (`YYYY-MM`) — required.
+- Optionally a **subset**: `--document-id`(s) and/or `--entry-id`(s) to analyze instead of the whole
+  period (so a re-run after a fix is cheap). Subset scoping is threaded through `docs-plan`.
 
 ## Procedure (defined in the agent body)
 
-1. **Read the manifest (never create it).** Read `data/scrape/<period>.extract-todo.json` (or the
-   given path). If it does not exist, STOP and report that it is missing and the maintainer must run
-   `docs-plan --periodo <period>` first — do not run `docs-plan` and do not create the manifest.
-2. **Extract.** For each group, for each page, open `read_path` with the Read tool and produce the
-   frozen field set (`contracts/page-extraction-fields.md`). On a missing/unreadable/illegible page,
-   record `{ "error": "<reason>" }` for that page's `path`. Never fabricate values.
-3. **Write** `data/scrape/<period>.extractions.json` keyed by each page's `path`
-   (`contracts/extractions.schema.md`). Write incrementally / re-write the full map so a long run is
-   resumable and inspectable.
-4. **Report** how to finish: tell the maintainer to run
-   `cd scripts && uv run python -m scraper apply-extractions --periodo <period>`. The agent does not
-   run it.
+1. **Plan (scoped).** Run `docs-plan --periodo <period> [--document-id …] [--entry-id …]` to write
+   the (scoped) manifest. Targeting ids implies re-analysis of those documents. If it reports
+   "Nothing to extract", skip step 2.
+2. **Classify (delegate).** Invoke the `classify-period` skill for the period — it reads the manifest
+   and fans pages out to `classify-doc-page`, which writes the `<image>.classify.json` files. The
+   agent never reads page images itself.
+3. **Merge.** Run `apply-extractions --periodo <period>`.
+4. **Check.** Run `analyze --periodo <period>`.
+5. **Summarize.** Run `mismatches --periodo <period> [--document-id …] [--entry-id …]` and return that
+   JSON as the entire result.
 
 ## Guarantees / boundaries
 
-- The agent only **reads** page images and **writes** the extractions file. It does not generate the
-  manifest, run the merge, or edit application code, schema, or the period JSON directly — the
-  deterministic `apply-extractions` is the only writer of `document_analyses`.
-- The agent extracts each representative page once; byte-identical siblings are handled by the
-  deterministic fan-out, so the agent never re-views them (SC-005).
-- Output conforms to the extractions contract so `apply-extractions` and the import are unaffected.
+- The agent orchestrates and summarizes; it never reads page images, writes `.classify.json`, edits
+  code/schema, or writes the period JSON by hand. `apply-extractions` is the only writer of
+  `document_analyses`.
+- Each representative page is classified once; byte-identical siblings are handled by the
+  deterministic fan-out (SC-005).
+- The hand-back is only the terse mismatch summary — no images, transcripts, or full artifacts —
+  keeping the caller's context clean. Deciding true-vs-false and any fix are separate steps
+  (feature `007-classification-improve-loop`).

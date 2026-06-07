@@ -24,7 +24,7 @@ if str(_SCRIPTS) not in sys.path:
 from scraper.analise.checks.advanced import check_duplicate_billing  # noqa: E402
 from scraper.analise.extractions import (  # noqa: E402
     apply_extractions,
-    extractions_path,
+    classify_path_for,
     plan_extractions,
 )
 from scraper.analise.loader import load_all_periods  # noqa: E402
@@ -96,9 +96,10 @@ def build_fixture(data_dir: Path) -> dict:
 
 
 def author_extractions(data_dir: Path) -> None:
-    """Read the manifest and write the synthetic extractions keyed by page path.
+    """Read the manifest and write a synthetic `<image-stem>.classify.json` per page.
 
-    Keys MUST be the manifest `path` strings, so derive them from the manifest.
+    Page paths are derived from the manifest; the classification is written next to
+    each image (the layout `classify-doc-page` produces).
     """
     manifest = json.loads((data_dir / f"{PERIOD}.extract-todo.json").read_text(encoding="utf-8"))
     rep_by_doc = {g["representative_document_id"]: g for g in manifest["groups"]}
@@ -163,9 +164,12 @@ def author_extractions(data_dir: Path) -> None:
     (e_p1,) = pages_of("d_E")
     extractions[e_p1] = {"error": "page illegible"}
 
-    extractions_path(str(data_dir), PERIOD).write_text(
-        json.dumps(extractions, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Write one <image-stem>.classify.json next to each page image — the per-page
+    # layout the classify-doc-page skill produces and FileExtractionProvider reads.
+    for page_path, value in extractions.items():
+        classify_path_for(page_path).write_text(
+            json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 
 def verify(data_dir: Path) -> None:

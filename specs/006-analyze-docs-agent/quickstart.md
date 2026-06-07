@@ -1,43 +1,53 @@
-# Quickstart: Document analysis with the Claude vision agent
+# Quickstart: Document analysis with the Claude vision skills
 
-The VLM (`mlx_vlm`) flow is retired. Document analysis is now a three-step flow: **plan → extract
-(agent) → apply**.
+The VLM (`mlx_vlm`) flow is retired. Document analysis is now: **plan → classify (skills) → apply →
+check → summarize**. The `analyze-docs` agent orchestrates these and hands back a terse mismatch
+summary; you can also run the steps directly.
 
 ## Normal run (inside Claude Code)
 
 ```bash
-# 1. Plan the work for a period (deterministic; groups shared NFs, applies filters).
+# 1. Plan the work for a period (deterministic; groups shared NFs, applies filters/subset).
 cd scripts
-uv run python -m scraper docs-plan --periodo 2025-12
+uv run python -m scraper docs-plan --periodo 2025-12   # or add --document-id <ids…> for a subset
 #   → writes ../data/scrape/2025-12.extract-todo.json
 ```
 
 ```text
-# 2. Extract — invoke the agent in Claude Code:
-"Use the analyze-docs agent to extract document fields for 2025-12"
-#   → the agent reads each page image and writes ../data/scrape/2025-12.extractions.json
-#   (the agent can also run step 1 for you if no manifest exists yet)
+# 2. Classify — invoke the skills in Claude Code:
+"Use the classify-period skill for 2025-12"
+#   → classify-period fans each page out to classify-doc-page, which writes
+#     <image>.classify.json next to every page image.
 ```
 
 ```bash
-# 3. Apply — merge the extractions into the period JSON (deterministic; roll-up + reconcile + write).
+# 3. Apply — merge the per-page classifications (deterministic; roll-up + reconcile + write).
 cd scripts
 uv run python -m scraper apply-extractions --periodo 2025-12
 #   → writes document_analyses (+ analysis_records) into ../data/scrape/2025-12.json
-#   → run the financial analysis to emit duplicate_billing etc.:
+
+# 4. Check — emit alerts (duplicate_billing etc.).
 uv run python -m scraper analyze --periodo 2025-12
+
+# 5. Summarize — terse machine-readable mismatch list (the agent returns this).
+uv run python -m scraper mismatches --periodo 2025-12   # or --document-id <ids…> to scope
 ```
 
-Selection flags on `docs-plan` mirror the old `analyze-docs`: `--min-amount`, `--limit`,
-`--reanalyze`, `--document-id`, `--entry-id`, `--data-dir`.
+Or delegate the whole thing: invoke the **`analyze-docs` agent** ("analyze the documents for
+2025-12", or a `--document-id` subset) — it runs steps 1–5 in its own context and returns only the
+mismatch summary.
+
+Selection flags on `docs-plan`: `--min-amount`, `--limit`, `--reanalyze`, `--document-id`,
+`--entry-id`, `--data-dir`.
 
 ## Verification without a VLM (SC-002, runs in the sandbox)
 
 The vision model can't run here, so behavior preservation is verified with **synthetic
-extractions** — hand-authored values fed through the real deterministic pipeline.
+classifications** — hand-authored values fed through the real deterministic pipeline
+(`fixtures/build_and_verify.py` writes one `<image>.classify.json` per page).
 
 1. Generate a manifest for a period (or hand-write a tiny one).
-2. Author a `<period>.extractions.json` covering, at minimum:
+2. Author the per-page `<image>.classify.json` files covering, at minimum:
     - a single-entry document (per-entry amount match),
     - a shared-NF group whose sibling sum **reconciles** with the NF gross total,
     - a shared-NF group whose sibling sum **exceeds** the NF total (expect `over_claim` →
