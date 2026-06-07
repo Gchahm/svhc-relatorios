@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from ..utils import now_ms
+from common import now_ms
 
 
 @dataclass

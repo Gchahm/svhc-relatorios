@@ -3,7 +3,7 @@
 import logging
 from collections import defaultdict
 
-from ...utils import det_id
+from common import det_id
 from ..models import Alert, PeriodData, RefIndex
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,13 @@
 # Phase 0 Research: Decouple the Analysis Pipeline from the Scraper
 
+> **Scope update (supersedes Decisions 2 & 3 below).** The refactor was simplified to a **plain
+> folder split** — `scripts/{common,scraper,analysis}/` run via `python -m`, one venv, no
+> `pyproject`/build-system/uv-workspace/console-scripts change. The console-scripts (Decision 2) and
+> uv-workspace with separate dependency sets (Decision 3) were **descoped** — they only buy bare
+> command names and a standalone install, neither needed to run analysis here without the scraper.
+> Those decisions are kept below as the considered-and-rejected alternatives. Decisions 0, 1, 4, 5
+> still hold. Authoritative shape: `plan.md` (Scope update) + `tasks.md`.
+
 Evidence-based decisions for the refactor. No open NEEDS CLARIFICATION items — the dependency graph
 was measured directly (see Decision 0).
 

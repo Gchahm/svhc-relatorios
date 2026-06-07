@@ -9,7 +9,7 @@ import logging
 import pathlib
 import re
 from dataclasses import dataclass, field
-from ..utils import det_id, now_ms
+from common import det_id, now_ms
 from .nf_groups import group_documents, reconcile_group
 
 logger = logging.getLogger(__name__)

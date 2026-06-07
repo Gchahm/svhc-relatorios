@@ -3,6 +3,14 @@
 **Branch**: `008-decouple-analysis-scripts` | **Date**: 2026-06-07 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `/specs/008-decouple-analysis-scripts/spec.md`
 
+> **Scope update (simplified).** The build-system / uv-workspace / console-scripts machinery is
+> **descoped**. Those only buy bare command names (`docs-plan`) and a standalone install with a
+> separate dependency set — neither is needed to run analysis here without the scraper. The refactor
+> is just a **plain folder split** — `scripts/{common,scraper,analysis}/`, run via `python -m`, one
+> venv, no `pyproject` change. US2 and US3 below collapse into one "folders + `common` leaf" slice
+> (see tasks.md). The text below that still mentions a workspace/console-scripts is retained only as
+> the rejected alternative.
+
 ## Summary
 
 Untangle the two jobs under `scripts/` — Playwright **scraping** and stdlib-only **analysis** — which
@@ -87,17 +95,20 @@ scripts/
     └── analise/              # analysis (stdlib only): loader, models, documentos, nf_groups,
                               #   extractions, reporter, checks/
 
-# TARGET (after P3)
+# TARGET (simplified — plain folders, no packaging change)
 scripts/
-├── pyproject.toml            # uv workspace root: members = common, scraper, analysis
-├── common/                   # det_id/NAMESPACE, now_ms  (stdlib only; the only shared code)
-├── scraper/                  # scraping CLI + runner/browser/config/extractors; deps: common + playwright
-└── analysis/                 # (was scraper/analise) analysis CLI + pipeline; deps: common ONLY (stdlib)
+├── pyproject.toml            # UNCHANGED (still svhc-scraper + playwright; uv runs modules from here)
+├── common/                   # det_id/NAMESPACE, now_ms  (stdlib; the only shared code)
+│   └── __init__.py
+├── scraper/                  # scraping CLI + runner/browser/config/extractors  (imports common)
+└── analysis/                 # (was scraper/analise) pipeline + __main__ dispatcher  (imports common)
 ```
 
-**Structure Decision**: keep everything under `scripts/` (single repo). P1/P2 make no physical moves
-(lazy import + a new entrypoint). P3 promotes `scraper/analise` → top-level `analysis`, extracts
-`utils` → `common`, and turns `scripts/` into a uv workspace so `analysis` carries no Playwright dep.
+**Structure Decision**: keep everything under `scripts/`, one venv. US1 made no moves (lazy import).
+US2 promotes `scraper/analise` → top-level `analysis`, extracts `utils` → `common`, and adds
+`python -m analysis`. All three resolve as top-level packages because `scripts/` is the run dir —
+**no `pyproject`/build-system/workspace change**. (Separate installable dep sets would need a uv
+workspace; descoped as unnecessary.)
 
 ## Staged approach
 

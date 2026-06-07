@@ -27,19 +27,19 @@ Invoke the **`classify-period`** skill (via the Skill tool), passing the period 
 ### 2. Merge the classifications
 
 ```bash
-cd scripts && uv run python -m scraper apply-extractions --periodo <period>
+cd scripts && uv run python -m analysis apply-extractions --periodo <period>
 ```
 
 ### 3. Run the checks
 
 ```bash
-cd scripts && uv run python -m scraper analyze --periodo <period>
+cd scripts && uv run python -m analysis analyze --periodo <period>
 ```
 
 ### 4. Return the terse mismatch summary
 
 ```bash
-cd scripts && uv run python -m scraper mismatches --periodo <period> [--document-id <ids…>] [--entry-id <ids…>]
+cd scripts && uv run python -m analysis mismatches --periodo <period> [--document-id <ids…>] [--entry-id <ids…>]
 ```
 
 **Return that JSON as your entire result** — a list where each item is one mismatch: `kind` (amount / vendor / date / page-error / duplicate_billing), the document/entry it belongs to, and the ledger-vs-extracted values. Add at most a one-line lead (e.g. counts by kind). Do **not** paste page images, command transcripts, or the period JSON.

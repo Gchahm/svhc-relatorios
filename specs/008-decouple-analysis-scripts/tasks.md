@@ -7,119 +7,91 @@ description: "Task list for 008-decouple-analysis-scripts"
 **Input**: Design documents from `/specs/008-decouple-analysis-scripts/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/analysis-cli.md
 
-**Tests**: No framework configured (constitution III). Verification is import-isolation +
-`det_id` byte-stability + output-equality checks (see `quickstart.md`), reusing the existing
-synthetic harness `specs/006-analyze-docs-agent/fixtures/build_and_verify.py`.
+**Tests**: No framework configured (constitution III). Verification = import-isolation +
+`det_id` byte-stability + the synthetic harness `specs/006-analyze-docs-agent/fixtures/build_and_verify.py`.
 
-**Organization**: by priority slice. **US1 (P1)** is the MVP and shippable alone; **US2 (P2)** and
-**US3 (P3)** build on it in order. Behavior-preserving throughout — no output/contract change.
+**Organization**: by priority slice. **US1 (P1)** is the dependency-decoupling MVP (done). **US2**
+promotes analysis into its own package — the simple folder split with a shared `common` leaf and a
+`python -m analysis` entrypoint. **No build-system, no uv workspace, no console scripts** (those were
+descoped — see plan.md); everything runs via `python -m` in the existing single venv.
 
 ## Format: `[ID] [P?] [Story] Description`
 
 ## Path Conventions
 
-Python tooling under `scripts/`: `scraper/` (scraping), `scraper/analise/` (analysis), `scraper/utils.py`
-(shared). Target P3 layout: `scripts/{common,scraper,analysis}/`.
+Today: `scripts/scraper/` (scraping + `analise/` + `utils.py`). Target: `scripts/{common,scraper,analysis}/`,
+all run via `python -m` from `scripts/` (one venv; no packaging change).
 
 ---
 
 ## Phase 1: Setup (verification baselines)
 
-**Purpose**: capture pre-refactor behavior so every slice can prove it changed nothing.
-
-- [x] T001 Capture baselines (not committed): record `det_id` output for a fixed input set (e.g. `det_id("doc_analysis","abc")`, `det_id("alert","x")`) and the `NAMESPACE` value; and snapshot a sample period's analysis output — run `apply-extractions`/`analyze`/`mismatches` for one period (or the synthetic fixture) and save the resulting `document_analyses`/`alerts`/summary to a scratch file for later diffing.
+- [x] T001 Capture baselines (not committed): `det_id` outputs for a fixed input set + the `NAMESPACE` value, and the synthetic-harness pass, so each change can prove it changed nothing.
 
 ---
 
 ## Phase 2: Foundational
 
-**Purpose**: none — the slices are self-contained and sequential by priority; there is no shared
-blocking work beyond the Phase 1 baselines. Proceed to US1.
+**Purpose**: none — slices are self-contained and sequential. Proceed.
 
 ---
 
-## Phase 3: User Story 1 - Run analysis without the scraping stack (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 - Run analysis without the scraping stack (Priority: P1) 🎯 MVP — DONE
 
-**Goal**: analysis commands import and run with no Playwright; scraping unchanged.
+- [x] T002 [US1] In `scripts/scraper/__main__.py`, drop the top-level `from .runner import …`; lazy-import `run_scrape`/`run_download_docs` inside the `scrape`/`download-docs` argparse handlers.
+- [x] T003 [US1] In `interactive()`, lazy-import `run_scrape`/`run_download_docs` inside the scrape/download branches.
+- [x] T004 [US1] Verified: analysis commands run under plain `python3` (no Playwright); `det_id` sample byte-identical to baseline; scrape/download still registered; synthetic harness passes.
 
-**Independent Test**: with Playwright absent, `python3 -m scraper docs-plan|apply-extractions|analyze|mismatches` run; `scrape -h` works where Playwright is present; outputs identical to baseline.
-
-### Implementation for User Story 1
-
-- [x] T002 [US1] In `scripts/scraper/__main__.py`, remove the top-level `from .runner import run_download_docs, run_scrape` and import `run_scrape`/`run_download_docs` **inside** the `scrape` and `download-docs` argparse handlers in `main()` (the `args.command == "scrape"` / `"download-docs"` branches).
-- [x] T003 [US1] In `scripts/scraper/__main__.py` `interactive()`, import `run_scrape`/`run_download_docs` inside the two branches that call them (the "Scrape periods" and "Download documents" menu actions), so the interactive path also avoids the top-level scraper import.
-- [x] T004 [US1] Verify US1: in an environment without Playwright, confirm the four analysis commands run and `python3 -c "import scraper.analise.extractions"` succeeds; confirm `scrape -h`/`download-docs -h` still import where Playwright is present; re-run the synthetic harness and confirm outputs + `det_id` sample match the T001 baseline.
-
-**Checkpoint**: analysis runs Playwright-free; shippable as its own PR.
+**Checkpoint**: analysis runs Playwright-free (shipped in PR #11).
 
 ---
 
-## Phase 4: User Story 2 - A dedicated analysis entrypoint (Priority: P2)
+## Phase 4: User Story 2 - Independent `analysis` package with a shared `common` leaf (Priority: P2)
 
-**Goal**: analysis is invoked through its own entrypoint (per-command console scripts + a `python -m scraper.analise` dispatcher); callers/docs updated; one obvious way to run each op.
+**Goal**: scraping and analysis live in separate top-level packages sharing only a `common` leaf;
+analysis has its own `python -m analysis` entrypoint and never touches the scraper. Plain folders +
+`python -m` — no build-system, no workspace. Behavior-preserving; `det_id` ids byte-stable.
 
-**Independent Test**: each command run via the new entrypoint matches the old `scraper <cmd>` behavior; no stale `scraper <analysis-cmd>` references remain.
+**Independent Test**: `python -m analysis <cmd>` runs every analysis op (matching old behavior) with
+no scraper import; `python -m scraper` is scrape/download only; `det_id` unchanged; harness passes.
 
 ### Implementation for User Story 2
 
-- [ ] T005 [US2] Add `scripts/scraper/analise/cli.py`: a shared arg-parser helper for the common flags (`--periodo`/`--data-dir`/`--min-amount`/`--limit`/`--reanalyze`/`--document-id`/`--entry-id`) plus a thin `main()` per command (`docs_plan_main`, `apply_main`, `analyze_main`, `mismatches_main`) delegating to the existing `plan_extractions`/`apply_extractions`/`run_analysis`/`summarize_mismatches` (per `contracts/analysis-cli.md`).
-- [ ] T006 [US2] Add `scripts/scraper/analise/__main__.py` dispatcher so `python -m scraper.analise <command>` works (argparse subcommands over `cli.py`), giving a single `--help` overview.
-- [ ] T007 [P] [US2] Declare console scripts in `scripts/pyproject.toml` `[project.scripts]`: `docs-plan`/`apply-extractions`/`analyze`/`mismatches` → the `analise.cli` mains.
-- [ ] T008 [US2] Remove the analysis subcommands (`analyze`, `docs-plan`, `apply-extractions`, `mismatches`) from `scripts/scraper/__main__.py` so the scraper CLI is `scrape`/`download-docs` only (one obvious analysis path); drop the now-unused `from .analise … import` from `__main__`.
-- [ ] T009 [P] [US2] Update callers + docs to the analysis entrypoint: `classify-period` skill (the `docs-plan` call), `analyze-docs` agent (`apply-extractions`/`analyze`/`mismatches`), `scripts/README.md` (Document-analysis section + workflow), and the CLAUDE.md document-analysis bullet.
-- [ ] T010 [US2] Verify US2: each operation via the new entrypoint matches baseline; `grep -rn "scraper docs-plan\|scraper apply-extractions\|scraper analyze\|scraper mismatches" .claude/ scripts/README.md CLAUDE.md` returns nothing (SC-006).
+- [x] T005 [US2] Create `scripts/common/__init__.py` containing `det_id`, `NAMESPACE`, `now_ms` moved **verbatim** from `scraper/utils.py` (byte-identical `NAMESPACE` — guards `det_id` stability).
+- [x] T006 [US2] Repoint the scraper to `common`: update every `scraper/*` import of `.utils` (at least `scraper/runner.py`) to `from common import …`; delete `scripts/scraper/utils.py` once no references remain (`grep -rn "utils import\|\.utils\b" scripts/scraper`).
+- [x] T007 [US2] Move `scripts/scraper/analise/` → `scripts/analysis/`. Fix the cross-boundary imports: `from ..utils` / `from ...utils` → `from common`. Intra-package relative imports (`from .documentos`, `from ..models`, `from ..nf_groups`, `from .checks`) are unchanged.
+- [x] T008 [US2] Add `scripts/analysis/__main__.py`: an argparse dispatcher for `docs-plan`/`apply-extractions`/`analyze`/`mismatches` (the command surface in `contracts/analysis-cli.md`) delegating to `run_analysis` (from `analysis`) and `plan_extractions`/`apply_extractions`/`summarize_mismatches` (from `analysis.extractions`), so `python -m analysis <cmd>` works.
+- [x] T009 [US2] Strip analysis from `scripts/scraper/__main__.py`: remove the `analyze`/`docs-plan`/`apply-extractions`/`mismatches` subparsers + dispatch branches, the `from .analise …` imports, the now-unused `json` import, and the three analysis actions in `interactive()` — leaving the scraper CLI as `scrape`/`download-docs` only.
+- [x] T010 [P] [US2] Update callers + docs to `python -m analysis <cmd>`: the `classify-period` skill (`docs-plan`), the `analyze-docs` agent (`apply-extractions`/`analyze`/`mismatches`), `scripts/README.md`, the CLAUDE.md document-analysis bullet, and the fixture import in `specs/006-analyze-docs-agent/fixtures/build_and_verify.py` (`from scraper.analise…` → `from analysis…`).
+- [x] T011 [US2] Verify US2: `det_id` sample byte-identical to T001 baseline; `python -m analysis docs-plan|apply-extractions|analyze|mismatches` run with no scraper/Playwright import; `python -m scraper --help` lists only `scrape`/`download-docs`; run the synthetic harness (passes); `grep -rn "scraper.analise\|scraper docs-plan\|scraper apply-extractions\|scraper mismatches" .claude/ scripts/ specs/006-analyze-docs-agent/` returns nothing.
 
-**Checkpoint**: analysis has its own entrypoint; scraper CLI no longer hosts analysis.
-
----
-
-## Phase 5: User Story 3 - Independent scraper and analysis packages (Priority: P3)
-
-**Goal**: `common` leaf + independent `scraper`/`analysis` packages in a uv workspace; analysis carries no Playwright dep; ids byte-stable.
-
-**Independent Test**: install/run `analysis` with no Playwright in its deps; `det_id` byte-identical to baseline; scraper + `import-to-d1` unchanged.
-
-### Implementation for User Story 3
-
-- [ ] T011 [US3] Create `scripts/common/` package containing `det_id`, `NAMESPACE`, `now_ms` moved verbatim from `scraper/utils.py` (byte-identical `NAMESPACE`); leave a thin re-export or remove `utils.py` once callers are repointed.
-- [ ] T012 [US3] Repoint the scraping side to `common`: update `scraper/runner.py` (and any other `scraper/*` users of `utils`) to import `det_id`/`now_ms` from `common`.
-- [ ] T013 [US3] Move `scripts/scraper/analise/` → `scripts/analysis/`; update intra-package imports (`..utils`/`...utils` → `common`) and the entrypoint/console-script targets (`scraper.analise.*` → `analysis.*`, `python -m analysis`).
-- [ ] T014 [US3] Make `scripts/pyproject.toml` a uv workspace with members `common`, `scraper`, `analysis`: `analysis` depends on `common` only (stdlib, no Playwright); `scraper` on `common` + `playwright`; re-lock (`uv lock`).
-- [ ] T015 [P] [US3] Update remaining references to the moved package: the `analyze-docs` agent / `classify-*` skills if they name `scraper.analise`, `scripts/README.md`, CLAUDE.md, and the fixture import in `specs/006-analyze-docs-agent/fixtures/build_and_verify.py` (`from scraper.analise…` → `from analysis…`).
-- [ ] T016 [US3] Verify US3: in an env where `analysis`'s deps are installed but Playwright is **not**, the full analysis flow runs; `det_id` sample byte-identical to T001 baseline; `scrape -h` works in the scraper env; `node scripts/import-to-d1.mjs --dry-run` produces unchanged SQL; synthetic harness passes.
-
-**Checkpoint**: clean `common`/`scraper`/`analysis` boundary; analysis installable Playwright-free.
+**Checkpoint**: clean `common`/`scraper`/`analysis` folders; analysis runs via its own entrypoint.
 
 ---
 
-## Phase 6: Polish & Cross-Cutting
+## Phase 5: Polish & Cross-Cutting
 
-- [ ] T017 Run the full `quickstart.md` verification (import isolation, det_id stability, output equality, scraper/import smoke) and confirm SC-001..SC-006.
-- [ ] T018 [P] Final consistency pass: `scripts/README.md`, CLAUDE.md, and `contracts/analysis-cli.md` all describe the same (final) entrypoint; no stale `scraper <analysis-cmd>` or `scraper.analise` references remain.
+- [x] T012 Run the `quickstart.md` checks (import isolation, det_id stability, harness, scraper smoke) and confirm SC-001..SC-006; final consistency pass on `scripts/README.md` / CLAUDE.md / `contracts/analysis-cli.md` (all reference `python -m analysis`); no stale `scraper.analise` / `scraper <analysis-cmd>` references remain.
 
 ---
 
 ## Dependencies & Execution Order
 
-- **Setup (P1 baselines)** → **US1** → **US2** → **US3** → **Polish**. The slices are sequential by
-  priority (US2's entrypoint assumes US1's clean import; US3 relocates what US2 created) and each is
-  independently shippable — you may stop after any checkpoint.
-- Within US2: T005 → T006 → T008 (cli/dispatcher before removing from scraper CLI); T007 [P] and
-  T009 [P] can proceed alongside once the cli mains exist; T010 last.
-- Within US3: T011 → T012 (repoint scraper) and T011 → T013 (repoint analysis) → T014 (workspace) →
-  T015 [P] (stragglers) → T016 (verify).
+- **Setup → US1 (done) → US2 → Polish.**
+- Within US2: **T005** (common) → **T006** (repoint scraper) and **T005 → T007** (move analysis, repoint to common) → **T008** (analysis entrypoint) → **T009** (strip scraper CLI); **T010 [P]** (callers/docs) once the move lands; **T011** verifies.
+- The one invariant at every step: `det_id`/`NAMESPACE` is a single shared implementation in `common`, byte-identical to before (FR-004 / SC-003).
 
 ## Implementation Strategy
 
-- **MVP = US1 alone**: the lazy-import change delivers "analysis without Playwright" at near-zero
-  risk — ship it as its own PR if desired.
-- **Then US2**, **then US3**, each a behavior-preserving step gated by the verification checks. The
-  one invariant to watch at every step: `det_id`/`NAMESPACE` stays a single shared implementation so
-  ids never churn (FR-004 / SC-003).
+Plain folder split, one venv, `python -m` entrypoints — no packaging change. US2 is a single
+behavior-preserving commit gated by T011's checks. (Build-system + console scripts + a uv workspace
+with separate dependency sets were considered and **descoped**: they only buy bare command names and
+a standalone install, neither needed to run analysis here without the scraper.)
 
 ## Notes
 
 - Do NOT change `data/scrape/<period>.json` shapes, `document_analyses`/`alerts`/`mismatches` output,
-  or `scripts/import-to-d1.mjs` — compatibility with them is the core invariant (FR-003/FR-006).
-- `.claude` is Prettier-ignored; keep `scripts/README.md` Prettier-clean.
-- Commit per slice (US1 / US2 / US3) so each behavior-preserving step is reviewable on its own.
+  or `scripts/import-to-d1.mjs`.
+- `pyproject.toml` is unchanged: `python -m analysis`/`python -m scraper` resolve `common`/`analysis`/
+  `scraper` as top-level packages because `scripts/` is the run directory. Playwright stays a venv
+  dependency but `analysis` never imports it.

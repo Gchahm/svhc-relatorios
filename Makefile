@@ -1,19 +1,25 @@
-.PHONY: scrape setup analyze analyze-docs setup-vlm sync-dev sync-prod
+.PHONY: scrape setup analyze docs-plan apply-extractions mismatches sync-dev sync-prod
 
 setup:
 	cd scripts && uv sync && uv run playwright install chromium
 
-setup-vlm:
-	cd scripts && uv sync --extra vlm
-
 scrape:
 	cd scripts && uv run python -m scraper
 
-analyze:
-	cd scripts && uv run python -m scraper analyze
+# Document analysis (decoupled from the scraper — no Playwright needed).
+# The vision step (classify-doc-page / classify-period skills, analyze-docs agent)
+# runs inside Claude Code between docs-plan and apply-extractions.
+docs-plan:
+	cd scripts && uv run python -m analysis docs-plan
 
-analyze-docs:
-	cd scripts && uv run python -m scraper analyze-docs
+apply-extractions:
+	cd scripts && uv run python -m analysis apply-extractions
+
+analyze:
+	cd scripts && uv run python -m analysis analyze
+
+mismatches:
+	cd scripts && uv run python -m analysis mismatches
 
 sync-dev:
 	node scripts/import-to-d1.mjs

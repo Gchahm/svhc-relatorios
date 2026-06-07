@@ -23,6 +23,14 @@ the Playwright/scraping environment. It is **behavior-preserving**: no change to
 `alerts` shapes, the mismatch summary, the period-JSON contract, the `import-to-d1` flow, or the
 deterministic grouping / roll-up / reconciliation / duplicate-billing logic.
 
+> **Scope note (implementation).** US2 and US3 were delivered as one simplified slice: a **plain
+> folder split** (`scripts/{common,scraper,analysis}/`, run via `python -m`, one venv, no
+> packaging change). The "independent dependency sets" / installable-standalone aspect of US3
+> (FR-007, SC-005) and the console-script entrypoints were **descoped** — they only buy a standalone
+> install and bare command names, neither needed to run analysis here without the scraper. The
+> achieved decoupling (analysis imports/runs with no Playwright) fully satisfies the core goal. See
+> `plan.md` (Scope update) and `tasks.md`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Run analysis without the scraping stack (Priority: P1) 🎯 MVP

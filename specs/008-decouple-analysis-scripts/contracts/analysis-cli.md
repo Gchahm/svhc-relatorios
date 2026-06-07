@@ -6,10 +6,10 @@ agent, docs, CI) depends only on this surface.
 
 ## Invocation forms
 
-- **Today (pre-P2):** `uv run python -m scraper <command> [flags]` (from `scripts/`).
-- **After P2/P3:** the dedicated analysis entrypoint — per-command console scripts
-  (`uv run <command> [flags]`) plus a `python -m scraper.analise <command>` (P2) /
-  `python -m analysis <command>` (P3) dispatcher. Same command names, same flags.
+- **Before the refactor:** `uv run python -m scraper <command> [flags]` (from `scripts/`).
+- **After (US2):** `uv run python -m analysis <command> [flags]` — the analysis package's own
+  dispatcher, decoupled from the scraper. Same command names, same flags. (Build-system + console
+  scripts were descoped; see plan.md.)
 
 ## Commands
 

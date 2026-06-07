@@ -3,7 +3,7 @@
 import logging
 from collections import defaultdict
 
-from ...utils import det_id
+from common import det_id
 from ..documentos import nf_total_for_reconciliation
 from ..models import Alert, PeriodData, RefIndex
 from ..nf_groups import group_documents, reconcile_group

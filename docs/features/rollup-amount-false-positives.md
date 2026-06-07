@@ -14,7 +14,7 @@ correctly. Two distinct causes remain (the `0.0` short-circuit was already fixed
 
 ## Problem A — first-record-of-role wins (record selection)
 
-`_rollup_document_fields` (`scripts/scraper/analise/documentos.py`) picks the **first** record of
+`_rollup_document_fields` (`scripts/analysis/documentos.py`) picks the **first** record of
 the preferred role, not the one matching the entry. When a document bundles several payment
 records, the wrong one wins:
 

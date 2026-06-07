@@ -5,24 +5,21 @@ BRCondos scraper — outputs one JSON file per period, compatible with import-to
 Usage:
     cd scripts
     uv run python -m scraper                     # interactive mode
-    uv run python -m scraper scrape [options]     # CLI mode
+    uv run python -m scraper scrape [options]    # CLI mode
     uv run python -m scraper download-docs [options]
+
+Document analysis is a separate package — see `python -m analysis --help`.
 """
 
 import argparse
 import asyncio
-import json
 import logging
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-from .analise import run_analysis
-from .analise.extractions import apply_extractions, plan_extractions, summarize_mismatches
-
-# NOTE: the scraping side (`.runner` -> `.browser` -> playwright) is imported lazily,
-# inside the scrape/download-docs branches only, so the analysis commands
-# (docs-plan/apply-extractions/analyze/mismatches) run without the Playwright stack.
+# The scraping side (`.runner` -> `.browser` -> playwright) is imported lazily, inside
+# the scrape/download-docs branches, so this module stays import-light.
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,8 +91,6 @@ def _ask_periods(existing: list[str], action: str) -> list[str] | None:
     """Ask user which periods to process. Returns None for 'all'."""
     if action == "scrape":
         choices = ["All new periods", "Full year", "Specific periods"]
-    elif action == "analyze":
-        choices = ["All periods", "Full year", "Specific periods"]
     else:
         choices = ["All periods with pending docs", "Full year", "Specific periods"]
 
@@ -143,15 +138,12 @@ def _ask_periods(existing: list[str], action: str) -> list[str] | None:
 
 
 def interactive():
-    """Run the scraper interactively."""
+    """Run the scraper interactively (scrape / download documents)."""
     existing = _existing_periods()
     if existing:
         print(f"Found {len(existing)} existing period(s) in {DATA_DIR}/")
 
-    action = _pick("What would you like to do?", [
-        "Scrape periods", "Download documents", "Analyze data",
-        "Plan document extraction", "Apply document extractions",
-    ])
+    action = _pick("What would you like to do?", ["Scrape periods", "Download documents"])
 
     if action == "Scrape periods":
         periods = _ask_periods(existing, "scrape")
@@ -178,7 +170,7 @@ def interactive():
             )
         )
 
-    elif action == "Download documents":
+    else:  # Download documents
         if not existing:
             print("\nNo scraped data found. Run scrape first.")
             return
@@ -201,80 +193,6 @@ def interactive():
                 data_dir=DATA_DIR,
                 periodos_filter=periods,
             )
-        )
-
-    elif action == "Analyze data":
-        if not existing:
-            print("\nNo scraped data found. Run scrape first.")
-            return
-
-        periods = _ask_periods(existing, "analyze")
-
-        if periods:
-            print(f"\nWill analyze: {', '.join(periods)}")
-        else:
-            print("\nWill analyze all periods")
-
-        if not _yes_no("Proceed?", default=True):
-            print("Aborted.")
-            return
-
-        run_analysis(data_dir=DATA_DIR, periods_filter=periods)
-
-    elif action == "Plan document extraction":
-        if not existing:
-            print("\nNo scraped data found. Run scrape first.")
-            return
-
-        periods = _ask_periods(existing, "analyze")
-        min_amount = None
-        raw = input("\nMinimum expense amount (R$) [0]: ").strip()
-        if raw:
-            try:
-                min_amount = float(raw)
-            except ValueError:
-                pass
-
-        limit = None
-        raw = input("Max documents to analyze [all]: ").strip()
-        if raw:
-            try:
-                limit = int(raw)
-            except ValueError:
-                pass
-
-        reanalyze = _yes_no("Re-analyze already analyzed docs?")
-
-        if not _yes_no("Proceed?", default=True):
-            print("Aborted.")
-            return
-
-        plan_extractions(
-            data_dir=DATA_DIR,
-            periods_filter=periods,
-            limit=limit,
-            min_amount=min_amount,
-            reanalyze=reanalyze,
-        )
-        print(
-            "\nManifest written. Next: classify each page in Claude Code (the classify-doc-page\n"
-            "skill writes <image>.classify.json), then choose 'Apply document extractions'."
-        )
-
-    else:  # Apply document extractions
-        if not existing:
-            print("\nNo scraped data found. Run scrape first.")
-            return
-
-        periods = _ask_periods(existing, "analyze")
-
-        if not _yes_no("Proceed?", default=True):
-            print("Aborted.")
-            return
-
-        apply_extractions(
-            data_dir=DATA_DIR,
-            periods_filter=periods,
         )
 
 
@@ -315,83 +233,6 @@ def main():
         help="Directory containing period JSON files (default: ../data/scrape).",
     )
 
-    analyze_parser = subparsers.add_parser("analyze", help="Run financial analysis on scraped data")
-    analyze_parser.add_argument(
-        "--periodo", type=str, nargs="*",
-        help="Only analyze these periods (e.g. 2024-12 2025-01).",
-    )
-    analyze_parser.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
-    )
-
-    plan_parser = subparsers.add_parser(
-        "docs-plan",
-        help="Plan document extraction: write <period>.extract-todo.json for the analyze-docs agent",
-    )
-    plan_parser.add_argument(
-        "--periodo", type=str, nargs="*",
-        help="Only plan these periods (e.g. 2024-12 2025-01).",
-    )
-    plan_parser.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
-    )
-    plan_parser.add_argument(
-        "--min-amount", type=float,
-        help="Only plan documents for entries >= this amount.",
-    )
-    plan_parser.add_argument(
-        "--limit", type=int,
-        help="Maximum number of documents to plan.",
-    )
-    plan_parser.add_argument(
-        "--reanalyze", action="store_true",
-        help="Re-plan already analyzed documents.",
-    )
-    plan_parser.add_argument(
-        "--document-id", type=str, nargs="*",
-        help="Only plan these document ids. Implies --reanalyze for them.",
-    )
-    plan_parser.add_argument(
-        "--entry-id", type=str, nargs="*",
-        help="Only plan documents for these entry ids. Implies --reanalyze for them.",
-    )
-
-    apply_parser = subparsers.add_parser(
-        "apply-extractions",
-        help="Merge per-page <image>.classify.json files into period JSON as document_analyses",
-    )
-    apply_parser.add_argument(
-        "--periodo", type=str, nargs="*",
-        help="Only apply these periods (default: all periods with a manifest).",
-    )
-    apply_parser.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
-    )
-
-    mismatch_parser = subparsers.add_parser(
-        "mismatches",
-        help="Print a terse JSON summary of classification mismatches (amount/vendor/date/error/duplicate-billing)",
-    )
-    mismatch_parser.add_argument(
-        "--periodo", type=str, nargs="*",
-        help="Only summarize these periods (e.g. 2024-12 2025-01).",
-    )
-    mismatch_parser.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
-    )
-    mismatch_parser.add_argument(
-        "--document-id", type=str, nargs="*",
-        help="Only summarize mismatches for these document ids.",
-    )
-    mismatch_parser.add_argument(
-        "--entry-id", type=str, nargs="*",
-        help="Only summarize mismatches for these entry ids.",
-    )
-
     args = parser.parse_args()
 
     if args.command == "scrape":
@@ -414,34 +255,6 @@ def main():
                 periodos_filter=args.periodo,
             )
         )
-    elif args.command == "analyze":
-        run_analysis(
-            data_dir=args.data_dir,
-            periods_filter=args.periodo,
-        )
-    elif args.command == "docs-plan":
-        plan_extractions(
-            data_dir=args.data_dir,
-            periods_filter=args.periodo,
-            limit=args.limit,
-            min_amount=args.min_amount,
-            reanalyze=args.reanalyze,
-            document_ids=args.document_id,
-            entry_ids=args.entry_id,
-        )
-    elif args.command == "apply-extractions":
-        apply_extractions(
-            data_dir=args.data_dir,
-            periods_filter=args.periodo,
-        )
-    elif args.command == "mismatches":
-        rows = summarize_mismatches(
-            data_dir=args.data_dir,
-            periods_filter=args.periodo,
-            document_ids=args.document_id,
-            entry_ids=args.entry_id,
-        )
-        print(json.dumps(rows, ensure_ascii=False, indent=2))
     else:
         parser.print_help()
         sys.exit(1)

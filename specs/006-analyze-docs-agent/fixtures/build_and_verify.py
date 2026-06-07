@@ -21,13 +21,13 @@ _SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from scraper.analise.checks.advanced import check_duplicate_billing  # noqa: E402
-from scraper.analise.extractions import (  # noqa: E402
+from analysis.checks.advanced import check_duplicate_billing  # noqa: E402
+from analysis.extractions import (  # noqa: E402
     apply_extractions,
     classify_path_for,
     plan_extractions,
 )
-from scraper.analise.loader import load_all_periods  # noqa: E402
+from analysis.loader import load_all_periods  # noqa: E402
 
 PERIOD = "2099-01"
 

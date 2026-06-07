@@ -65,7 +65,7 @@ vision step and runs inside Claude Code via skills/agent — the old local VLM (
 
 ```bash
 cd scripts
-uv run python -m scraper docs-plan --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis docs-plan --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
 ```
 
 Reads the period JSON, selects the documents to analyze (a whole period, or just the documents/
@@ -87,7 +87,7 @@ This is the only non-deterministic step.
 
 ```bash
 cd scripts
-uv run python -m scraper apply-extractions --periodo 2025-12
+uv run python -m analysis apply-extractions --periodo 2025-12
 ```
 
 Reads each page's `.classify.json`, rolls each document up (heterogeneity-aware: a document bundling
@@ -100,7 +100,7 @@ per-page `analysis_records`) into the period JSON.
 
 ```bash
 cd scripts
-uv run python -m scraper analyze --periodo 2025-12
+uv run python -m analysis analyze --periodo 2025-12
 ```
 
 Runs the financial / consistency / fraud checks over the period JSON and writes `alerts` — e.g.
@@ -111,7 +111,7 @@ vendors, delinquency, etc.
 
 ```bash
 cd scripts
-uv run python -m scraper mismatches --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis mismatches --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
 ```
 
 Prints a compact JSON list of classification mismatches — `amount` / `vendor` / `date` /
@@ -166,9 +166,9 @@ cd scripts
 #    per-page <image>.classify.json files. (Or analyze a subset with --document-id.)
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5)
-uv run python -m scraper apply-extractions --periodo 2025-12
-uv run python -m scraper analyze --periodo 2025-12
-uv run python -m scraper mismatches --periodo 2025-12
+uv run python -m analysis apply-extractions --periodo 2025-12
+uv run python -m analysis analyze --periodo 2025-12
+uv run python -m analysis mismatches --periodo 2025-12
 
 cd ..
 # 3. Push document_analyses + alerts into D1

@@ -16,7 +16,7 @@ from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 
-from .utils import det_id as _det_id, now_ms as _now_ms
+from common import det_id as _det_id, now_ms as _now_ms
 
 logger = logging.getLogger(__name__)
 
