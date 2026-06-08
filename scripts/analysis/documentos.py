@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from common import det_id, now_ms
 from .nf_groups import group_documents, reconcile_group
+from .vendor_match import is_payer_name, reconcile_vendor
 
 logger = logging.getLogger(__name__)
 
@@ -149,14 +150,6 @@ def _check_date_in_period(date_str: str | None, period: str) -> bool | None:
     return doc_period in (period, prev_period)
 
 
-def _normalize_name(s: str) -> str:
-    """Normalize a name for fuzzy comparison."""
-    from unicodedata import normalize, category
-    s = normalize("NFD", s)
-    s = "".join(c for c in s if category(c) != "Mn")
-    return s.upper().strip()
-
-
 def _page_label_from_path(path: str, index: int) -> str:
     """Derive a page label from the `_pN` filename suffix, else `page{index+1}`.
 
@@ -214,6 +207,39 @@ def _map_artifact_role(parsed: dict) -> str:
     return role
 
 
+def _issuer_names_of(records) -> list[str]:
+    """Per-page ``nome_emitente`` values (non-empty), preserving order."""
+    names: list[str] = []
+    for r in records:
+        val = (r.response or {}).get("nome_emitente")
+        if val not in (None, ""):
+            names.append(val)
+    return names
+
+
+def _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records):
+    """Choose the document-level issuer name.
+
+    Prefers the party actually paid: a payment-artifact (payment_proof/boleto)
+    beneficiary, then the invoice/nfse header, then any record. The condominium payer
+    (see the payer denylist) is never selected — the reader sometimes captures the
+    destinatário/payer block as the issuer. Falls back to a payer name only if no
+    non-payer name exists anywhere, so the field is not silently dropped.
+    """
+    ordered = list(payment_recs) + list(boleto_recs) + list(invoice_recs)
+    ordered += [r for r in parsed_records if r not in ordered]
+    fallback = None
+    for r in ordered:
+        val = (r.response or {}).get("nome_emitente")
+        if val in (None, ""):
+            continue
+        if is_payer_name(val):
+            fallback = fallback or val
+            continue
+        return val
+    return fallback
+
+
 def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     """Derive the document-level summary from the per-page records.
 
@@ -247,7 +273,7 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
 
     result.document_type = first_field("tipo_documento")
     result.extracted_cnpj = first_field("cnpj_emitente")
-    result.issuer_name = first_field("nome_emitente")
+    result.issuer_name = _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records)
     result.extracted_date = first_field("data_emissao")
     result.document_number = first_field("numero_documento")
     result.service_description = first_field("descricao_servico")
@@ -352,11 +378,10 @@ def _fanout_result(
             )
         )
 
-    # Entry-specific validations re-derived for this sibling.
-    if new.issuer_name and vendor_name:
-        a = _normalize_name(new.issuer_name)
-        b = _normalize_name(vendor_name)
-        new.vendor_match = a in b or b in a
+    # Entry-specific validations re-derived for this sibling, reconciling against every
+    # copied page's issuer name (same cross-page logic as the representative).
+    issuer_names = _issuer_names_of(new.records) or ([new.issuer_name] if new.issuer_name else [])
+    new.vendor_match = reconcile_vendor(vendor_name, issuer_names)
     new.date_match = _check_date_in_period(new.extracted_date, period)
     return new
 
@@ -426,10 +451,11 @@ def build_document_analysis(
         diff_pct = abs(result.extracted_amount - entry_amount) / entry_amount
         result.amount_match = diff_pct < 0.05
 
-    if result.issuer_name and vendor_name:
-        a = _normalize_name(result.issuer_name)
-        b = _normalize_name(vendor_name)
-        result.vendor_match = a in b or b in a
+    # Reconcile the ledger vendor against EVERY page's issuer name (a document bundles
+    # invoice/boleto/payment-proof pages naming the same entity under different forms);
+    # excludes the condominium payer. Falls back to the rolled-up issuer if no page name.
+    issuer_names = _issuer_names_of(result.records) or ([result.issuer_name] if result.issuer_name else [])
+    result.vendor_match = reconcile_vendor(vendor_name, issuer_names)
 
     result.date_match = _check_date_in_period(result.extracted_date, period)
 

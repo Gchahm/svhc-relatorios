@@ -47,6 +47,11 @@ A PreToolUse hook (`scripts/validate_image.py`) checks the file before you read 
    - **Never fabricate.** If a field is not visible or not legible, use `null`. Do not guess a CNPJ, a document number, or a date.
    - **Amounts** are numbers (e.g. `617.25`); a literal `"R$ 1.234,56"` string is also accepted. For an absent amount use `null`, **not** `0`.
    - **Dates** use `DD/MM/YYYY`.
+   - **`nome_emitente` / `cnpj_emitente` are the ISSUER (the party that supplies the goods/service and is paid) — NOT the recipient/payer.** Get this right; it is the most common error:
+     - On a **DANFE / NF-e**, the issuer is the **EMITENTE / REMETENTE** (top-left header block), never the **DESTINATÁRIO** (the buyer/recipient). The condominium **"SÃO VICENTE HOME CLUB"** is the customer/payer on these documents — if it appears as DESTINATÁRIO, it is NOT the issuer.
+     - On **payroll / holerite / 13º-salário / FGTS-GFD / DARF** and similar, the company in the header is the **employer/payer** (again "SÃO VICENTE HOME CLUB"), not the issuer. The relevant counterparty is the **employee/payee** (e.g. "Nome do Funcionário") or the **tax authority** (Receita Federal / CEF) named as the recipient/favorecido — use that as `nome_emitente`.
+     - On a **boleto / comprovante / PIX / TED**, the issuer is the **beneficiário / favorecido** (who receives the money), not the **pagador / sacado**.
+     - Prefer the **razão social** (full legal name) for `nome_emitente`. If only a **nome fantasia / trade name / brand** is shown, use that — but never use an **address line, a CEP, or a field label/code** (e.g. the "FRETE POR CONTA DE" value "0- Emitente") as the name; if no real name is legible, use `null`.
 
 4. **Write the result** with the Write tool, next to the input image, replacing the image extension with `.classify.json` (so `<id>_p1.png` → `<id>_p1.classify.json`). The file content is valid JSON and nothing else (no markdown fences, no prose), and is **either**:
    - the filled fields object (every key from the template, with real values or `null`), **or**
