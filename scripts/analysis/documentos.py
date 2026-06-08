@@ -326,6 +326,82 @@ def _pick_document_date(records) -> str | None:
     return date_of(best)
 
 
+def _pick_payment_amount(payment_recs) -> float | None:
+    """Choose the document amount among MULTIPLE payment-proof pages.
+
+    A document can bundle more than one payment-proof page: a recibo / NFS-e that
+    carries a headline ``valor_pago`` equal to a GROSS or full-agreement total,
+    plus a genuine settlement *comprovante* (a bank/PIX transaction receipt) for
+    the parcela actually paid. The cash-basis amount that matches the ledger entry
+    is the genuine comprovante's paid value, NOT the headline gross — so prefer it,
+    using the same ranking as ``_pick_document_date`` (comprovante-with-valor_pago
+    > any comprovante > any page reporting valor_pago > valor_total).
+
+    Non-positive values are skipped (a spurious ``valor_pago: 0.0`` must not win).
+    With exactly one payment proof this reduces to the prior behavior (its
+    ``valor_pago`` then ``valor_total``), so common single-receipt documents are
+    unchanged.
+    """
+
+    def tipo(r) -> str:
+        return str((r.response or {}).get("tipo_documento") or "").strip().lower()
+
+    def paid(r) -> float | None:
+        val = _parse_brl_value((r.response or {}).get("valor_pago"))
+        return val if val is not None and val > 0 else None
+
+    def total(r) -> float | None:
+        val = _parse_brl_value((r.response or {}).get("valor_total"))
+        return val if val is not None and val > 0 else None
+
+    def rank(r) -> int:
+        is_comp = tipo(r) == "comprovante"
+        if is_comp and paid(r) is not None:
+            return 0
+        if is_comp:
+            return 1
+        if paid(r) is not None:
+            return 2
+        return 3
+
+    for r in sorted(payment_recs, key=rank):
+        val = paid(r)
+        if val is not None:
+            return val
+        val = total(r)
+        if val is not None:
+            return val
+    return None
+
+
+def _sum_distinct_invoices(invoice_recs) -> float | None:
+    """Sum the GROSS ``valor_total`` of DISTINCT invoice pages, else None.
+
+    A document with no payment artifact may hold several distinct invoice pages
+    (a charge split across separate NF-e / DANFE line items); the document amount
+    is then the SUM of those invoices, not a single page (the ledger entry is the
+    combined charge). Pages are de-duplicated on (``numero_documento``,
+    ``valor_total``) so a re-scanned duplicate of one invoice is not double-counted.
+    Returns None when fewer than two distinct invoice pages carry a positive
+    ``valor_total`` (the single-invoice net/gross fallback then applies unchanged).
+    """
+    seen: set[tuple] = set()
+    totals: list[float] = []
+    for r in invoice_recs:
+        resp = r.response or {}
+        gross = _parse_brl_value(resp.get("valor_total"))
+        if gross is None or gross <= 0:
+            continue
+        key = (str(resp.get("numero_documento") or "").strip(), round(gross, 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        totals.append(gross)
+    if len(totals) < 2:
+        return None
+    return round(sum(totals), 2)
+
+
 def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     """Derive the document-level summary from the per-page records.
 
@@ -366,7 +442,7 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     result.document_number = first_field("numero_documento")
     result.service_description = first_field("descricao_servico")
 
-    # Amount precedence: payment_proof paid -> boleto -> invoice net -> gross.
+    # Amount precedence: payment_proof paid -> boleto -> invoice net/sum -> gross.
     # Treat non-positive as missing: a spurious `valor_pago: 0.0` must not win
     # and force extracted_amount to 0 when a real value is present elsewhere.
     def pick(records, *keys):
@@ -377,9 +453,15 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
                     return val
         return None
 
-    amount = pick(payment_recs, "valor_pago", "valor_total")
+    # Among MULTIPLE payment proofs, prefer the genuine settlement comprovante's
+    # paid value over a recibo/invoice headline gross (mirrors _pick_document_date).
+    amount = _pick_payment_amount(payment_recs)
     if amount is None:
         amount = pick(boleto_recs, "valor_total", "valor_pago")
+    # No payment artifact but several distinct invoice pages (a charge split across
+    # separate NF line items): the document amount is their SUM, not a single page.
+    if amount is None and not boleto_recs:
+        amount = _sum_distinct_invoices(invoice_recs)
     if amount is None:
         amount = pick(invoice_recs, "valor_liquido")
     if amount is None:
