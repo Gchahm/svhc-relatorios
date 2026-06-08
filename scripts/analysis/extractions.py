@@ -288,6 +288,27 @@ def apply_extractions(
     summarize_results(all_results)
 
 
+def _page_refs_for_doc(doc: dict | None) -> list[dict]:
+    """Page references for a document's image(s): ``{document_id, page_label, read_path}``.
+
+    Derives from the document's ``file_path`` tokens (the same source ``docs-plan``
+    uses), resolving each to an absolute ``read_path`` for the review worker's Read
+    tool. Included in the mismatch summary so FR-004 (page reference(s) in the
+    summary) holds literally.
+    """
+    if not doc:
+        return []
+    tokens = [p.strip() for p in (doc.get("file_path") or "").split(";") if p.strip()]
+    return [
+        {
+            "document_id": doc["id"],
+            "page_label": _page_label_from_path(token, idx),
+            "read_path": str(Path(token).resolve()),
+        }
+        for idx, token in enumerate(tokens)
+    ]
+
+
 def summarize_mismatches(
     data_dir: str,
     periods_filter: list[str] | None = None,
@@ -299,10 +320,11 @@ def summarize_mismatches(
 
     Read-only (no model, no writes): joins the persisted ``document_analyses``
     (amount / vendor / date / page-error) and ``duplicate_billing`` alerts with the
-    ledger entries, optionally scoped to specific document or entry ids. This is the
-    concise hand-back the vision step returns instead of dumping page images or full
-    artifacts. Run after ``apply_extractions`` (for the analyses) and ``analyze``
-    (for the alerts).
+    ledger entries, optionally scoped to specific document or entry ids. Each row
+    carries ``page_refs`` (the document's page image(s)) so the review worker can
+    open the evidence directly (FR-004). This is the concise hand-back the vision
+    step returns instead of dumping page images or full artifacts. Run after
+    ``apply_extractions`` (for the analyses) and ``analyze`` (for the alerts).
     """
     periods, refs = load_all_periods(data_dir, periods_filter)
     doc_filter = set(document_ids) if document_ids else None
@@ -321,7 +343,12 @@ def summarize_mismatches(
             if entry_filter is not None and entry_id not in entry_filter:
                 continue
             entry = entry_map.get(entry_id) if entry_id else None
-            base = {"period": period, "document_id": a["document_id"], "entry_id": entry_id}
+            base = {
+                "period": period,
+                "document_id": a["document_id"],
+                "entry_id": entry_id,
+                "page_refs": _page_refs_for_doc(doc),
+            }
 
             if a.get("error"):
                 out.append({**base, "kind": "page-error", "detail": a["error"]})
@@ -358,6 +385,9 @@ def summarize_mismatches(
                 continue
             if entry_filter is not None and not (set(entids) & entry_filter):
                 continue
+            dup_page_refs: list[dict] = []
+            for did in docids:
+                dup_page_refs.extend(_page_refs_for_doc(doc_map.get(did)))
             out.append(
                 {
                     "period": period,
@@ -367,6 +397,7 @@ def summarize_mismatches(
                     "nf_total": meta.get("nf_total"),
                     "sum_entries": meta.get("sum_entries"),
                     "over_claim": meta.get("over_claim"),
+                    "page_refs": dup_page_refs,
                 }
             )
     return out

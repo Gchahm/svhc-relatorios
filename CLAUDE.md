@@ -69,6 +69,7 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
 - **Document analysis (Claude vision skills):** the VLM (`mlx_vlm`) flow is retired. The flow is: (1) the **`classify-period` skill** runs `docs-plan` itself (scoped to a period or `--document-id`/`--entry-id` subset) to write the work manifest `data/scrape/<p>.extract-todo.json`, then fans each representative page out to (2) the **`classify-doc-page` skill**, which views one page image and writes `<image>.classify.json` next to it (one frozen-field record per page); (3) `python -m analysis apply-extractions --periodo <p>` reads each page's sibling `.classify.json` (via `FileExtractionProvider`) and merges them into the period JSON; (4) `analyze` emits alerts and `mismatches` prints the terse summary. The **`analyze-docs` agent** is the context-isolated wrapper that invokes `classify-period` then runs apply/analyze/mismatches and returns only the summary. Each page still yields a `page_extraction` record nested as `analysis_records` under its `document_analyses` object; `scripts/import-to-d1.mjs` flattens these into `document_analysis_records` on import (unchanged). The `document_analyses` row is a heterogeneity-aware roll-up (amount validated against paid/net when a payment artifact is present); per-artifact values (gross/net/paid) live in the per-page records. The extraction-source seam is `documentos.build_document_analysis(..., provider)`; the deterministic plan/apply/summary live in `scripts/analysis/extractions.py`. `document_analyses.raw_response` is legacy and no longer populated.
 - **Shared-NF grouping & reconciliation:** The source system attaches one Nota Fiscal to several entries (line-item splits, or principal vs. `JUROS/MULTAS`). Documents are grouped by **byte-identical page content** (`scripts/analysis/nf_groups.py` — `file_path` and `external_document_id` differ per sibling, and the extracted NF number is noisy, so content hash is the authoritative key). For a multi-entry group, the extraction runs **once** per unique NF (the `docs-plan` manifest lists only the representative's pages, `classify-doc-page` views them, and `apply-extractions` fans the extraction out to siblings), then validates `amount_match` by reconciling **`sum(sibling amounts)` against the NF gross total** (`nf_total_for_reconciliation` prefers the invoice `valor_total`, else the roll-up), not the full total against each fractional entry — this removes the false mismatches on splits. Single-entry documents keep the original per-entry comparison. Tolerance is reused (`nf_groups.reconcile_group`: within 5% relative OR R$ 0.05 absolute → `reconciled`; sum > total → `over_claim`; sum < total → `under_claim`).
 - **Duplicate-billing alert:** `check_duplicate_billing` (`scripts/analysis/checks/advanced.py`, run by `analyze`/`run_all_checks`) emits a `critical` alert of type `duplicate_billing` when a shared NF's sibling entries sum to **more** than the NF total (an over-claim — the same NF claimed above its face value), distinct from a legitimate split (`reconciled`, no alert) and an incomplete split (`under_claim`, plain mismatch, no over-claim alert). It reads the NF total from the persisted `document_analyses`, so run the `analyze-docs` agent + `apply-extractions` before `analyze`; a group with no extractable NF total is skipped. No D1 schema change — the alert flows through the existing `alerts` table/view.
+- **Self-improving classification loop (feature 007):** a thin orchestrator (`improve-classification` skill) loops **analyze → review → fix → scoped re-run** to drive down *system's-fault* mismatches while preserving *real* findings. Vision/judgment/codegen stay in context-isolated workers (`analyze-docs`, `review-mismatch`, `fix-mismatch` agents); all bookkeeping is deterministic Python in `scripts/analysis/verdicts.py` exposed as two CLI commands — `record-verdict` (persist one verdict) and `loop-state` (recompute the open set, findings, `affected_document_ids`, and the `terminate` signal: `converged` / `max-iterations` / `no-progress`). Verdicts + loop state live in `data/scrape/<period>.verdicts.json` (the **only** writer is the CLI; agents never edit it) — no D1 schema. A **mismatch identity** key (`period|kind|document_id|entry_id`, or `period|kind|sorted(document_ids)` for `duplicate_billing`) excludes volatile extracted values so re-reads don't look like new mismatches. The `mismatches` summary now carries `page_refs` (`{document_id, page_label, read_path}`) so the review worker opens evidence directly (FR-004). Fixes are **human-gated**: the fix worker opens a PR, the loop never merges.
 
 ## Agents
 
@@ -85,10 +86,30 @@ wrangler.toml          # Cloudflare Workers config (D1 + KV bindings)
   `docs-plan` itself — it invokes the **`classify-period`** skill (which owns `docs-plan` + the
   per-page `classify-doc-page` fan-out, scoped by the subset args), then runs
   `apply-extractions` → `analyze` → `mismatches` and hands back that JSON. Tools: `Bash, Skill, Read,
-Glob`. Deciding true-vs-false on a mismatch, and any fix, are separate steps (see feature
-  `007-classification-improve-loop`).
+Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and **fix** steps below
+  (feature `007-classification-improve-loop`).
+- **review-mismatch agent** (`.claude/agents/review-mismatch.md`, feature
+  `007-classification-improve-loop`): the context-isolated **review step**. Given ONE mismatch (from
+  the `mismatches` summary, which now carries `page_refs`) it opens the page image(s) + ledger entry
+  and returns a terse **verdict** — `true` (a real finding, surfaced/never fixed), `false` (a system
+  bug, with a root-cause hypothesis), `transient` (an incidental misread), or `page-error`. It writes
+  nothing; the orchestrator persists the verdict via `record-verdict`. Tools: `Read, Glob, Bash`.
+- **fix-mismatch agent** (`.claude/agents/fix-mismatch.md`, feature
+  `007-classification-improve-loop`): the context-isolated **fix step**. Given one `false` mismatch +
+  its root cause, it runs the `speckit` workflow on a dedicated branch and **opens a PR — never
+  merges** (fixes are human-gated). Returns only a terse result (PR ref + one-line summary). Tools:
+  `Bash, Read, Edit, Write, Skill, Glob, Grep`.
+- **improve-classification skill** (`.claude/skills/improve-classification/SKILL.md`, feature
+  `007-classification-improve-loop`): the thin **orchestrator** for the self-improving loop. It runs
+  in the **main** context (so it can spawn the workers — a subagent cannot) and loops `analyze-docs`
+  → review each mismatch → fix each `false` (human-gated PR) → re-run **scoped to affected documents**
+  → until `loop-state` reports `terminate` (`converged` / `max-iterations` / `no-progress`). It holds
+  no heavy state: all bookkeeping lives in `<period>.verdicts.json` via the `loop-state` /
+  `record-verdict` CLI.
 
 ## Active Technologies
+- Python 3.12 (stdlib only) analysis CLI + Markdown Claude agents/skills; reuses the speckit skill + `gh` (007-classification-improve-loop)
+- per-period JSON working file `data/scrape/<period>.verdicts.json` (verdicts + loop state); no D1 schema (007-classification-improve-loop)
 
 - Python 3.12+ (`scripts/`), managed by `uv`. + scraper = `playwright` + `python-dotenv`; analysis = **stdlib only** (008-decouple-analysis-scripts)
 - period JSON under `data/scrape/<YYYY-MM>.json` (source of truth); intermediate working (008-decouple-analysis-scripts)
