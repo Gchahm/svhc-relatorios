@@ -46,7 +46,15 @@ A PreToolUse hook (`scripts/validate_image.py`) checks the file before you read 
 3. **Extract the fields** listed in the template `$CLAUDE_PROJECT_DIR/.claude/skills/classify-doc-page/templates/result.json`. The strings in that template are **field descriptions, not output** — replace each one with the real value you read from the image, or `null`. Rules:
    - **Never fabricate.** If a field is not visible or not legible, use `null`. Do not guess a CNPJ, a document number, or a date.
    - **Amounts** are numbers (e.g. `617.25`); a literal `"R$ 1.234,56"` string is also accepted. For an absent amount use `null`, **not** `0`.
-   - **Dates** use `DD/MM/YYYY`.
+   - **Dates** use `DD/MM/YYYY`. `data_emissao` MUST be a date **printed on this page**. **Never
+     synthesize, infer, or recompose a date** from partial, ambiguous, or differently-formatted tokens
+     — if no full date is legibly printed, use `null`. Do not assemble a date from a day on one line
+     and a month/year guessed elsewhere; transcribe only what is actually shown.
+     - On a **payroll / holerite / contracheque / payslip / 13º-salário** page, `data_emissao` is the
+       **reference month (mês de competência/referência)** or the **payment date (data de pagamento)** —
+       NOT the **Data Admissão** (hire date), which is the employee's start date and is unrelated to
+       when this payslip belongs. Prefer the payment date; if only the reference month is shown, use it
+       (e.g. `01/11/2025` for 11/2025).
    - **`nome_emitente` / `cnpj_emitente` are the ISSUER (the party that supplies the goods/service and is paid) — NOT the recipient/payer.** Get this right; it is the most common error:
      - On a **DANFE / NF-e**, the issuer is the **EMITENTE / REMETENTE** (top-left header block), never the **DESTINATÁRIO** (the buyer/recipient). The condominium **"SÃO VICENTE HOME CLUB"** is the customer/payer on these documents — if it appears as DESTINATÁRIO, it is NOT the issuer.
      - On **payroll / holerite / 13º-salário / FGTS-GFD / DARF** and similar, the company in the header is the **employer/payer** (again "SÃO VICENTE HOME CLUB"), not the issuer. The relevant counterparty is the **employee/payee** (e.g. "Nome do Funcionário") or the **tax authority** (Receita Federal / CEF) named as the recipient/favorecido — use that as `nome_emitente`.

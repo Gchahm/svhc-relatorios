@@ -150,6 +150,37 @@ def _check_date_in_period(date_str: str | None, period: str) -> bool | None:
     return doc_period in (period, prev_period)
 
 
+def _document_in_period(records, period: str) -> bool | None:
+    """Cash-basis period membership across ALL of a document's page records.
+
+    The condominium books on a cash basis: a document bundles an invoice issued
+    in an earlier month plus a payment artifact (boleto vencimento / PIX / Sicredi
+    comprovante) settled inside the period. A document therefore belongs to the
+    period if ANY of its pages carries an in-period date — the in-period payment,
+    vencimento, or issue date establishes membership, regardless of which page it
+    is on. This removes the false out-of-period flags on the normal lag between an
+    invoice's issue date and its in-period payment, while preserving detection: a
+    document with no in-period date on ANY page is still flagged.
+
+    Returns True if any page date is in the period window (period month or the
+    previous month), False if at least one page has a date but none is in window,
+    and None if no page carries a date.
+    """
+    seen_date = False
+    for r in records:
+        resp = getattr(r, "response", None) or {}
+        date_str = resp.get("data_emissao")
+        if not date_str:
+            continue
+        in_period = _check_date_in_period(date_str, period)
+        if in_period is None:
+            continue
+        seen_date = True
+        if in_period:
+            return True
+    return False if seen_date else None
+
+
 def _page_label_from_path(path: str, index: int) -> str:
     """Derive a page label from the `_pN` filename suffix, else `page{index+1}`.
 
@@ -240,6 +271,61 @@ def _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records):
     return fallback
 
 
+def _pick_document_date(records) -> str | None:
+    """Choose the document-level date for display, preferring the payment date.
+
+    A document bundles an invoice issued in an earlier month plus an in-period
+    payment artifact; the meaningful date for a cash-basis entry is the
+    settlement/competência date, not the upstream invoice issue date. This mirrors
+    the amount/issuer roll-up precedence (which prefers the payment artifact).
+    Preference order (first dated page wins): a ``comprovante`` page reporting
+    ``valor_pago`` -> any ``comprovante`` page -> any page reporting ``valor_pago``
+    -> a ``recibo`` page -> a boleto page -> the invoice/nfse issue date -> any
+    remaining dated page. Returns ``None`` if no page carries a date.
+
+    Note this is for the surfaced ``extracted_date`` only; period membership is
+    decided across ALL page dates by ``_document_in_period`` (a stale receipt date
+    can never by itself create an out-of-period flag).
+    """
+
+    def date_of(r) -> str | None:
+        val = (r.response or {}).get("data_emissao")
+        return val if val not in (None, "") else None
+
+    def tipo(r) -> str:
+        return str((r.response or {}).get("tipo_documento") or "").strip().lower()
+
+    def has_paid(r) -> bool:
+        return _parse_brl_value((r.response or {}).get("valor_pago")) is not None
+
+    def role(r) -> str:
+        return r.artifact_role or "other"
+
+    dated = [r for r in records if date_of(r)]
+    if not dated:
+        return None
+
+    def rank(r) -> int:
+        t = tipo(r)
+        paid = has_paid(r)
+        if t == "comprovante" and paid:
+            return 0
+        if t == "comprovante":
+            return 1
+        if paid:
+            return 2
+        if t == "recibo":
+            return 3
+        if role(r) == "boleto":
+            return 4
+        if role(r) in ("invoice", "nfse"):
+            return 5
+        return 6
+
+    best = min(dated, key=rank)
+    return date_of(best)
+
+
 def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     """Derive the document-level summary from the per-page records.
 
@@ -274,7 +360,9 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     result.document_type = first_field("tipo_documento")
     result.extracted_cnpj = first_field("cnpj_emitente")
     result.issuer_name = _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records)
-    result.extracted_date = first_field("data_emissao")
+    # Date: prefer the payment-artifact (settlement/competência) date over the
+    # upstream invoice issue date, mirroring the amount/issuer precedence above.
+    result.extracted_date = _pick_document_date(parsed_records)
     result.document_number = first_field("numero_documento")
     result.service_description = first_field("descricao_servico")
 
@@ -382,7 +470,9 @@ def _fanout_result(
     # copied page's issuer name (same cross-page logic as the representative).
     issuer_names = _issuer_names_of(new.records) or ([new.issuer_name] if new.issuer_name else [])
     new.vendor_match = reconcile_vendor(vendor_name, issuer_names)
-    new.date_match = _check_date_in_period(new.extracted_date, period)
+    # Cash-basis period membership across every copied page (an in-period payment
+    # date establishes membership even if the invoice issue date is earlier).
+    new.date_match = _document_in_period(new.records, period)
     return new
 
 
@@ -457,7 +547,13 @@ def build_document_analysis(
     issuer_names = _issuer_names_of(result.records) or ([result.issuer_name] if result.issuer_name else [])
     result.vendor_match = reconcile_vendor(vendor_name, issuer_names)
 
-    result.date_match = _check_date_in_period(result.extracted_date, period)
+    # Cash-basis period membership across every page: the document is in period if
+    # ANY page carries an in-period date (the in-period payment/vencimento/issue
+    # date), so the normal lag between an earlier-month invoice and its in-period
+    # payment no longer flags out-of-period; a truly stale document (no in-period
+    # date on any page) still flags. A stale date on one page cannot by itself
+    # create an out-of-period flag.
+    result.date_match = _document_in_period(result.records, period)
 
     return result
 
