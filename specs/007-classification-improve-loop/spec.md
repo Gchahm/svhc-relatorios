@@ -25,6 +25,29 @@ The first and highest-priority slice is the **vision/classification step** itsel
 the existing classification skills and to run on a **subset of documents** (not only a whole
 period), so each loop iteration is cheap.
 
+## Clarifications
+
+### Session 2026-06-08
+
+- Validation: **US1 (the vision/classification step) is already implemented** — the `analyze-docs`
+  agent (`.claude/agents/analyze-docs.md`) delegates to the `classify-period` → `classify-doc-page`
+  skills, accepts `--document-id`/`--entry-id` subset targeting (threaded through `docs-plan`,
+  `apply-extractions`, and the `mismatches` summary in `scripts/analysis/`), drives the deterministic
+  merge + checks, and returns only a terse mismatch summary. FR-001–FR-003 and FR-005 are satisfied;
+  this branch builds on it. **FR-004 gap**: the existing `mismatches` summary omits the **page
+  reference(s)** the requirement calls for — so this branch extends `summarize_mismatches` to include
+  `page_refs` (closing FR-004), which the review worker then consumes directly.
+- Q: Who performs the true-vs-false mismatch review (US2)? → A: An **automated Claude-vision agent**
+  (a separate context-isolated worker) reads the page image(s) + ledger entry and emits the verdict,
+  so the loop can run unattended — no human-in-UI review step.
+- Q: Where/how are verdicts and loop state stored? → A: **JSON working files per period** alongside
+  the period data (e.g. `data/scrape/<period>.verdicts.json` plus a loop-state file); **no D1 schema
+  change**.
+- Q: For a false mismatch, how far does the fix worker go before the human gate? → A: It runs the
+  full speckit pipeline on a branch and **opens a PR, but never merges** — merge stays human-gated.
+- Q: Delivery scope of this feature branch (007)? → A: **US2 + US3 together** — build both the review
+  step and the autonomous orchestrator loop in this branch (US1 already done).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Context-isolated vision step over a full period OR a subset (Priority: P1) 🎯 MVP
@@ -60,11 +83,13 @@ the subset run only processes the named documents, not the whole period.
 
 ### User Story 2 - Review a mismatch as true vs false (Priority: P2)
 
-For each mismatch surfaced by step 1, a reviewer looks at the actual evidence — the page image(s)
-plus the ledger entry — and decides whether it is a **true mismatch** (the document really disagrees
-with the books — a finding to keep and surface) or a **false mismatch** (the system misread or
-mis-reconciled). For a false mismatch it records a root-cause hypothesis (which part of the system is
-wrong: the reading, the roll-up precedence, the grouping, the reconciliation tolerance, etc.).
+For each mismatch surfaced by step 1, a reviewer — an **automated, context-isolated Claude-vision
+agent** (not a human-in-UI step) — looks at the actual evidence — the page image(s) plus the ledger
+entry — and decides whether it is a **true mismatch** (the document really disagrees with the books —
+a finding to keep and surface) or a **false mismatch** (the system misread or mis-reconciled). For a
+false mismatch it records a root-cause hypothesis (which part of the system is wrong: the reading,
+the roll-up precedence, the grouping, the reconciliation tolerance, etc.). The verdict is persisted
+as a JSON working record per period (see Key Entities / Assumptions), with no database schema change.
 
 **Why this priority**: This is the judgment the loop turns on; without it the system cannot tell a
 real finding from its own bug. It depends on step 1's summary existing.
@@ -146,14 +171,17 @@ affected document, and terminates when no false mismatches remain — without au
   return page images or full intermediate artifacts.
 - **FR-005**: Each heavy step (vision, review, fix) MUST run in its own delegated/context-isolated
   worker so the orchestrator's context does not grow with the volume of documents or pages processed.
-- **FR-006**: The review step MUST decide, per mismatch, **true** (a real finding — surfaced, never
-  "fixed") vs **false** (a system fault), using the page image(s) and the ledger entry as evidence,
-  and MUST attach a root-cause hypothesis to a false mismatch.
+- **FR-006**: The review step MUST be performed by an **automated, context-isolated Claude-vision
+  worker** (no human-in-UI step) that decides, per mismatch, **true** (a real finding — surfaced,
+  never "fixed") vs **false** (a system fault), using the page image(s) and the ledger entry as
+  evidence, and MUST attach a root-cause hypothesis to a false mismatch. The verdict MUST be
+  persisted as a JSON working record per period (no D1 schema change).
 - **FR-007**: The review step MUST distinguish a transient misread (resolved by re-classifying) from
   a systematic flaw (requiring a code fix).
 - **FR-008**: For a false mismatch, the fix step MUST be delegated to a separate worker that runs the
-  spec-driven (speckit) workflow to improve the system; fixes MUST be **human-gated** — the loop MAY
-  prepare a fix / open a PR but MUST NOT auto-merge to the main branch.
+  spec-driven (speckit) workflow to improve the system. The worker MUST take the fix through the full
+  pipeline on a branch and **open a PR**, but fixes MUST remain **human-gated** — the loop MUST NOT
+  auto-merge to the main branch.
 - **FR-009**: The orchestrator MUST loop run → review → fix → re-run, with re-runs after the first
   iteration **scoped to the affected documents**, and MUST terminate on convergence (no false
   mismatches remain), a maximum-iteration cap, or a no-progress condition.
@@ -169,11 +197,14 @@ affected document, and terminates when no false mismatches remain — without au
 - **Mismatch summary**: the terse, machine-readable list of mismatches handed from the vision step to
   its caller (the loop's working set).
 - **Verdict**: the review outcome for a mismatch — true | false | transient | page-error — plus, for
-  false, a root-cause hypothesis naming the suspect part of the pipeline.
-- **Fix proposal**: the delegated, human-gated change produced for a false mismatch (e.g. a PR),
-  targeting the hypothesized root cause.
+  false, a root-cause hypothesis naming the suspect part of the pipeline. Persisted as a per-period
+  JSON working record (e.g. `data/scrape/<period>.verdicts.json`); no D1 schema.
+- **Fix proposal**: the delegated, human-gated change produced for a false mismatch — taken through
+  the full speckit pipeline on a branch and surfaced as an **open PR** (never auto-merged), targeting
+  the hypothesized root cause.
 - **Loop state**: the orchestrator's minimal record — open mismatches, verdicts, iteration count,
-  and progress markers used for the stop conditions.
+  and progress markers used for the stop conditions — held in a per-period JSON loop-state working
+  file alongside the period data.
 
 ## Success Criteria *(mandatory)*
 
@@ -207,5 +238,9 @@ affected document, and terminates when no false mismatches remain — without au
   first iteration are scoped to affected documents — both per the maintainer's direction.
 - A reasonable default stop policy applies (a small max-iteration cap and a no-progress guard on
   recurring mismatch ids); exact thresholds are an implementation/tuning detail.
-- Mismatch and verdict records are working artifacts (alongside the period data), not new database
-  schema; surfacing findings continues to flow through the existing `alerts` mechanism.
+- Mismatch and verdict records are working artifacts (alongside the period data) — concretely,
+  per-period JSON files such as `data/scrape/<period>.verdicts.json` and a loop-state file — not new
+  database schema; surfacing findings continues to flow through the existing `alerts` mechanism.
+- The true-vs-false review (US2) is automated by a context-isolated Claude-vision worker, not a human
+  UI step; this branch (007) delivers both US2 (review) and US3 (orchestrator loop) on top of the
+  already-implemented US1 vision step.

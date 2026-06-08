@@ -3,15 +3,24 @@
 
 Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
 Playwright scraping stack. Commands: docs-plan, apply-extractions, analyze,
-mismatches (see specs/008-decouple-analysis-scripts/contracts/analysis-cli.md).
+mismatches (see specs/008-decouple-analysis-scripts/contracts/analysis-cli.md);
+record-verdict, loop-state (the self-improving loop's bookkeeping — see
+specs/007-classification-improve-loop/contracts/verdict-cli.md).
 """
 
 import argparse
 import json
 import logging
+import sys
 
 from . import run_analysis
 from .extractions import apply_extractions, plan_extractions, summarize_mismatches
+from .verdicts import (
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_NO_PROGRESS_WINDOW,
+    loop_state,
+    record_verdict,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +64,28 @@ def main(argv=None):
     p.add_argument("--document-id", type=str, nargs="*", help="Scope to these document ids.")
     p.add_argument("--entry-id", type=str, nargs="*", help="Scope to these entry ids.")
 
+    p = sub.add_parser("record-verdict", help="Record one review verdict into <period>.verdicts.json")
+    p.add_argument("--periodo", type=str, required=True, help="Period YYYY-MM.")
+    p.add_argument("--data-dir", "-d", default=DATA_DIR, help="Directory containing period JSON files.")
+    p.add_argument("--iteration", type=int, required=True, help="Loop iteration (>=1) this verdict belongs to.")
+    p.add_argument("--json", dest="verdict_json", required=True, help="Verdict object as JSON (from review-mismatch).")
+    p.add_argument("--fix-branch", help="Attach a FixProposal: branch name.")
+    p.add_argument("--fix-pr", help="Attach a FixProposal: PR url.")
+    p.add_argument("--fix-status", choices=["pr-open", "failed"], help="Attach a FixProposal: status (never 'merged').")
+    p.add_argument("--fix-summary", help="Attach a FixProposal: one-line summary.")
+
+    p = sub.add_parser("loop-state", help="Recompute & print the deterministic loop state for a period")
+    p.add_argument("--periodo", type=str, required=True, help="Period YYYY-MM.")
+    p.add_argument("--data-dir", "-d", default=DATA_DIR, help="Directory containing period JSON files.")
+    p.add_argument("--iteration", type=int, help="Iteration to record (default: infer next).")
+    p.add_argument("--max-iterations", type=int, default=DEFAULT_MAX_ITERATIONS, help="Max-iteration cap (default 3).")
+    p.add_argument(
+        "--no-progress-window", type=int, default=DEFAULT_NO_PROGRESS_WINDOW,
+        help="Consecutive-iteration window for the no-progress guard (default 2).",
+    )
+    p.add_argument("--document-id", type=str, nargs="*", help="Scope the join to these document ids.")
+    p.add_argument("--entry-id", type=str, nargs="*", help="Scope the join to these entry ids.")
+
     args = parser.parse_args(argv)
 
     if args.command == "docs-plan":
@@ -79,6 +110,43 @@ def main(argv=None):
             entry_ids=args.entry_id,
         )
         print(json.dumps(rows, ensure_ascii=False, indent=2))
+    elif args.command == "record-verdict":
+        try:
+            verdict_obj = json.loads(args.verdict_json)
+        except json.JSONDecodeError as e:
+            print(f"error: --json is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        fix = None
+        if any([args.fix_branch, args.fix_pr, args.fix_status, args.fix_summary]):
+            fix = {
+                "branch": args.fix_branch,
+                "pr_url": args.fix_pr,
+                "status": args.fix_status,
+                "summary": args.fix_summary,
+            }
+        try:
+            record_verdict(
+                data_dir=args.data_dir,
+                period=args.periodo,
+                iteration=args.iteration,
+                verdict_obj=verdict_obj,
+                fix=fix,
+            )
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Recorded verdict for {verdict_obj.get('mismatch_key')} (iteration {args.iteration}).")
+    elif args.command == "loop-state":
+        state = loop_state(
+            data_dir=args.data_dir,
+            period=args.periodo,
+            iteration=args.iteration,
+            max_iterations=args.max_iterations,
+            no_progress_window=args.no_progress_window,
+            document_ids=args.document_id,
+            entry_ids=args.entry_id,
+        )
+        print(json.dumps(state, ensure_ascii=False, indent=2))
 
 
 main()
