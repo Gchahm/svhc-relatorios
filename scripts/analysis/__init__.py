@@ -1,44 +1,51 @@
-"""Analysis module — runs financial checks on scraped period data."""
+"""Analysis module — runs financial checks on period data loaded from D1."""
 
-import json
 import logging
-from pathlib import Path
+
+from common import d1
+from common.d1 import Target
 
 from .checks import run_all_checks
+from .images import materialize_period_images
 from .loader import load_all_periods
 from .reporter import print_summary
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CACHE_DIR = "../.cache/analysis"
+
 
 def run_analysis(
-    data_dir: str,
+    target: Target = "local",
     periods_filter: list[str] | None = None,
+    *,
+    cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Run full analysis pipeline on scraped JSON data.
+    """Run the full analysis pipeline on period data from D1.
 
-    Loads all period files, runs checks, writes alerts back to JSONs,
-    and prints a console summary.
+    Loads periods from D1, materializes page images from R2 (the duplicate-billing
+    check hashes them to group shared NFs), runs checks, writes alerts back to D1
+    (delete-then-insert per period so a re-run leaves no stale alert), and prints a
+    console summary.
     """
-    periods, refs = load_all_periods(data_dir, periods_filter)
+    periods, refs = load_all_periods(target, periods_filter)
 
     if not periods:
         logger.info("No periods to analyze")
         return
 
+    # Bring images local so the duplicate-billing check can content-hash & group NFs.
+    materialize_period_images(periods, cache_dir, target)
+
     alerts_by_period = run_all_checks(periods, refs)
 
-    # Write alerts back to JSON files
-    data_path = Path(data_dir)
     for period_key, alerts in alerts_by_period.items():
-        period_data = periods[period_key]
-        period_data.raw["alerts"] = [a.to_dict() for a in alerts]
-
-        json_file = data_path / f"{period_key}.json"
-        json_file.write_text(
-            json.dumps(period_data.raw, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        logger.info("%s: %d alerts written", period_key, len(alerts))
+        period = period_key.replace("'", "''")
+        # Recomputed each run: clear this period's alerts first so none go stale.
+        d1.execute_sql(f"DELETE FROM alerts WHERE reference_period = '{period}'", target=target)
+        rows = [a.to_dict() for a in alerts]
+        if rows:
+            d1.upsert_tables({"alerts": rows}, target=target)
+        logger.info("%s: %d alerts written to D1 (%s)", period_key, len(alerts), target)
 
     print_summary(alerts_by_period)

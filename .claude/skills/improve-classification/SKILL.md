@@ -1,7 +1,7 @@
 ---
 description: >-
     The thin orchestrator for the self-improving document-classification loop. Runs analyze → review each mismatch (true/false/transient/page-error) → for each false, delegate a human-gated speckit fix that opens a PR → re-run scoped to the affected documents → repeat until convergence, a max-iteration cap, or a no-progress guard halts it. It coordinates only: every heavy step (vision, review, fix) is a separate context-isolated worker, and all loop bookkeeping lives in the deterministic `loop-state` CLI — so this skill never holds page images, diffs, or large state. Use it for "run the classification improvement loop for 2025-12" or to drive the loop over a subset of documents.
-argument-hint: "[period] [--document-id <ids…>] [--entry-id <ids…>] [--max-iterations N]"
+argument-hint: "[period] [--document-id <ids…>] [--entry-id <ids…>] [--max-iterations N] [--remote]"
 allowed-tools: Task, Bash, Read, Glob, Skill
 ---
 
@@ -19,8 +19,12 @@ classification yourself, or merge a fix. Keeping your own context flat is a hard
 - `--document-id <id…>` / `--entry-id <id…>` — restrict the **initial** scope to a subset.
 - `--max-iterations N` — override the iteration cap (default 3). `--no-progress-window` (default 2)
   may also be forwarded to `loop-state`.
+- `--remote` — run the whole loop against the production D1 + R2 (default local). Forward it to the
+  `analyze-docs` delegation and to every `loop-state` command. (`record-verdict` writes only the local
+  cache file and takes no `--remote`.)
 
-Pipeline commands run from the repo's `scripts/` directory.
+Pipeline commands run from the repo's `scripts/` directory. The period data lives in Cloudflare D1
+and images in R2; the verdicts/loop-state working file lives in the local cache (`../.cache/analysis/`).
 
 # Loop
 
@@ -37,7 +41,7 @@ mismatch summary. Keep that summary; do not expand it.
 
 ```bash
 cd scripts && uv run python -m analysis loop-state --periodo <period> --iteration <iteration> \
-    [--max-iterations N] [--document-id <scope ids…>] [--entry-id <scope ids…>]
+    [--max-iterations N] [--document-id <scope ids…>] [--entry-id <scope ids…>] [--remote]
 ```
 
 Read `open`, `findings`, `data_quality`, `affected_document_ids`, and `terminate`. **If `terminate`
@@ -70,7 +74,7 @@ cd scripts && uv run python -m analysis record-verdict --periodo <period> --iter
 ### 5. Rescope and continue
 
 ```bash
-cd scripts && uv run python -m analysis loop-state --periodo <period>
+cd scripts && uv run python -m analysis loop-state --periodo <period> [--remote]
 ```
 
 Set `scope ← --document-id <affected_document_ids>` (re-runs after the first iteration are scoped —

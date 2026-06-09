@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import re
 import time
@@ -17,6 +16,10 @@ from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 
 from common import det_id as _det_id, now_ms as _now_ms
+from common import d1
+from common.d1 import Target
+
+DEFAULT_CACHE_DIR = "../.cache/analysis"
 
 logger = logging.getLogger(__name__)
 
@@ -177,25 +180,46 @@ def _build_period_data(
     }
 
 
+def _upload_pages_to_r2(local_paths: list[str], periodo: str, target: Target) -> list[str]:
+    """Upload each downloaded page to R2 at key ``<period>/<basename>``; return the keys.
+
+    The returned keys are what gets stored in ``documents.file_path`` (R2-key form), which
+    ``src/lib/r2.ts:objectKeyFromFilePath()`` resolves back to the same key for the frontend.
+    """
+    keys: list[str] = []
+    for path in local_paths:
+        name = Path(path).name
+        key = f"{periodo}/{name}"
+        d1.put_object(key, path, d1.content_type_for(name), target=target)
+        keys.append(key)
+    return keys
+
+
 async def run_scrape(
-    output_dir: str,
+    target: Target = "local",
     book_ids: list[int] | None = None,
     periodos_filter: list[str] | None = None,
     download_docs: bool = False,
+    cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Run a full scrape, writing one JSON file per period.
+    """Run a full scrape, writing each period's rows straight into D1 (+ images to R2).
 
     Args:
-        output_dir: Directory to write period JSON files.
+        target: D1/R2 target — "local" (default) or "remote".
         book_ids: Specific accountability book IDs to scrape.
         periodos_filter: Specific periods to scrape (e.g. ["2026-01"]).
-        download_docs: Whether to download document files.
+        download_docs: Whether to download document images (uploaded to R2 during the run).
+        cache_dir: Ephemeral local scratch for downloaded images before upload (never the data folder).
     """
-    out_path = Path(output_dir)
-    out_path.mkdir(parents=True, exist_ok=True)
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
 
-    # Determine already-scraped periods from existing files
-    existing_periods = {p.stem for p in out_path.glob("*.json") if p.stem != "_run"}
+    logger.info("Scrape target: %s", "REMOTE (production)" if target == "remote" else "local")
+
+    # Determine already-scraped periods from D1 (replaces the old on-disk JSON glob)
+    existing_periods = {
+        row["period"] for row in d1.query("SELECT period FROM accountability_reports", target=target)
+    }
 
     run_id = _random_id()
     scrape_run = {
@@ -236,14 +260,14 @@ async def run_scrape(
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     period_data = await _scrape_periodo(
-                        browser, periodo_info, scrape_run, download_docs, out_path
+                        browser, periodo_info, scrape_run, download_docs, cache_path, target
                     )
-                    # Write period file immediately to free memory
-                    period_file = out_path / f"{periodo}.json"
-                    period_file.write_text(json.dumps(period_data, ensure_ascii=False, indent=2))
+                    # Upsert the period's ledger rows straight into D1 (idempotent INSERT OR REPLACE).
+                    counts = d1.upsert_tables(period_data, target=target)
+                    summary = ", ".join(f"{t}={n}" for t, n in counts.items())
 
                     scraped_count += 1
-                    logger.info("[%d/%d] %s done -> %s", i, len(periodos), label, period_file)
+                    logger.info("[%d/%d] %s done -> D1 (%s): %s", i, len(periodos), label, target, summary)
                     last_error = None
                     break
                 except Exception as e:
@@ -304,7 +328,8 @@ async def _scrape_periodo(
     periodo_info: dict,
     scrape_run: dict,
     download_docs: bool,
-    output_dir: Path | None = None,
+    cache_dir: Path,
+    target: Target,
 ) -> dict:
     """Scrape a single period and return the JSON data dict."""
     book_id = periodo_info["book_id"]
@@ -435,12 +460,14 @@ async def _scrape_periodo(
             "status": aprov["status"],
         })
 
-    # Download documents
+    # Download documents to the local cache, then upload each page to R2. The
+    # document's file_path stores the R2-key tokens (`<period>/<basename>`), matching
+    # objectKeyFromFilePath() in src/lib/r2.ts — nothing rests in the data folder.
     if download_docs and doc_download_tasks:
         total_docs = sum(len(ids) for _, ids, _ in doc_download_tasks)
         logger.info("  Downloading %d documents for %d entries...", total_docs, len(doc_download_tasks))
 
-        dest_dir = output_dir / periodo if output_dir else Path(f"data/scrape/{periodo}")
+        dest_dir = cache_dir / periodo
         downloaded = 0
         for entry_id, documento_ids, doc_records in doc_download_tasks:
             paths_by_id = await download_entry_documents(
@@ -449,9 +476,10 @@ async def _scrape_periodo(
             for doc_record in doc_records:
                 ext_id = doc_record["external_document_id"]
                 if ext_id in paths_by_id:
-                    doc_record["file_path"] = ";".join(paths_by_id[ext_id])
+                    keys = _upload_pages_to_r2(paths_by_id[ext_id], periodo, target)
+                    doc_record["file_path"] = ";".join(keys)
                     downloaded += 1
-        logger.info("  Documents saved: %d/%d", downloaded, total_docs)
+        logger.info("  Documents uploaded to R2 (%s): %d/%d", target, downloaded, total_docs)
 
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",
@@ -464,83 +492,75 @@ async def _scrape_periodo(
 
 
 async def run_download_docs(
-    data_dir: str,
+    target: Target = "local",
     periodos_filter: list[str] | None = None,
+    cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Download documents for existing scraped JSON files.
+    """Download documents that are missing their R2 images and upload them.
 
-    Reads each period JSON, downloads documents that don't have a file_path yet,
-    and updates the JSON files in-place.
+    Finds documents whose ``file_path`` is still NULL in D1, downloads their pages to the
+    local cache, uploads each to R2, and updates ``documents.file_path`` in D1.
 
     Args:
-        data_dir: Directory containing period JSON files (e.g. data/scrape).
+        target: D1/R2 target — "local" (default) or "remote".
         periodos_filter: Only process these periods (e.g. ["2024-12"]).
+        cache_dir: Ephemeral local scratch for downloaded images before upload.
     """
-    data_path = Path(data_dir)
-    json_files = sorted(data_path.glob("*.json"))
+    logger.info("Download-docs target: %s", "REMOTE (production)" if target == "remote" else "local")
+    cache_path = Path(cache_dir)
 
+    where = "d.file_path IS NULL"
     if periodos_filter:
-        json_files = [f for f in json_files if f.stem in periodos_filter]
+        in_list = ", ".join("'" + p.replace("'", "''") + "'" for p in periodos_filter)
+        where += f" AND r.period IN ({in_list})"
+    pending = d1.query(
+        "SELECT d.id, d.entry_id, d.external_document_id, r.period "
+        "FROM documents d "
+        "JOIN entries e ON d.entry_id = e.id "
+        "JOIN accountability_reports r ON e.report_id = r.id "
+        f"WHERE {where}",
+        target=target,
+    )
 
-    if not json_files:
-        logger.info("No JSON files found in %s", data_path)
+    if not pending:
+        logger.info("All documents already have images in R2")
         return
 
-    # Build work list: figure out which files have documents to download
-    work = []
-    for json_file in json_files:
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        docs = data.get("documents", [])
-        pending = [d for d in docs if not d.get("file_path")]
-        if not pending:
-            logger.info("%s: all %d documents already downloaded, skipping", json_file.stem, len(docs))
-            continue
+    # Group by (period, entry_id) for batch downloading
+    by_entry: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for doc in pending:
+        by_entry[(doc["period"], doc["entry_id"])].append(doc)
 
-        work.append((json_file, data, pending))
-        logger.info("%s: %d/%d documents to download", json_file.stem, len(pending), len(docs))
-
-    if not work:
-        logger.info("All documents already downloaded")
-        return
-
-    total_pending = sum(len(pending) for _, _, pending in work)
-    logger.info("Will download %d documents across %d period(s)", total_pending, len(work))
+    logger.info("Will download %d documents across %d entries", len(pending), len(by_entry))
 
     browser = BRCondosBrowser()
     try:
         await browser.start()
         await browser.login()
 
-        for json_file, data, pending in work:
-            periodo = json_file.stem
-            dest_dir = data_path / periodo
-            logger.info("Processing %s (%d documents)...", periodo, len(pending))
+        updated_docs: list[dict] = []
+        for (periodo, entry_id), entry_docs in by_entry.items():
+            dest_dir = cache_path / periodo
+            ext_doc_ids = [d["external_document_id"] for d in entry_docs]
 
-            # Group pending docs by entry_id for batch downloading
-            by_entry: dict[str, list[dict]] = defaultdict(list)
-            for doc in pending:
-                by_entry[doc["entry_id"]].append(doc)
-
-            downloaded = 0
-            for entry_id, entry_docs in by_entry.items():
-                ext_doc_ids = [d["external_document_id"] for d in entry_docs]
-
-                paths_by_id = await download_entry_documents(
-                    browser.page, ext_doc_ids, entry_id, dest_dir
-                )
-
-                for doc in entry_docs:
-                    ext_id = doc["external_document_id"]
-                    if ext_id in paths_by_id:
-                        doc["file_path"] = ";".join(paths_by_id[ext_id])
-                        downloaded += 1
-
-            # Write updated JSON back
-            json_file.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            paths_by_id = await download_entry_documents(
+                browser.page, ext_doc_ids, entry_id, dest_dir
             )
-            logger.info("%s: downloaded %d/%d documents", periodo, downloaded, len(pending))
+
+            for doc in entry_docs:
+                ext_id = doc["external_document_id"]
+                if ext_id in paths_by_id:
+                    keys = _upload_pages_to_r2(paths_by_id[ext_id], periodo, target)
+                    updated_docs.append({
+                        "id": doc["id"],
+                        "entry_id": doc["entry_id"],
+                        "external_document_id": ext_id,
+                        "file_path": ";".join(keys),
+                    })
+
+        if updated_docs:
+            d1.upsert_tables({"documents": updated_docs}, target=target)
+        logger.info("Updated %d/%d documents in D1 (%s)", len(updated_docs), len(pending), target)
 
     except Exception as e:
         logger.error("Fatal error during document download: %s", e, exc_info=True)

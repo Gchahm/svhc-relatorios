@@ -55,3 +55,6 @@ __pycache__/
 
 # Scraper data
 scripts/data/
+
+# Ephemeral analysis cache (materialized R2 images + per-run scratch; reproducible from D1+R2)
+.cache/

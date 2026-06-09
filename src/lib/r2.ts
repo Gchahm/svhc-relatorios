@@ -15,10 +15,13 @@ export async function getDocumentsBucket() {
  * Normalize one `documents.file_path` segment into its R2 object key.
  *
  * The canonical mapping (single source of truth) is documented in
- * `specs/012-r2-document-images/data-model.md`. The upload script
- * (`scripts/upload-images-to-r2.mjs`) MUST replicate this exactly so writes and reads agree.
+ * `specs/012-r2-document-images/data-model.md`. The scraper (`scripts/scraper`, via
+ * `scripts/common/d1.py:put_object`) now writes `documents.file_path` as the R2-key form
+ * directly and uploads to that key, so writes and reads agree; legacy `data/scrape/...`
+ * paths are still normalized here for backward compatibility.
  *
- * Example: `../data/scrape/2025-12/<id>_p2.png` -> `2025-12/<id>_p2.png`
+ * Example: `2025-12/<id>_p2.png` -> `2025-12/<id>_p2.png`;
+ *          legacy `../data/scrape/2025-12/<id>_p2.png` -> `2025-12/<id>_p2.png`
  */
 export function objectKeyFromFilePath(segment: string): string {
     const normalized = segment.trim().replace(/^(\.\.\/)+/, "");
