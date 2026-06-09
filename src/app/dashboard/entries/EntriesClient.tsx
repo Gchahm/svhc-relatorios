@@ -6,9 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt } from "lucide-react";
+import DocumentAnalysisDetailDialog from "./DocumentAnalysisDetailDialog";
 
 interface Entry {
     id: number;
@@ -22,6 +24,33 @@ interface Entry {
     subcategory: string;
     vendor: string | null;
     unitCode: string | null;
+}
+
+// Shape returned by GET /api/document-analyses (one object per analysis). The detail dialog
+// consumes this directly and self-fetches its per-page records/images by `id`.
+export interface DocAnalysisRow {
+    id: string;
+    documentId: string;
+    analyzedAt: number;
+    documentType: string | null;
+    extractedAmount: number | null;
+    amountMatch: boolean | null;
+    extractedCnpj: string | null;
+    issuerName: string | null;
+    vendorMatch: boolean | null;
+    extractedDate: string | null;
+    dateMatch: boolean | null;
+    documentNumber: string | null;
+    serviceDescription: string | null;
+    error: string | null;
+    entryId: string;
+    entryDate: string;
+    entryDescription: string;
+    entryAmount: number;
+    entryMovementType: string;
+    vendorName: string | null;
+    subcategoryName: string | null;
+    categoryName: string | null;
 }
 
 function getCurrentPeriod(): string {
@@ -56,8 +85,28 @@ function stripDescriptionPrefix(description: string, subcategory: string): strin
     return text;
 }
 
+/** Compact per-row match indicator: green check (OK), red cross (mismatch), em-dash (n/a). */
+function MatchCell({ match }: { match: boolean | null | undefined }) {
+    if (match === null || match === undefined) {
+        return <span className="text-muted-foreground text-xs">—</span>;
+    }
+    if (match) {
+        return (
+            <Badge variant="outline" className="border-green-400 text-green-700 text-[10px] px-1 py-0">
+                ✓
+            </Badge>
+        );
+    }
+    return (
+        <Badge variant="destructive" className="text-[10px] px-1 py-0">
+            ✗
+        </Badge>
+    );
+}
+
 export default function EntriesClient() {
     const [entries, setEntries] = useState<Entry[]>([]);
+    const [docAnalyses, setDocAnalyses] = useState<DocAnalysisRow[]>([]);
     const [periods, setPeriods] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -66,6 +115,11 @@ export default function EntriesClient() {
     const [selectedPeriod, setSelectedPeriod] = useState(getCurrentPeriod());
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [search, setSearch] = useState("");
+    const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
+    const [selectedDocMatchStatus, setSelectedDocMatchStatus] = useState<string[]>([]);
+
+    // Document detail dialog
+    const [selectedAnalysis, setSelectedAnalysis] = useState<DocAnalysisRow | null>(null);
 
     // Fetch available periods
     useEffect(() => {
@@ -84,16 +138,25 @@ export default function EntriesClient() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fetch entries when period changes
+    // Fetch entries + their period-scoped document analyses when period changes
     const fetchEntries = useCallback((period: string) => {
         setLoading(true);
         setError(null);
-        fetch(`/api/entries?period=${encodeURIComponent(period)}`)
-            .then(res => {
+        const q = encodeURIComponent(period);
+        Promise.all([
+            fetch(`/api/entries?period=${q}`).then(res => {
                 if (!res.ok) throw new Error("Failed to fetch entries");
-                return res.json();
+                return res.json() as Promise<Entry[]>;
+            }),
+            // Document analyses follow the period's entries; a failure here must not blank the ledger.
+            fetch(`/api/document-analyses?period=${q}`)
+                .then(res => (res.ok ? (res.json() as Promise<DocAnalysisRow[]>) : []))
+                .catch(() => [] as DocAnalysisRow[]),
+        ])
+            .then(([entryRows, analysisRows]) => {
+                setEntries(entryRows);
+                setDocAnalyses(Array.isArray(analysisRows) ? analysisRows : []);
             })
-            .then(setEntries)
             .catch(e => setError(e.message))
             .finally(() => setLoading(false));
     }, []);
@@ -109,7 +172,32 @@ export default function EntriesClient() {
         setSelectedPeriod(value);
         setSelectedSubcategories([]);
         setSearch("");
+        setSelectedDocTypes([]);
+        setSelectedDocMatchStatus([]);
     };
+
+    // Latest analysis per entry (endpoint orders analyzedAt DESC, so first-seen wins).
+    const analysisByEntry = useMemo(() => {
+        const map = new Map<string, DocAnalysisRow>();
+        for (const a of docAnalyses) {
+            if (!map.has(a.entryId)) map.set(a.entryId, a);
+        }
+        return map;
+    }, [docAnalyses]);
+
+    const docTypeOptions = useMemo(
+        () =>
+            [...new Set(docAnalyses.map(a => a.documentType).filter(Boolean))]
+                .sort()
+                .map(v => ({ value: v!, label: v! })),
+        [docAnalyses]
+    );
+
+    const matchStatusOptions = [
+        { value: "all_match", label: "All match" },
+        { value: "has_mismatch", label: "Has mismatch" },
+        { value: "has_error", label: "Has error" },
+    ];
 
     // Sorting
     const { sortKey, sortDir, toggleSort, sortFn } = useSort<Entry>("date", "asc");
@@ -120,6 +208,24 @@ export default function EntriesClient() {
         const result = entries.filter(e => {
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
+
+            const a = analysisByEntry.get(String(e.id));
+            if (selectedDocTypes.length > 0 && (!a || !selectedDocTypes.includes(a.documentType || ""))) {
+                return false;
+            }
+            if (selectedDocMatchStatus.length > 0) {
+                if (!a) return false;
+                const allMatch = a.amountMatch !== false && a.vendorMatch !== false && a.dateMatch !== false;
+                const hasMismatch = a.amountMatch === false || a.vendorMatch === false || a.dateMatch === false;
+                const hasError = !!a.error;
+                const passes = selectedDocMatchStatus.some(s => {
+                    if (s === "all_match") return allMatch && !hasError;
+                    if (s === "has_mismatch") return hasMismatch;
+                    if (s === "has_error") return hasError;
+                    return false;
+                });
+                if (!passes) return false;
+            }
             return true;
         });
         return sortFn(result, {
@@ -130,9 +236,9 @@ export default function EntriesClient() {
             amount: e => e.amount,
             unit: e => e.unitCode || "",
         });
-    }, [entries, selectedSubcategories, search, sortFn]);
+    }, [entries, selectedSubcategories, search, selectedDocTypes, selectedDocMatchStatus, analysisByEntry, sortFn]);
 
-    // Totals
+    // Financial totals
     const totals = useMemo(() => {
         let revenue = 0;
         let expenses = 0;
@@ -142,6 +248,18 @@ export default function EntriesClient() {
         }
         return { revenue, expenses, net: revenue - expenses, count: filtered.length };
     }, [filtered]);
+
+    // Period document-health summary (over the period-scoped analyses)
+    const docSummary = useMemo(() => {
+        const analyzed = docAnalyses.filter(a => !a.error);
+        return {
+            total: docAnalyses.length,
+            errors: docAnalyses.length - analyzed.length,
+            amountBad: analyzed.filter(a => a.amountMatch === false).length,
+            vendorBad: analyzed.filter(a => a.vendorMatch === false).length,
+            dateBad: analyzed.filter(a => a.dateMatch === false).length,
+        };
+    }, [docAnalyses]);
 
     // Virtualizer
     const parentRef = useRef<HTMLDivElement>(null);
@@ -194,6 +312,31 @@ export default function EntriesClient() {
                     </CardContent>
                 </Card>
 
+                <Card>
+                    <CardContent className="p-3 space-y-3">
+                        <div className="space-y-1.5">
+                            <span className="block text-xs font-medium text-muted-foreground">Document type</span>
+                            <MultiSelect
+                                options={docTypeOptions}
+                                selected={selectedDocTypes}
+                                onSelectedChange={setSelectedDocTypes}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <span className="block text-xs font-medium text-muted-foreground">Document status</span>
+                            <MultiSelect
+                                options={matchStatusOptions}
+                                selected={selectedDocMatchStatus}
+                                onSelectedChange={setSelectedDocMatchStatus}
+                                placeholder="All"
+                                className="w-full"
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <CategoryTree
                     data={entries}
                     selected={selectedSubcategories}
@@ -204,12 +347,12 @@ export default function EntriesClient() {
             {/* Main content */}
             <Card className="flex-1 flex flex-col min-h-0">
                 <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
                         <CardTitle className="flex items-center gap-2 text-xl">
                             <Receipt className="h-5 w-5" />
                             Entries
                         </CardTitle>
-                        <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-3 text-sm flex-wrap">
                             <span className="text-muted-foreground">
                                 {loading ? "Loading..." : `${filtered.length} entries`}
                             </span>
@@ -224,6 +367,28 @@ export default function EntriesClient() {
                                     <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
                                         Net: {formatCurrency(totals.net)}
                                     </Badge>
+                                    {docSummary.total > 0 && (
+                                        <>
+                                            <div className="w-px h-4 bg-border" />
+                                            <span className="text-xs text-muted-foreground">
+                                                {docSummary.total} docs
+                                            </span>
+                                            {docSummary.amountBad > 0 && (
+                                                <Badge variant="destructive">{docSummary.amountBad} amount</Badge>
+                                            )}
+                                            {docSummary.vendorBad > 0 && (
+                                                <Badge variant="destructive">{docSummary.vendorBad} vendor</Badge>
+                                            )}
+                                            {docSummary.dateBad > 0 && (
+                                                <Badge variant="outline" className="border-yellow-400 text-yellow-700">
+                                                    {docSummary.dateBad} date
+                                                </Badge>
+                                            )}
+                                            {docSummary.errors > 0 && (
+                                                <Badge variant="secondary">{docSummary.errors} errors</Badge>
+                                            )}
+                                        </>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -232,7 +397,7 @@ export default function EntriesClient() {
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[90px] px-3 py-2 shrink-0">
+                            <div className="w-[80px] px-2 py-2 shrink-0">
                                 <SortableHeader
                                     label="Date"
                                     sortKey="date"
@@ -241,7 +406,7 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="flex-1 px-3 py-2 min-w-0">
+                            <div className="flex-1 px-2 py-2 min-w-0">
                                 <SortableHeader
                                     label="Description"
                                     sortKey="description"
@@ -250,7 +415,7 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[140px] px-3 py-2 shrink-0">
+                            <div className="w-[120px] px-2 py-2 shrink-0">
                                 <SortableHeader
                                     label="Category"
                                     sortKey="category"
@@ -259,7 +424,7 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[140px] px-3 py-2 shrink-0">
+                            <div className="w-[120px] px-2 py-2 shrink-0">
                                 <SortableHeader
                                     label="Subcategory"
                                     sortKey="subcategory"
@@ -268,7 +433,7 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[70px] px-3 py-2 shrink-0">
+                            <div className="w-[56px] px-2 py-2 shrink-0">
                                 <SortableHeader
                                     label="Unit"
                                     sortKey="unit"
@@ -277,7 +442,11 @@ export default function EntriesClient() {
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
+                            <div className="w-[64px] px-2 py-2 shrink-0">Doc</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Amt</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Vnd</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Dt</div>
+                            <div className="w-[110px] px-2 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
                                     label="Amount"
                                     sortKey="amount"
@@ -298,38 +467,71 @@ export default function EntriesClient() {
                             >
                                 {virtualizer.getVirtualItems().map(virtualRow => {
                                     const entry = filtered[virtualRow.index];
+                                    const analysis = analysisByEntry.get(String(entry.id));
+                                    const docLabel = analysis
+                                        ? analysis.error
+                                            ? "error"
+                                            : analysis.documentType || "doc"
+                                        : null;
                                     return (
                                         <div
                                             key={entry.id}
-                                            className="flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full"
+                                            className={`flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full ${
+                                                analysis ? "cursor-pointer" : ""
+                                            }`}
                                             style={{
                                                 height: `${virtualRow.size}px`,
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
+                                            title={
+                                                analysis
+                                                    ? analysis.serviceDescription ||
+                                                      analysis.error ||
+                                                      "Click for document detail"
+                                                    : undefined
+                                            }
+                                            onClick={analysis ? () => setSelectedAnalysis(analysis) : undefined}
                                         >
-                                            <div className="w-[90px] px-3 shrink-0 whitespace-nowrap">
+                                            <div className="w-[80px] px-2 shrink-0 whitespace-nowrap">
                                                 {formatDate(entry.date)}
                                             </div>
-                                            <div className="flex-1 px-3 min-w-0 truncate" title={entry.description}>
+                                            <div className="flex-1 px-2 min-w-0 truncate" title={entry.description}>
                                                 {stripDescriptionPrefix(entry.description, entry.subcategory)}
                                             </div>
                                             <div
-                                                className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs"
+                                                className="w-[120px] px-2 shrink-0 text-muted-foreground truncate text-xs"
                                                 title={entry.category}
                                             >
                                                 {entry.category}
                                             </div>
                                             <div
-                                                className="w-[140px] px-3 shrink-0 text-muted-foreground truncate text-xs"
+                                                className="w-[120px] px-2 shrink-0 text-muted-foreground truncate text-xs"
                                                 title={entry.subcategory}
                                             >
                                                 {entry.subcategory}
                                             </div>
-                                            <div className="w-[70px] px-3 shrink-0 text-muted-foreground text-xs">
+                                            <div className="w-[56px] px-2 shrink-0 text-muted-foreground text-xs">
                                                 {entry.unitCode || "-"}
                                             </div>
                                             <div
-                                                className={`w-[120px] px-3 shrink-0 text-right tabular-nums ${
+                                                className={`w-[64px] px-2 shrink-0 truncate text-xs ${
+                                                    analysis?.error ? "text-red-600" : "text-muted-foreground"
+                                                }`}
+                                                title={docLabel || undefined}
+                                            >
+                                                {docLabel || "—"}
+                                            </div>
+                                            <div className="w-[40px] px-1 shrink-0 flex justify-center">
+                                                {analysis ? <MatchCell match={analysis.amountMatch} /> : null}
+                                            </div>
+                                            <div className="w-[40px] px-1 shrink-0 flex justify-center">
+                                                {analysis ? <MatchCell match={analysis.vendorMatch} /> : null}
+                                            </div>
+                                            <div className="w-[40px] px-1 shrink-0 flex justify-center">
+                                                {analysis ? <MatchCell match={analysis.dateMatch} /> : null}
+                                            </div>
+                                            <div
+                                                className={`w-[110px] px-2 shrink-0 text-right tabular-nums ${
                                                     entry.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
@@ -344,14 +546,18 @@ export default function EntriesClient() {
                         {/* Footer */}
                         {!loading && filtered.length > 0 && (
                             <div className="flex items-center border-t bg-muted/50 text-sm font-medium shrink-0">
-                                <div className="w-[90px] px-3 py-2 shrink-0" />
-                                <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
-                                <div className="w-[140px] px-3 py-2 shrink-0" />
-                                <div className="w-[140px] px-3 py-2 shrink-0" />
-                                <div className="w-[70px] px-3 py-2 shrink-0 text-right text-xs text-muted-foreground">
+                                <div className="w-[80px] px-2 py-2 shrink-0" />
+                                <div className="flex-1 px-2 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
+                                <div className="w-[120px] px-2 py-2 shrink-0" />
+                                <div className="w-[120px] px-2 py-2 shrink-0" />
+                                <div className="w-[56px] px-2 py-2 shrink-0 text-right text-xs text-muted-foreground">
                                     {totals.count}
                                 </div>
-                                <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
+                                <div className="w-[64px] px-2 py-2 shrink-0" />
+                                <div className="w-[40px] px-1 py-2 shrink-0" />
+                                <div className="w-[40px] px-1 py-2 shrink-0" />
+                                <div className="w-[40px] px-1 py-2 shrink-0" />
+                                <div className="w-[110px] px-2 py-2 shrink-0 text-right tabular-nums font-semibold">
                                     {formatCurrency(totals.net)}
                                 </div>
                             </div>
@@ -359,6 +565,13 @@ export default function EntriesClient() {
                     </div>
                 </CardContent>
             </Card>
+
+            <DocumentAnalysisDetailDialog
+                analysis={selectedAnalysis}
+                onOpenChange={open => {
+                    if (!open) setSelectedAnalysis(null);
+                }}
+            />
         </div>
     );
 }

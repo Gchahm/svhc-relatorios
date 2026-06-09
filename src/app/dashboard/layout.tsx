@@ -10,7 +10,6 @@ import {
     Receipt,
     BarChart3,
     FileSpreadsheet,
-    FileSearch,
     Store,
     Building2,
     AlertTriangle,
@@ -82,9 +81,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         {/* Analysis */}
                         <NavLink href="/dashboard/alerts" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
                             Alerts
-                        </NavLink>
-                        <NavLink href="/dashboard/document-analyses" icon={<FileSearch className="h-3.5 w-3.5" />}>
-                            Docs
                         </NavLink>
 
                         <div className="w-px h-4 bg-gray-200 mx-1" />

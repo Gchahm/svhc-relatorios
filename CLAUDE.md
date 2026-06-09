@@ -113,6 +113,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - per-period JSON working file `data/scrape/<period>.verdicts.json` (verdicts + loop state); no D1 schema (007-classification-improve-loop)
 - TypeScript 5 / React 19 / Next.js 15 (App Router); Node ESM (`.mjs`) for the upload script + `@opennextjs/cloudflare` (R2 binding via `getCloudflareContext`), `@cloudflare/workers-types` (`R2Bucket` type), existing shadcn/ui `Dialog`, better-auth — **no new npm dependencies** (012-r2-document-images)
 - Cloudflare R2 bucket, binding `DOCUMENTS`, bucket name `fiscal-documents`; emulated locally by Miniflare (`.wrangler/state`) exactly as D1/KV are. Source images on disk under `data/scrape/<period>/` (012-r2-document-images)
+- TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (card, badge, dialog, select, input, multi-select), lucide-react, @tanstack/react-virtual — **no new npm dependencies** (013-merge-entries-docs)
+- Cloudflare D1 (SQLite) — tables `entries`, `document_analyses`, `documents`, `document_analysis_records`, `accountability_reports`, `vendors`, `subcategories`, `categories`, `units` — all **read-only** here (013-merge-entries-docs)
 
 - Python 3.12+ (`scripts/`), managed by `uv`. + scraper = `playwright` + `python-dotenv`; analysis = **stdlib only** (008-decouple-analysis-scripts)
 - period JSON under `data/scrape/<YYYY-MM>.json` (source of truth); intermediate working (008-decouple-analysis-scripts)
