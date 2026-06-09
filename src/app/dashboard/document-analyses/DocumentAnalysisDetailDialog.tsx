@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import PageImageViewer from "./PageImageViewer";
 import type { DocAnalysisRow } from "./DocumentAnalysesClient";
 
 interface DocAnalysisRecord {
@@ -14,6 +15,13 @@ interface DocAnalysisRecord {
     response: string | null;
     rawText: string | null;
     parseError: string | null;
+}
+
+interface PageInfo {
+    pageIndex: number;
+    pageLabel: string;
+    ext: string;
+    imageUrl: string;
 }
 
 // Roles whose presence means the roll-up amount was reconciled against a payment artifact,
@@ -132,6 +140,7 @@ export default function DocumentAnalysisDetailDialog({
     onOpenChange: (open: boolean) => void;
 }) {
     const [records, setRecords] = useState<DocAnalysisRecord[]>([]);
+    const [pages, setPages] = useState<PageInfo[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -162,7 +171,40 @@ export default function DocumentAnalysisDetailDialog({
         };
     }, [analysisId]);
 
+    // Page images load independently from the per-page records: a failure here must never block
+    // the extracted fields from rendering (FR-007). A missing/failed list simply yields no gallery.
+    useEffect(() => {
+        if (!analysisId) return;
+        let cancelled = false;
+        setPages([]);
+        fetch(`/api/document-analyses/${analysisId}/pages`)
+            .then(res => (res.ok ? res.json() : []))
+            .then((data: PageInfo[]) => {
+                if (!cancelled) setPages(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {
+                if (!cancelled) setPages([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [analysisId]);
+
     const reconciledAgainstPayment = records.some(r => r.artifactRole && PAYMENT_ARTIFACT_ROLES.has(r.artifactRole));
+
+    // Associate each page image with its extracted record (by page index, falling back to label).
+    // Pages drive the gallery; records with no matching page still render below (no image).
+    const matchedRecordIds = new Set<string>();
+    const pageEntries = pages.map(page => {
+        const record = records.find(
+            r =>
+                (r.pageIndex !== null && r.pageIndex === page.pageIndex) ||
+                (r.pageLabel !== null && r.pageLabel === page.pageLabel)
+        );
+        if (record) matchedRecordIds.add(record.id);
+        return { page, record };
+    });
+    const orphanRecords = records.filter(r => !matchedRecordIds.has(r.id));
 
     return (
         <Dialog open={analysis !== null} onOpenChange={onOpenChange}>
@@ -229,36 +271,54 @@ export default function DocumentAnalysisDetailDialog({
                             </div>
                         </section>
 
-                        {/* Per-page records */}
+                        {/* Pages — page image alongside its extracted record */}
                         <section className="space-y-3">
-                            <h3 className="text-sm font-semibold">Per-page records</h3>
+                            <h3 className="text-sm font-semibold">Pages</h3>
                             {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
                             {error && <p className="text-sm text-red-600">Error: {error}</p>}
-                            {!loading && !error && records.length === 0 && (
+                            {!loading && !error && pageEntries.length === 0 && orphanRecords.length === 0 && (
                                 <p className="text-sm italic text-muted-foreground">
-                                    No per-page records for this analysis.
+                                    No pages or per-page records for this analysis.
                                 </p>
                             )}
-                            {!loading &&
-                                !error &&
-                                records.map(record => (
-                                    <div key={record.id} className="rounded-md border p-3 space-y-2">
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="secondary" className="text-[10px]">
-                                                {pageLabelDisplay(record)}
+                            {pageEntries.map(({ page, record }) => (
+                                <div key={page.pageLabel} className="rounded-md border p-3 space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="secondary" className="text-[10px]">
+                                            {record ? pageLabelDisplay(record) : page.pageLabel}
+                                        </Badge>
+                                        {record?.artifactRole && (
+                                            <Badge variant="outline" className="text-[10px]">
+                                                {record.artifactRole}
                                             </Badge>
-                                            {record.artifactRole && (
-                                                <Badge variant="outline" className="text-[10px]">
-                                                    {record.artifactRole}
-                                                </Badge>
-                                            )}
+                                        )}
+                                        {record && (
                                             <span className="text-[10px] text-muted-foreground">
                                                 {record.analysisType}
                                             </span>
-                                        </div>
-                                        <RecordValues record={record} />
+                                        )}
                                     </div>
-                                ))}
+                                    <PageImageViewer src={page.imageUrl} alt={`Page ${page.pageLabel}`} />
+                                    {record && <RecordValues record={record} />}
+                                </div>
+                            ))}
+                            {/* Records with no matching page image (e.g. representative-only extractions) */}
+                            {orphanRecords.map(record => (
+                                <div key={record.id} className="rounded-md border p-3 space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="secondary" className="text-[10px]">
+                                            {pageLabelDisplay(record)}
+                                        </Badge>
+                                        {record.artifactRole && (
+                                            <Badge variant="outline" className="text-[10px]">
+                                                {record.artifactRole}
+                                            </Badge>
+                                        )}
+                                        <span className="text-[10px] text-muted-foreground">{record.analysisType}</span>
+                                    </div>
+                                    <RecordValues record={record} />
+                                </div>
+                            ))}
                         </section>
                     </div>
                 )}

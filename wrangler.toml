@@ -25,3 +25,7 @@ migrations_dir = "drizzle"
 [[kv_namespaces]]
 binding = "KV"
 id = "2ace0b2ef65e4da2afebf6511bb3622b"
+
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "fiscal-documents"
