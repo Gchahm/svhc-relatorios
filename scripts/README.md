@@ -1,8 +1,12 @@
 # Scripts
 
-All scripts output per-period JSON files to `data/scrape/` (one file per month, e.g. `2026-01.json`).
-All entities use deterministic UUIDs — the same data always produces the same IDs, so re-scraping
-a period safely upserts via `INSERT OR REPLACE`.
+The scraper and analysis pipeline read and write **Cloudflare D1 + R2 directly** — there is no
+`data/scrape/<period>.json` and no separate import step. Pick the target per run: default **local**,
+or `--remote` for production (mirrors the project's `wrangler --local/--remote` convention). All D1/R2
+access from Python goes through `scripts/common/d1.py` (a thin `wrangler`-CLI wrapper). All entities
+use deterministic UUIDs — the same data always produces the same IDs, so re-scraping a period safely
+upserts via `INSERT OR REPLACE`. An ephemeral, git-ignored cache (`.cache/analysis/`) holds
+materialized page images and the analysis working files (manifest, `.classify.json`, verdicts).
 
 ## Scraper
 
@@ -34,25 +38,29 @@ HEADLESS=true
 ```bash
 cd scripts
 
-# Scrape all new periods (skips those with existing JSON files)
+# Scrape all new periods into local D1 (skips periods already in the DB)
 uv run python -m scraper scrape
 
 # Scrape specific periods
 uv run python -m scraper scrape --periodo 2026-01 2025-12
 
-# Also download document files
+# Also download document images (uploaded to R2 during the run)
 uv run python -m scraper scrape --download-docs
 
-# Download documents for already-scraped periods (updates JSON in-place)
+# Write to the remote (production) D1 + R2 instead of local
+uv run python -m scraper scrape --periodo 2026-01 --download-docs --remote
+
+# Download images for documents missing them in R2 (updates documents.file_path in D1)
 uv run python -m scraper download-docs
-uv run python -m scraper download-docs --periodo 2024-12
+uv run python -m scraper download-docs --periodo 2024-12 --remote
 ```
 
 ## Document analysis
 
-Turns the downloaded document page images into structured records, validates them against the
-ledger, and surfaces mismatches / fraud signals. It writes everything back into the same period
-JSON. The flow is five steps:
+Turns the document page images (materialized from R2) into structured records, validates them
+against the ledger, and surfaces mismatches / fraud signals. It writes the results
+(`document_analyses`, `document_analysis_records`, `alerts`) back into D1. Every command takes
+`--remote` (default local). The flow is five steps:
 
 ```
 scrape / download-docs  →  [1] docs-plan  →  [2] classify  →  [3] apply-extractions  →  [4] analyze  →  [5] mismatches
@@ -68,11 +76,12 @@ cd scripts
 uv run python -m analysis docs-plan --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
 ```
 
-Reads the period JSON, selects the documents to analyze (a whole period, or just the documents/
-entries you name), and groups **byte-identical Nota Fiscal copies** so each unique invoice is read
-only once. Writes the work manifest `data/scrape/<period>.extract-todo.json` — the representative
-page images to read plus the ledger context for reconciliation. Targeting specific ids re-plans
-those even if already analyzed.
+Reads the period from D1, materializes its page images from R2 into the cache, selects the documents
+to analyze (a whole period, or just the documents/entries you name), and groups **byte-identical Nota
+Fiscal copies** so each unique invoice is read only once. Writes the work manifest
+`.cache/analysis/<period>.extract-todo.json` — the representative page images to read (local cache
+paths) plus the ledger context for reconciliation. Targeting specific ids re-plans those even if
+already analyzed.
 
 ### 2. `classify` — read each page image into structured fields (vision)
 
@@ -118,42 +127,20 @@ Prints a compact JSON list of classification mismatches — `amount` / `vendor` 
 `page-error` / `duplicate_billing` — each joined with the ledger-vs-extracted values. Read-only (no
 writes). This is exactly what the `analyze-docs` agent returns to its caller.
 
-The `.extract-todo.json` and `.classify.json` files are intermediate working artifacts (gitignored);
-the period JSON (`data/scrape/<period>.json`) is the source of truth and the final destination.
-
-## Import into D1
-
-Reads all JSON files from a directory (or a single file) and imports into D1.
-
-```bash
-# Local (reads all files from data/scrape/)
-node scripts/import-to-d1.mjs
-
-# Remote (production)
-node scripts/import-to-d1.mjs --remote
-
-# Single file
-node scripts/import-to-d1.mjs -i data/scrape/2026-01.json
-
-# Generate SQL only (no execution)
-node scripts/import-to-d1.mjs --dry-run
-```
+The `.extract-todo.json` and `.classify.json` files are ephemeral working artifacts under
+`.cache/analysis/` (gitignored, reproducible from D1+R2); **Cloudflare D1 is the source of truth** and
+the analysis commands write their results straight there.
 
 ## Typical workflow
 
 ```bash
-# 1. Scrape
-cd scripts && uv run python -m scraper scrape && cd ..
+cd scripts
 
-# 2. Import into local D1
-node scripts/import-to-d1.mjs
+# 1. Scrape a period straight into local D1 + upload its images to local R2
+uv run python -m scraper scrape --periodo 2025-12 --download-docs
 
-# 3. Import into production D1
-node scripts/import-to-d1.mjs --remote
-
-# 4. Download documents (optional, can be done later)
-cd scripts && uv run python -m scraper download-docs && cd ..
-node scripts/import-to-d1.mjs --remote  # re-import to update file_path
+#    (production: add --remote to write the remote D1 + R2)
+uv run python -m scraper scrape --periodo 2025-12 --download-docs --remote
 ```
 
 ### With document analysis
@@ -162,15 +149,14 @@ node scripts/import-to-d1.mjs --remote  # re-import to update file_path
 cd scripts
 
 # 1. Plan + classify the documents (steps 1-2). In Claude Code, invoke the
-#    classify-period skill for the period; it runs docs-plan and writes the
-#    per-page <image>.classify.json files. (Or analyze a subset with --document-id.)
+#    classify-period skill for the period; it runs docs-plan (materializing images
+#    from R2) and writes the per-page <image>.classify.json files in the cache.
+#    (Or analyze a subset with --document-id.)
 
-# 2. Merge classifications, run checks, get the summary (steps 3-5)
+# 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12
 uv run python -m analysis analyze --periodo 2025-12
 uv run python -m analysis mismatches --periodo 2025-12
 
-cd ..
-# 3. Push document_analyses + alerts into D1
-node scripts/import-to-d1.mjs
+#    Run the whole analysis against production by adding --remote to each command.
 ```

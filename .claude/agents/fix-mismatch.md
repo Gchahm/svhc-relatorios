@@ -44,12 +44,14 @@ Where feasible, re-run the scoped chain for the affected documents and confirm t
 gone **without** introducing new ones in scope:
 
 ```bash
-cd scripts && uv run python -m analysis docs-plan --periodo <period> --document-id <ids…>
+cd scripts && uv run python -m analysis docs-plan --periodo <period> --document-id <ids…> [--remote]
 #   (classify the replanned pages via the classify-doc-page skill if reading changed)
-cd scripts && uv run python -m analysis apply-extractions --periodo <period>
-cd scripts && uv run python -m analysis analyze --periodo <period>
-cd scripts && uv run python -m analysis mismatches --periodo <period> --document-id <ids…>
+cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--remote]
+cd scripts && uv run python -m analysis analyze --periodo <period> [--remote]
+cd scripts && uv run python -m analysis mismatches --periodo <period> --document-id <ids…> [--remote]
 ```
+
+These read the period from D1 and images from R2 (default local; pass `--remote` to verify against production) and write analyses/alerts to D1.
 
 If TypeScript is touched (rare for analysis-only fixes), run `pnpm lint` and `pnpm format`.
 
@@ -77,6 +79,6 @@ If you cannot produce a safe fix, return `status: "failed"` with the reason in `
 
 - **Human-gated**: you open a PR; you NEVER merge, force-push, or push to `main` (FR-008/SC-005).
 - You return only the terse result — no diffs, transcripts, or page content.
-- You touch application/pipeline code only on your own fix branch; you never edit the period JSON or
+- You touch application/pipeline code only on your own fix branch; you never write D1 by hand or edit
   the `<period>.verdicts.json` working file (the analysis CLI owns those).
 - One mismatch (or one shared root cause) per invocation.

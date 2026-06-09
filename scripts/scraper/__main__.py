@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-BRCondos scraper — outputs one JSON file per period, compatible with import-to-d1.mjs.
+BRCondos scraper — writes each period's rows straight into Cloudflare D1 and uploads
+page images to R2 (local by default, --remote for production).
 
 Usage:
     cd scripts
-    uv run python -m scraper                     # interactive mode
+    uv run python -m scraper                     # interactive mode (local)
     uv run python -m scraper scrape [options]    # CLI mode
     uv run python -m scraper download-docs [options]
 
@@ -16,7 +17,6 @@ import asyncio
 import logging
 import sys
 from collections import defaultdict
-from pathlib import Path
 
 # The scraping side (`.runner` -> `.browser` -> playwright) is imported lazily, inside
 # the scrape/download-docs branches, so this module stays import-light.
@@ -26,7 +26,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-DATA_DIR = "../data/scrape"
+# Ephemeral local scratch for downloaded images before upload (repo-root .cache/, gitignored).
+CACHE_DIR = "../.cache/analysis"
 
 
 def _pick(prompt: str, options: list[str]) -> str:
@@ -75,11 +76,14 @@ def _yes_no(prompt: str, default: bool = False) -> bool:
 
 
 def _existing_periods() -> list[str]:
-    """List periods that already have JSON files."""
-    data_path = Path(DATA_DIR)
-    if not data_path.exists():
+    """List periods already present in the local D1 database."""
+    from common import d1
+
+    try:
+        rows = d1.query("SELECT period FROM accountability_reports", target="local")
+    except Exception:
         return []
-    return sorted(f.stem for f in data_path.glob("*.json"))
+    return sorted(r["period"] for r in rows)
 
 
 def _years_from_periods(periods: list[str]) -> list[str]:
@@ -141,7 +145,7 @@ def interactive():
     """Run the scraper interactively (scrape / download documents)."""
     existing = _existing_periods()
     if existing:
-        print(f"Found {len(existing)} existing period(s) in {DATA_DIR}/")
+        print(f"Found {len(existing)} existing period(s) in the local database")
 
     action = _pick("What would you like to do?", ["Scrape periods", "Download documents"])
 
@@ -164,7 +168,7 @@ def interactive():
 
         asyncio.run(
             run_scrape(
-                output_dir=DATA_DIR,
+                target="local",
                 periodos_filter=periods,
                 download_docs=download_docs,
             )
@@ -190,7 +194,7 @@ def interactive():
 
         asyncio.run(
             run_download_docs(
-                data_dir=DATA_DIR,
+                target="local",
                 periodos_filter=periods,
             )
         )
@@ -216,21 +220,29 @@ def main():
     )
     scrape_parser.add_argument(
         "--download-docs", action="store_true",
-        help="Download documents attached to entries.",
+        help="Download documents attached to entries (uploaded to R2 during the run).",
     )
     scrape_parser.add_argument(
-        "--output-dir", "-o", default=DATA_DIR,
-        help="Output directory for period JSON files (default: ../data/scrape).",
+        "--remote", action="store_true",
+        help="Write to the REMOTE (production) D1 + R2 instead of local.",
+    )
+    scrape_parser.add_argument(
+        "--cache-dir", default=CACHE_DIR,
+        help="Ephemeral local scratch for downloaded images before upload (default: ../.cache/analysis).",
     )
 
-    docs_parser = subparsers.add_parser("download-docs", help="Download documents for existing scraped JSON files")
+    docs_parser = subparsers.add_parser("download-docs", help="Download missing document images and upload to R2")
     docs_parser.add_argument(
         "--periodo", type=str, nargs="*",
         help="Only download docs for these periods (e.g. 2024-12 2025-01).",
     )
     docs_parser.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
+        "--remote", action="store_true",
+        help="Operate against the REMOTE (production) D1 + R2 instead of local.",
+    )
+    docs_parser.add_argument(
+        "--cache-dir", default=CACHE_DIR,
+        help="Ephemeral local scratch for downloaded images before upload (default: ../.cache/analysis).",
     )
 
     args = parser.parse_args()
@@ -240,10 +252,11 @@ def main():
 
         asyncio.run(
             run_scrape(
-                output_dir=args.output_dir,
+                target="remote" if args.remote else "local",
                 book_ids=args.book_ids,
                 periodos_filter=args.periodo,
                 download_docs=args.download_docs,
+                cache_dir=args.cache_dir,
             )
         )
     elif args.command == "download-docs":
@@ -251,8 +264,9 @@ def main():
 
         asyncio.run(
             run_download_docs(
-                data_dir=args.data_dir,
+                target="remote" if args.remote else "local",
                 periodos_filter=args.periodo,
+                cache_dir=args.cache_dir,
             )
         )
     else:

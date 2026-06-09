@@ -1,7 +1,7 @@
 """Loop bookkeeping for the self-improving classification loop (feature 007).
 
-This module is the **only** writer of ``data/scrape/<period>.verdicts.json`` — the
-per-period working file holding review verdicts and the deterministic loop state.
+This module is the **only** writer of ``.cache/analysis/<period>.verdicts.json`` — the
+per-period working file (ephemeral cache scratch) holding review verdicts and the deterministic loop state.
 It does no model calls and no network IO: pure file IO + arithmetic, so the loop's
 working set is reproducible (SC-003) and termination is provable (SC-005).
 
@@ -20,6 +20,8 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from common.d1 import Target
+
 from .extractions import summarize_mismatches
 
 logger = logging.getLogger(__name__)
@@ -35,9 +37,9 @@ DEFAULT_MAX_ITERATIONS = 3
 DEFAULT_NO_PROGRESS_WINDOW = 2
 
 
-def verdicts_path(data_dir: str, period: str) -> Path:
-    """Path of the per-period verdicts/loop-state working file."""
-    return Path(data_dir) / f"{period}{VERDICTS_SUFFIX}"
+def verdicts_path(cache_dir: str, period: str) -> Path:
+    """Path of the per-period verdicts/loop-state working file (ephemeral cache scratch)."""
+    return Path(cache_dir) / f"{period}{VERDICTS_SUFFIX}"
 
 
 def _read_json(path: Path) -> dict:
@@ -90,9 +92,9 @@ def _document_ids_of(mismatch: dict) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
-def load_verdicts_file(data_dir: str, period: str) -> dict:
+def load_verdicts_file(cache_dir: str, period: str) -> dict:
     """Load the verdicts file, or a fresh structure when absent."""
-    path = verdicts_path(data_dir, period)
+    path = verdicts_path(cache_dir, period)
     if not path.exists():
         return {"period": period, "verdicts": [], "loop_state": None}
     data = _read_json(path)
@@ -102,8 +104,10 @@ def load_verdicts_file(data_dir: str, period: str) -> dict:
     return data
 
 
-def save_verdicts_file(data_dir: str, period: str, data: dict) -> None:
-    _write_json(verdicts_path(data_dir, period), data)
+def save_verdicts_file(cache_dir: str, period: str, data: dict) -> None:
+    path = verdicts_path(cache_dir, period)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(path, data)
 
 
 def validate_verdict(rec: dict) -> None:
@@ -182,7 +186,7 @@ def _verdict_history_by_key(data: dict) -> dict[str, set]:
 
 
 def record_verdict(
-    data_dir: str,
+    cache_dir: str,
     period: str,
     iteration: int,
     verdict_obj: dict,
@@ -197,7 +201,7 @@ def record_verdict(
     """
     if not verdict_obj.get("mismatch_key"):
         raise ValueError("record-verdict requires 'mismatch_key' in --json")
-    data = load_verdicts_file(data_dir, period)
+    data = load_verdicts_file(cache_dir, period)
 
     if "verdict" in verdict_obj:
         validate_verdict(verdict_obj)
@@ -217,7 +221,7 @@ def record_verdict(
             raise ValueError(f"cannot attach fix: no verdict recorded for {key!r}")
         target["fix"] = fix
 
-    save_verdicts_file(data_dir, period, data)
+    save_verdicts_file(cache_dir, period, data)
     return data
 
 
@@ -236,9 +240,10 @@ def _upsert_history(history: list[dict], record: dict) -> list[dict]:
 
 
 def loop_state(
-    data_dir: str,
+    target: Target,
     period: str,
     *,
+    cache_dir: str,
     iteration: int | None = None,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     no_progress_window: int = DEFAULT_NO_PROGRESS_WINDOW,
@@ -247,16 +252,16 @@ def loop_state(
 ) -> dict:
     """Recompute, persist, and return the deterministic loop state for a period.
 
-    Joins the current ``mismatches`` summary with stored verdicts to compute the
-    open set, findings, data-quality items, the documents to re-scope next
-    iteration, the per-iteration history, and a ``terminate`` signal.
+    Joins the current ``mismatches`` summary (read from D1) with stored verdicts (from
+    the cache) to compute the open set, findings, data-quality items, the documents to
+    re-scope next iteration, the per-iteration history, and a ``terminate`` signal.
     Byte-stable for identical inputs.
     """
-    data = load_verdicts_file(data_dir, period)
+    data = load_verdicts_file(cache_dir, period)
     latest = _latest_verdicts(data)
 
     mismatches = summarize_mismatches(
-        data_dir, [period], document_ids=document_ids, entry_ids=entry_ids
+        target, [period], cache_dir=cache_dir, document_ids=document_ids, entry_ids=entry_ids
     )
 
     open_keys: list[str] = []
@@ -355,5 +360,5 @@ def loop_state(
         "terminate": terminate,
     }
     data["loop_state"] = state
-    save_verdicts_file(data_dir, period, data)
+    save_verdicts_file(cache_dir, period, data)
     return state

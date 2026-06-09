@@ -27,15 +27,14 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-DATA_DIR = "../data/scrape"
+# Ephemeral local scratch (materialized R2 images + manifests/verdicts); repo-root, gitignored.
+CACHE_DIR = "../.cache/analysis"
 
 
-def _add_periodo_datadir(p: argparse.ArgumentParser) -> None:
+def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--periodo", type=str, nargs="*", help="Periods in YYYY-MM (default: all).")
-    p.add_argument(
-        "--data-dir", "-d", default=DATA_DIR,
-        help="Directory containing period JSON files (default: ../data/scrape).",
-    )
+    p.add_argument("--remote", action="store_true", help="Read/write the REMOTE (production) D1/R2 instead of local.")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
 
 
 def main(argv=None):
@@ -45,28 +44,28 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("docs-plan", help="Plan document extraction: write <period>.extract-todo.json")
-    _add_periodo_datadir(p)
+    p = sub.add_parser("docs-plan", help="Plan document extraction: write <period>.extract-todo.json (cache)")
+    _add_common(p)
     p.add_argument("--min-amount", type=float, help="Only plan documents for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of documents to plan.")
     p.add_argument("--reanalyze", action="store_true", help="Re-plan already analyzed documents.")
     p.add_argument("--document-id", type=str, nargs="*", help="Only these document ids (implies re-analysis).")
     p.add_argument("--entry-id", type=str, nargs="*", help="Only documents for these entry ids (implies re-analysis).")
 
-    p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into period JSON")
-    _add_periodo_datadir(p)
+    p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into document_analyses (D1)")
+    _add_common(p)
 
-    p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts")
-    _add_periodo_datadir(p)
+    p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
+    _add_common(p)
 
     p = sub.add_parser("mismatches", help="Print a terse JSON summary of classification mismatches")
-    _add_periodo_datadir(p)
+    _add_common(p)
     p.add_argument("--document-id", type=str, nargs="*", help="Scope to these document ids.")
     p.add_argument("--entry-id", type=str, nargs="*", help="Scope to these entry ids.")
 
-    p = sub.add_parser("record-verdict", help="Record one review verdict into <period>.verdicts.json")
+    p = sub.add_parser("record-verdict", help="Record one review verdict into <period>.verdicts.json (cache)")
     p.add_argument("--periodo", type=str, required=True, help="Period YYYY-MM.")
-    p.add_argument("--data-dir", "-d", default=DATA_DIR, help="Directory containing period JSON files.")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
     p.add_argument("--iteration", type=int, required=True, help="Loop iteration (>=1) this verdict belongs to.")
     p.add_argument("--json", dest="verdict_json", required=True, help="Verdict object as JSON (from review-mismatch).")
     p.add_argument("--fix-branch", help="Attach a FixProposal: branch name.")
@@ -76,7 +75,8 @@ def main(argv=None):
 
     p = sub.add_parser("loop-state", help="Recompute & print the deterministic loop state for a period")
     p.add_argument("--periodo", type=str, required=True, help="Period YYYY-MM.")
-    p.add_argument("--data-dir", "-d", default=DATA_DIR, help="Directory containing period JSON files.")
+    p.add_argument("--remote", action="store_true", help="Read the REMOTE (production) D1 instead of local.")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
     p.add_argument("--iteration", type=int, help="Iteration to record (default: infer next).")
     p.add_argument("--max-iterations", type=int, default=DEFAULT_MAX_ITERATIONS, help="Max-iteration cap (default 3).")
     p.add_argument(
@@ -87,11 +87,13 @@ def main(argv=None):
     p.add_argument("--entry-id", type=str, nargs="*", help="Scope the join to these entry ids.")
 
     args = parser.parse_args(argv)
+    target = "remote" if getattr(args, "remote", False) else "local"
 
     if args.command == "docs-plan":
         plan_extractions(
-            data_dir=args.data_dir,
+            target=target,
             periods_filter=args.periodo,
+            cache_dir=args.cache_dir,
             min_amount=args.min_amount,
             limit=args.limit,
             reanalyze=args.reanalyze,
@@ -99,13 +101,14 @@ def main(argv=None):
             entry_ids=args.entry_id,
         )
     elif args.command == "apply-extractions":
-        apply_extractions(data_dir=args.data_dir, periods_filter=args.periodo)
+        apply_extractions(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "analyze":
-        run_analysis(data_dir=args.data_dir, periods_filter=args.periodo)
+        run_analysis(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "mismatches":
         rows = summarize_mismatches(
-            data_dir=args.data_dir,
+            target=target,
             periods_filter=args.periodo,
+            cache_dir=args.cache_dir,
             document_ids=args.document_id,
             entry_ids=args.entry_id,
         )
@@ -126,7 +129,7 @@ def main(argv=None):
             }
         try:
             record_verdict(
-                data_dir=args.data_dir,
+                cache_dir=args.cache_dir,
                 period=args.periodo,
                 iteration=args.iteration,
                 verdict_obj=verdict_obj,
@@ -138,8 +141,9 @@ def main(argv=None):
         print(f"Recorded verdict for {verdict_obj.get('mismatch_key')} (iteration {args.iteration}).")
     elif args.command == "loop-state":
         state = loop_state(
-            data_dir=args.data_dir,
+            target=target,
             period=args.periodo,
+            cache_dir=args.cache_dir,
             iteration=args.iteration,
             max_iterations=args.max_iterations,
             no_progress_window=args.no_progress_window,

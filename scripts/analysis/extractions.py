@@ -23,6 +23,8 @@ import json
 import logging
 from pathlib import Path
 
+from common.d1 import Target
+
 from .documentos import (
     DocAnalysisResult,
     _apply_group_amount_match,
@@ -34,14 +36,17 @@ from .documentos import (
     select_work,
     summarize_results,
 )
+from .images import materialize_period_images
 from .loader import load_all_periods
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CACHE_DIR = "../.cache/analysis"
 
-def extract_todo_path(data_dir: str, period: str) -> Path:
-    """Path of the work manifest for a period."""
-    return Path(data_dir) / f"{period}.extract-todo.json"
+
+def extract_todo_path(cache_dir: str, period: str) -> Path:
+    """Path of the work manifest for a period (ephemeral local scratch)."""
+    return Path(cache_dir) / f"{period}.extract-todo.json"
 
 
 CLASSIFY_SUFFIX = ".classify.json"
@@ -98,9 +103,10 @@ class FileExtractionProvider:
 
 
 def plan_extractions(
-    data_dir: str,
+    target: Target = "local",
     periods_filter: list[str] | None = None,
     *,
+    cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
     limit: int | None = None,
     reanalyze: bool = False,
@@ -109,14 +115,18 @@ def plan_extractions(
 ) -> None:
     """Write the work manifest(s) the analyze-docs agent consumes.
 
-    One ``<period>.extract-todo.json`` per period with documents to analyze. Each
-    shared-NF group lists its representative document's pages (with an absolute
-    ``read_path`` for the agent's Read tool) plus the full member list.
+    One ``<period>.extract-todo.json`` (in the cache dir) per period with documents to
+    analyze. Materializes the period's page images from R2 into the cache first, so NF
+    grouping can hash them and each page's ``read_path`` points at a local cache file.
+    Each shared-NF group lists its representative document's pages plus the member list.
     """
-    periods, refs = load_all_periods(data_dir, periods_filter)
+    periods, refs = load_all_periods(target, periods_filter)
     if not periods:
         logger.info("No periods to plan")
         return
+
+    # Bring the period's images local (R2 -> cache) so content_hash + read_paths work.
+    materialize_period_images(periods, cache_dir, target)
 
     work = select_work(
         periods,
@@ -180,7 +190,7 @@ def plan_extractions(
 
         manifest = {
             "period": period,
-            "data_dir": data_dir,
+            "cache_dir": cache_dir,
             "generated_for": {
                 "min_amount": min_amount,
                 "limit": limit,
@@ -190,7 +200,8 @@ def plan_extractions(
             },
             "groups": out_groups,
         }
-        path = extract_todo_path(data_dir, period)
+        path = extract_todo_path(cache_dir, period)
+        path.parent.mkdir(parents=True, exist_ok=True)
         _write_json(path, manifest)
         logger.info("Wrote %s: %d group(s), %d page(s) to extract", path, len(out_groups), total_pages)
 
@@ -198,26 +209,27 @@ def plan_extractions(
     print("Next: classify each page (the classify-doc-page skill writes <image>.classify.json), then `apply-extractions`.")
 
 
-def _periods_with_manifests(data_dir: str) -> list[str]:
+def _periods_with_manifests(cache_dir: str) -> list[str]:
     suffix = ".extract-todo.json"
-    return sorted(p.name[: -len(suffix)] for p in Path(data_dir).glob(f"*{suffix}"))
+    return sorted(p.name[: -len(suffix)] for p in Path(cache_dir).glob(f"*{suffix}"))
 
 
 def apply_extractions(
-    data_dir: str,
+    target: Target = "local",
     periods_filter: list[str] | None = None,
+    *,
+    cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Merge per-page classifications into period JSON(s) as ``document_analyses``.
+    """Merge per-page classifications into ``document_analyses`` in D1.
 
-    For each period with a manifest, rebuilds the representative document's analysis
-    from each page's sibling ``<image-stem>.classify.json`` (via
-    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction
-    out to sibling members, and writes the results back — the same output the old
-    VLM runner produced. A page whose ``.classify.json`` is missing is recorded as a
-    per-page error and does not abort the document.
+    For each period with a manifest (in the cache dir), rebuilds the representative
+    document's analysis from each page's sibling ``<image-stem>.classify.json`` (via
+    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out
+    to sibling members, and writes each result to D1 (delete-then-insert) — the same
+    output the old flow produced. A page whose ``.classify.json`` is missing is
+    recorded as a per-page error and does not abort the document.
     """
-    data_path = Path(data_dir)
-    target_periods = periods_filter or _periods_with_manifests(data_dir)
+    target_periods = periods_filter or _periods_with_manifests(cache_dir)
     if not target_periods:
         logger.info("No manifests found; run docs-plan first")
         return
@@ -225,14 +237,12 @@ def apply_extractions(
     provider = FileExtractionProvider()
     all_results: list[DocAnalysisResult] = []
     for period in target_periods:
-        todo_path = extract_todo_path(data_dir, period)
+        todo_path = extract_todo_path(cache_dir, period)
         if not todo_path.exists():
             logger.warning("No manifest for %s (%s); run docs-plan first", period, todo_path)
             continue
 
         manifest = _read_json(todo_path)
-        period_json = data_path / f"{period}.json"
-        raw = json.loads(period_json.read_text(encoding="utf-8"))
 
         results: list[DocAnalysisResult] = []
         for group in manifest.get("groups", []):
@@ -258,7 +268,7 @@ def apply_extractions(
             if gsize > 1 and not rep_result.error:
                 _apply_group_amount_match(rep_result, sibling_sum)
             results.append(rep_result)
-            _merge_and_write(data_path, period, raw, rep_result)
+            _merge_and_write(rep_result, target=target)
 
             for m in members:
                 if m.get("is_representative"):
@@ -277,7 +287,7 @@ def apply_extractions(
                     if gsize > 1:
                         _apply_group_amount_match(sib, sibling_sum)
                 results.append(sib)
-                _merge_and_write(data_path, period, raw, sib)
+                _merge_and_write(sib, target=target)
 
         logger.info("Applied %d analysis row(s) for %s", len(results), period)
         all_results.extend(results)
@@ -310,9 +320,10 @@ def _page_refs_for_doc(doc: dict | None) -> list[dict]:
 
 
 def summarize_mismatches(
-    data_dir: str,
+    target: Target = "local",
     periods_filter: list[str] | None = None,
     *,
+    cache_dir: str = DEFAULT_CACHE_DIR,
     document_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> list[dict]:
@@ -326,7 +337,10 @@ def summarize_mismatches(
     step returns instead of dumping page images or full artifacts. Run after
     ``apply_extractions`` (for the analyses) and ``analyze`` (for the alerts).
     """
-    periods, refs = load_all_periods(data_dir, periods_filter)
+    periods, refs = load_all_periods(target, periods_filter)
+    # Bring images local so each page_ref's read_path points at a cache file the
+    # review worker can open (scoped to the documents under review when given).
+    materialize_period_images(periods, cache_dir, target, document_ids=document_ids)
     doc_filter = set(document_ids) if document_ids else None
     entry_filter = set(entry_ids) if entry_ids else None
 

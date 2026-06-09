@@ -29,12 +29,12 @@ it to you as your prompt). It carries:
 
 ### 1. Look at the evidence
 
-- **Page image(s):** open each `read_path` in the mismatch's `page_refs[]` with the **Read** tool.
-  (For `duplicate_billing`, `page_refs` covers every document in `document_ids`.) You do not need the
-  work manifest — the summary already carries the refs.
-- **Ledger entry:** read the entry (and, if useful, the document's `document_analyses` row) from
-  `data/scrape/<period>.json`. Read-only — never write it. (`python -m analysis mismatches
-  --periodo <period> --document-id <id>` is a convenient read-only lookup.)
+- **Page image(s):** open each `read_path` in the mismatch's `page_refs[]` with the **Read** tool
+  (a materialized local cache image). (For `duplicate_billing`, `page_refs` covers every document in
+  `document_ids`.) You do not need the work manifest — the summary already carries the refs.
+- **Ledger entry:** the period data lives in Cloudflare D1 (there is no `data/scrape` period JSON).
+  Use the read-only, D1-backed lookup `python -m analysis mismatches --periodo <period> --document-id
+  <id> [--remote]` to see the entry-vs-extracted values for the document. Read-only — never write D1.
 
 ### 2. Judge
 
@@ -70,7 +70,7 @@ Compute `mismatch_key` exactly as above. Return only this JSON, optionally with 
 
 ## Boundaries (non-negotiable)
 
-- You read images/JSON only; you **never** write code, schema, the period JSON, `.classify.json`, or
+- You read images and run read-only lookups only; you **never** write code, schema, D1, `.classify.json`, or
   the verdicts file. The orchestrator persists your verdict with `record-verdict`.
 - You judge exactly **one** mismatch per invocation and return only the terse verdict.
 - A `page-error` is its own category — never report it as a `true` finding.

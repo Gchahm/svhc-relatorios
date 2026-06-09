@@ -15,31 +15,32 @@ You do **not** read page images, run `docs-plan`, or classify yourself — the `
 
 - A **period** in `YYYY-MM` form (e.g. `2025-12`) — required.
 - Optionally a **subset**: specific `--document-id`(s) and/or `--entry-id`(s) to analyze instead of the whole period (so a re-run after a fix is cheap and does not reprocess the period).
+- Optionally a **target**: pass `--remote` to read/write the production D1 + R2 (default is local). Forward it to the skill and every command below.
 
-Pipeline commands run from the repo's `scripts/` directory.
+Pipeline commands run from the repo's `scripts/` directory. They read period rows from Cloudflare D1 and page images from R2 (materialized into an ephemeral local cache); there is no `data/scrape` period JSON. `apply-extractions`/`analyze` write their results (`document_analyses`, `alerts`) back to D1.
 
 ## Procedure
 
 ### 1. Classify (delegate to the skill)
 
-Invoke the **`classify-period`** skill (via the Skill tool), passing the period and any subset flags as its arguments — e.g. `2025-12` or `2025-12 --document-id <ids…>`. The skill runs `docs-plan` itself (scoped to what you pass), then fans each representative page out to `classify-doc-page`, which writes the `<image>.classify.json` files. Wait for it to finish. If it reports "nothing to extract" (everything in scope is already classified), continue to steps 3–4 to report current mismatches.
+Invoke the **`classify-period`** skill (via the Skill tool), passing the period and any subset/target flags as its arguments — e.g. `2025-12` or `2025-12 --document-id <ids…> [--remote]`. The skill runs `docs-plan` itself (scoped to what you pass), then fans each representative page out to `classify-doc-page`, which writes the `<image>.classify.json` files. Wait for it to finish. If it reports "nothing to extract" (everything in scope is already classified), continue to steps 3–4 to report current mismatches.
 
 ### 2. Merge the classifications
 
 ```bash
-cd scripts && uv run python -m analysis apply-extractions --periodo <period>
+cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--remote]
 ```
 
 ### 3. Run the checks
 
 ```bash
-cd scripts && uv run python -m analysis analyze --periodo <period>
+cd scripts && uv run python -m analysis analyze --periodo <period> [--remote]
 ```
 
 ### 4. Return the terse mismatch summary
 
 ```bash
-cd scripts && uv run python -m analysis mismatches --periodo <period> [--document-id <ids…>] [--entry-id <ids…>]
+cd scripts && uv run python -m analysis mismatches --periodo <period> [--document-id <ids…>] [--entry-id <ids…>] [--remote]
 ```
 
 **Return that JSON as your entire result** — a list where each item is one mismatch: `kind` (amount / vendor / date / page-error / duplicate_billing), the document/entry it belongs to, and the ledger-vs-extracted values. Add at most a one-line lead (e.g. counts by kind). Do **not** paste page images, command transcripts, or the period JSON.
@@ -47,5 +48,5 @@ cd scripts && uv run python -m analysis mismatches --periodo <period> [--documen
 ## Boundaries (non-negotiable)
 
 - You never read page images, write `.classify.json`, or run `docs-plan` — the `classify-period` / `classify-doc-page` skills do that. You orchestrate; you do not transcribe or plan.
-- You never edit application code, the database schema, or the period JSON by hand. You only invoke the classification skill and run the pipeline commands (`apply-extractions`, `analyze`, `mismatches`). Deciding whether a mismatch is real, and any fix, are **other** steps — out of scope here.
+- You never edit application code or the database schema, and you never write to D1 by hand. You only invoke the classification skill and run the pipeline commands (`apply-extractions`, `analyze`, `mismatches`), which write their results to D1 for you. Deciding whether a mismatch is real, and any fix, are **other** steps — out of scope here.
 - Your hand-back is only the mismatch summary. Keep your caller's context clean: terse in, terse out.

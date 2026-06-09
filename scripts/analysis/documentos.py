@@ -9,7 +9,7 @@ import logging
 import pathlib
 import re
 from dataclasses import dataclass, field
-from common import det_id, now_ms
+from common import det_id, now_ms, d1
 from .nf_groups import group_documents, reconcile_group
 from .vendor_match import is_payer_name, reconcile_vendor
 
@@ -640,24 +640,24 @@ def build_document_analysis(
     return result
 
 
-def _merge_and_write(data_path, period_key: str, raw: dict, result: "DocAnalysisResult") -> None:
-    """Merge a single analysis result into its period JSON and write to disk.
+def _merge_and_write(result: "DocAnalysisResult", *, target) -> None:
+    """Write one document's analysis to D1 as delete-then-insert.
 
-    Called after each document so partial results are inspectable mid-run and
-    survive an interruption. Replaces any prior analysis for the same document.
+    Reproduces the old "drop existing for this document_id, append" semantics: a
+    plain INSERT OR REPLACE alone would orphan stale per-page ``document_analysis_records``
+    when a re-analysis yields fewer pages or a different NF grouping, so the prior
+    analysis row and its records are deleted first. Called after each document so
+    partial results land incrementally and an interruption is healed by a re-run.
     """
-    existing_analyses = [
-        a for a in raw.get("document_analyses", [])
-        if a["document_id"] != result.document_id
-    ]
-    existing_analyses.append(result.to_dict())
-    raw["document_analyses"] = existing_analyses
-
-    json_file = data_path / f"{period_key}.json"
-    json_file.write_text(
-        json.dumps(raw, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    doc_analysis_id = det_id("doc_analysis", result.document_id)
+    did = result.document_id.replace("'", "''")
+    aid = doc_analysis_id.replace("'", "''")
+    d1.execute_sql(
+        f"DELETE FROM document_analysis_records WHERE document_analysis_id = '{aid}';\n"
+        f"DELETE FROM document_analyses WHERE document_id = '{did}';",
+        target=target,
     )
+    d1.upsert_tables({"document_analyses": [result.to_dict()]}, target=target)
 
 
 @dataclass
