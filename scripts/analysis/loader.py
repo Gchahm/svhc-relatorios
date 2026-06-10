@@ -2,7 +2,7 @@
 
 Reads each period's rows straight from D1 (via ``common.d1``) and assembles the same
 per-period ``raw`` dict the pipeline used to read from ``data/scrape/<period>.json`` —
-same keys, with ``document_analysis_records`` re-nested under their parent as
+same keys, with ``attachment_analysis_records`` re-nested under their parent as
 ``analysis_records`` and the records' ``response`` JSON decoded back to objects. Every
 downstream consumer (checks, select_work, summarize_mismatches, nf_groups, loop_state)
 reads this in-memory shape, so swapping the source from files to D1 leaves them unchanged.
@@ -48,8 +48,8 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
     entries = d1.query(f"SELECT * FROM entries WHERE report_id = {_sql_str(rid)}", target=target)
     subtotals = d1.query(f"SELECT * FROM category_subtotals WHERE report_id = {_sql_str(rid)}", target=target)
     approvers = d1.query(f"SELECT * FROM approvers WHERE report_id = {_sql_str(rid)}", target=target)
-    documents = d1.query(
-        f"SELECT d.* FROM documents d JOIN entries e ON d.entry_id = e.id WHERE e.report_id = {_sql_str(rid)}",
+    attachments = d1.query(
+        f"SELECT d.* FROM attachments d JOIN entries e ON d.entry_id = e.id WHERE e.report_id = {_sql_str(rid)}",
         target=target,
     )
     runs = (
@@ -79,18 +79,18 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
     )
     units = d1.query(f"SELECT * FROM units WHERE id IN {_in_clause(unit_ids)}", target=target) if unit_ids else []
 
-    # Document analyses for this period (join through documents->entries), with the
+    # Attachment analyses for this period (join through attachments->entries), with the
     # normalized per-page records re-nested as analysis_records and their response decoded.
     analyses = d1.query(
-        "SELECT da.* FROM document_analyses da "
-        "JOIN documents d ON da.document_id = d.id "
+        "SELECT da.* FROM attachment_analyses da "
+        "JOIN attachments d ON da.attachment_id = d.id "
         f"JOIN entries e ON d.entry_id = e.id WHERE e.report_id = {_sql_str(rid)}",
         target=target,
     )
     if analyses:
         an_ids = [a["id"] for a in analyses]
         records = d1.query(
-            f"SELECT * FROM document_analysis_records WHERE document_analysis_id IN {_in_clause(an_ids)}",
+            f"SELECT * FROM attachment_analysis_records WHERE attachment_analysis_id IN {_in_clause(an_ids)}",
             target=target,
         )
         for r in records:
@@ -102,7 +102,7 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
                     r["response"] = None
         by_analysis: dict[str, list[dict]] = defaultdict(list)
         for r in records:
-            by_analysis[r["document_analysis_id"]].append(r)
+            by_analysis[r["attachment_analysis_id"]].append(r)
         for a in analyses:
             a["analysis_records"] = by_analysis.get(a["id"], [])
 
@@ -118,8 +118,8 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
         "entries": entries,
         "category_subtotals": subtotals,
         "approvers": approvers,
-        "documents": documents,
-        "document_analyses": analyses,
+        "attachments": attachments,
+        "attachment_analyses": analyses,
         "alerts": alerts,
     }
 
@@ -150,7 +150,7 @@ def load_all_periods(
             report=raw["accountability_reports"][0],
             entries=raw.get("entries", []),
             category_subtotals=raw.get("category_subtotals", []),
-            documents=raw.get("documents", []),
+            attachments=raw.get("attachments", []),
         )
 
     # vendor_first_seen needs full cross-period context (a vendor's earliest period),

@@ -66,24 +66,24 @@ def mismatch_key(mismatch: dict) -> str:
     re-read that changes the extracted value does not look like a new mismatch
     (otherwise the loop would never converge).
 
-    - per-document kinds: ``period|kind|document_id|entry_id``
-    - ``duplicate_billing``: ``period|kind|sorted(document_ids)``
+    - per-attachment kinds: ``period|kind|attachment_id|entry_id``
+    - ``duplicate_billing``: ``period|kind|sorted(attachment_ids)``
     """
     period = mismatch.get("period", "")
     kind = mismatch.get("kind", "")
     if kind == "duplicate_billing":
-        docids = ",".join(sorted(str(d) for d in (mismatch.get("document_ids") or [])))
+        docids = ",".join(sorted(str(d) for d in (mismatch.get("attachment_ids") or [])))
         return f"{period}|{kind}|{docids}"
-    document_id = mismatch.get("document_id")
+    attachment_id = mismatch.get("attachment_id")
     entry_id = mismatch.get("entry_id")
-    return f"{period}|{kind}|{document_id}|{entry_id}"
+    return f"{period}|{kind}|{attachment_id}|{entry_id}"
 
 
-def _document_ids_of(mismatch: dict) -> list[str]:
-    """Documents implicated by a mismatch (for affected-doc rescoping)."""
+def _attachment_ids_of(mismatch: dict) -> list[str]:
+    """Attachments implicated by a mismatch (for affected-doc rescoping)."""
     if mismatch.get("kind") == "duplicate_billing":
-        return [str(d) for d in (mismatch.get("document_ids") or [])]
-    did = mismatch.get("document_id")
+        return [str(d) for d in (mismatch.get("attachment_ids") or [])]
+    did = mismatch.get("attachment_id")
     return [str(did)] if did else []
 
 
@@ -247,13 +247,13 @@ def loop_state(
     iteration: int | None = None,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     no_progress_window: int = DEFAULT_NO_PROGRESS_WINDOW,
-    document_ids: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> dict:
     """Recompute, persist, and return the deterministic loop state for a period.
 
     Joins the current ``mismatches`` summary (read from D1) with stored verdicts (from
-    the cache) to compute the open set, findings, data-quality items, the documents to
+    the cache) to compute the open set, findings, data-quality items, the attachments to
     re-scope next iteration, the per-iteration history, and a ``terminate`` signal.
     Byte-stable for identical inputs.
     """
@@ -261,15 +261,15 @@ def loop_state(
     latest = _latest_verdicts(data)
 
     mismatches = summarize_mismatches(
-        target, [period], cache_dir=cache_dir, document_ids=document_ids, entry_ids=entry_ids
+        target, [period], cache_dir=cache_dir, attachment_ids=attachment_ids, entry_ids=entry_ids
     )
 
     open_keys: list[str] = []
     findings: list[str] = []
     data_quality: list[str] = []
-    # Documents to re-scope next iteration = those behind STILL-OPEN mismatches only, so a
-    # converged document drops out of scope (SC-006). Transient verdicts keep their mismatch
-    # open, so their documents are naturally included.
+    # Attachments to re-scope next iteration = those behind STILL-OPEN mismatches only, so a
+    # converged attachment drops out of scope (SC-006). Transient verdicts keep their mismatch
+    # open, so their attachments are naturally included.
     affected: set[str] = set()
     false_count = 0
     fixes: list[dict] = []
@@ -289,7 +289,7 @@ def loop_state(
             data_quality.append(key)
         else:  # None (unreviewed), "false", or "transient" -> still open
             open_keys.append(key)
-            affected.update(_document_ids_of(m))
+            affected.update(_attachment_ids_of(m))
             if verdict == "false":
                 false_count += 1
         if v and isinstance(v.get("fix"), dict):
@@ -355,7 +355,7 @@ def loop_state(
         "open": sorted(open_keys),
         "findings": sorted(findings),
         "data_quality": sorted(data_quality),
-        "affected_document_ids": sorted(affected),
+        "affected_attachment_ids": sorted(affected),
         "history": history,
         "terminate": terminate,
     }

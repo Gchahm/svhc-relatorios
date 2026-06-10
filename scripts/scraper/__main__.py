@@ -9,7 +9,7 @@ Usage:
     uv run python -m scraper scrape [options]    # CLI mode
     uv run python -m scraper download-docs [options]
 
-Document analysis is a separate package — see `python -m analysis --help`.
+Attachment analysis is a separate package — see `python -m analysis --help`.
 """
 
 import argparse
@@ -142,23 +142,23 @@ def _ask_periods(existing: list[str], action: str) -> list[str] | None:
 
 
 def interactive():
-    """Run the scraper interactively (scrape / download documents)."""
+    """Run the scraper interactively (scrape / download attachments)."""
     existing = _existing_periods()
     if existing:
         print(f"Found {len(existing)} existing period(s) in the local database")
 
-    action = _pick("What would you like to do?", ["Scrape periods", "Download documents"])
+    action = _pick("What would you like to do?", ["Scrape periods", "Download attachments"])
 
     if action == "Scrape periods":
         periods = _ask_periods(existing, "scrape")
-        download_docs = _yes_no("Download documents?")
+        download_docs = _yes_no("Download attachments?")
 
         if periods:
             print(f"\nWill scrape: {', '.join(periods)}")
         else:
             print("\nWill scrape all new periods")
         if download_docs:
-            print("Will download documents")
+            print("Will download attachments")
 
         if not _yes_no("Proceed?", default=True):
             print("Aborted.")
@@ -174,7 +174,7 @@ def interactive():
             )
         )
 
-    else:  # Download documents
+    else:  # Download attachments
         if not existing:
             print("\nNo scraped data found. Run scrape first.")
             return
@@ -184,7 +184,7 @@ def interactive():
         if periods:
             print(f"\nWill download docs for: {', '.join(periods)}")
         else:
-            print("\nWill download docs for all periods with pending documents")
+            print("\nWill download docs for all periods with pending attachments")
 
         if not _yes_no("Proceed?", default=True):
             print("Aborted.")
@@ -220,7 +220,7 @@ def main():
     )
     scrape_parser.add_argument(
         "--download-docs", action="store_true",
-        help="Download documents attached to entries (uploaded to R2 during the run).",
+        help="Download attachments attached to entries (uploaded to R2 during the run).",
     )
     scrape_parser.add_argument(
         "--remote", action="store_true",
@@ -231,7 +231,7 @@ def main():
         help="Ephemeral local scratch for downloaded images before upload (default: ../.cache/analysis).",
     )
 
-    docs_parser = subparsers.add_parser("download-docs", help="Download missing document images and upload to R2")
+    docs_parser = subparsers.add_parser("download-docs", help="Download missing attachment images and upload to R2")
     docs_parser.add_argument(
         "--periodo", type=str, nargs="*",
         help="Only download docs for these periods (e.g. 2024-12 2025-01).",

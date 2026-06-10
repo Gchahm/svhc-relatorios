@@ -1,8 +1,8 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
 import {
-    documentAnalyses,
-    documents,
+    attachmentAnalyses,
+    attachments,
     entries,
     subcategories,
     categories,
@@ -30,20 +30,20 @@ export async function GET(request: NextRequest) {
 
     const rows = await db
         .select({
-            id: documentAnalyses.id,
-            documentId: documentAnalyses.documentId,
-            analyzedAt: documentAnalyses.analyzedAt,
-            documentType: documentAnalyses.documentType,
-            extractedAmount: documentAnalyses.extractedAmount,
-            amountMatch: documentAnalyses.amountMatch,
-            extractedCnpj: documentAnalyses.extractedCnpj,
-            issuerName: documentAnalyses.issuerName,
-            vendorMatch: documentAnalyses.vendorMatch,
-            extractedDate: documentAnalyses.extractedDate,
-            dateMatch: documentAnalyses.dateMatch,
-            documentNumber: documentAnalyses.documentNumber,
-            serviceDescription: documentAnalyses.serviceDescription,
-            error: documentAnalyses.error,
+            id: attachmentAnalyses.id,
+            attachmentId: attachmentAnalyses.attachmentId,
+            analyzedAt: attachmentAnalyses.analyzedAt,
+            documentType: attachmentAnalyses.documentType,
+            extractedAmount: attachmentAnalyses.extractedAmount,
+            amountMatch: attachmentAnalyses.amountMatch,
+            extractedCnpj: attachmentAnalyses.extractedCnpj,
+            issuerName: attachmentAnalyses.issuerName,
+            vendorMatch: attachmentAnalyses.vendorMatch,
+            extractedDate: attachmentAnalyses.extractedDate,
+            dateMatch: attachmentAnalyses.dateMatch,
+            documentNumber: attachmentAnalyses.documentNumber,
+            serviceDescription: attachmentAnalyses.serviceDescription,
+            error: attachmentAnalyses.error,
             // Entry data
             entryId: sql<string>`${entries.id}`.as("entry_id"),
             entryDate: entries.date,
@@ -55,15 +55,15 @@ export async function GET(request: NextRequest) {
             subcategoryName: subcategories.name,
             categoryName: categories.name,
         })
-        .from(documentAnalyses)
-        .innerJoin(documents, eq(documentAnalyses.documentId, documents.id))
-        .innerJoin(entries, eq(documents.entryId, entries.id))
+        .from(attachmentAnalyses)
+        .innerJoin(attachments, eq(attachmentAnalyses.attachmentId, attachments.id))
+        .innerJoin(entries, eq(attachments.entryId, entries.id))
         .innerJoin(accountabilityReports, eq(entries.reportId, accountabilityReports.id))
         .leftJoin(subcategories, eq(entries.subcategoryId, subcategories.id))
         .leftJoin(categories, eq(subcategories.categoryId, categories.id))
         .leftJoin(vendors, eq(entries.vendorId, vendors.id))
         .where(period ? eq(accountabilityReports.period, period) : undefined)
-        .orderBy(desc(documentAnalyses.analyzedAt));
+        .orderBy(desc(attachmentAnalyses.analyzedAt));
 
     return NextResponse.json(rows);
 }

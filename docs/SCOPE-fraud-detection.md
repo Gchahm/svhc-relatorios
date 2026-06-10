@@ -12,7 +12,7 @@ Extend the VLM prompt to assess document authenticity:
 - **Layout validation**: compare against known NF-e/DANFE/boleto templates
 - **Digital alteration signs**: detect editing artifacts, misaligned text, resolution inconsistencies
 - **Confidence score**: 0-100 authenticity confidence per document
-- **Output**: new fields in `document_analyses` (e.g. `authenticity_score`, `forgery_flags`)
+- **Output**: new fields in `attachment_analyses` (e.g. `authenticity_score`, `forgery_flags`)
 
 ## Phase 2: Cross-Reference Validation
 

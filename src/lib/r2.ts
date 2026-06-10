@@ -1,10 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 /**
- * Returns the R2 bucket holding fiscal-document page images.
+ * Returns the R2 bucket holding attachment page images.
  *
  * Mirrors `getDb()` in `src/db/index.ts`: resolves the Cloudflare binding from the runtime
- * context. The `DOCUMENTS` binding is declared in `wrangler.toml` and typed in `env.d.ts`.
+ * context. The `DOCUMENTS` binding is declared in `wrangler.toml` and typed in `env.d.ts`
+ * (the binding/bucket name is retained storage infra; see feature 015 research Decision 4).
  */
 export async function getDocumentsBucket() {
     const { env } = await getCloudflareContext({ async: true });
@@ -12,11 +13,11 @@ export async function getDocumentsBucket() {
 }
 
 /**
- * Normalize one `documents.file_path` segment into its R2 object key.
+ * Normalize one `attachments.file_path` segment into its R2 object key.
  *
  * The canonical mapping (single source of truth) is documented in
  * `specs/012-r2-document-images/data-model.md`. The scraper (`scripts/scraper`, via
- * `scripts/common/d1.py:put_object`) now writes `documents.file_path` as the R2-key form
+ * `scripts/common/d1.py:put_object`) now writes `attachments.file_path` as the R2-key form
  * directly and uploads to that key, so writes and reads agree; legacy `data/scrape/...`
  * paths are still normalized here for backward compatibility.
  *
@@ -33,7 +34,7 @@ export function objectKeyFromFilePath(segment: string): string {
 export interface ParsedPage {
     /** Page label, e.g. `p2` (parsed from the `_p<N>` basename suffix), or null if absent. */
     pageLabel: string | null;
-    /** 0-based page index (N - 1), aligning with `document_analysis_records.page_index`. */
+    /** 0-based page index (N - 1), aligning with `attachment_analysis_records.page_index`. */
     pageIndex: number | null;
     /** Lowercased file extension, e.g. `png`. */
     ext: string;

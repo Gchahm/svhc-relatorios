@@ -1,6 +1,6 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
-import { documentAnalysisRecords } from "@/db/fiscal.schema";
+import { attachmentAnalysisRecords } from "@/db/fiscal.schema";
 import { asc, eq, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
@@ -20,19 +20,19 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const rows = await db
         .select({
-            id: documentAnalysisRecords.id,
-            analysisType: documentAnalysisRecords.analysisType,
-            pageIndex: documentAnalysisRecords.pageIndex,
-            pageLabel: documentAnalysisRecords.pageLabel,
-            artifactRole: documentAnalysisRecords.artifactRole,
-            response: documentAnalysisRecords.response,
-            rawText: documentAnalysisRecords.rawText,
-            parseError: documentAnalysisRecords.parseError,
+            id: attachmentAnalysisRecords.id,
+            analysisType: attachmentAnalysisRecords.analysisType,
+            pageIndex: attachmentAnalysisRecords.pageIndex,
+            pageLabel: attachmentAnalysisRecords.pageLabel,
+            artifactRole: attachmentAnalysisRecords.artifactRole,
+            response: attachmentAnalysisRecords.response,
+            rawText: attachmentAnalysisRecords.rawText,
+            parseError: attachmentAnalysisRecords.parseError,
         })
-        .from(documentAnalysisRecords)
-        .where(eq(documentAnalysisRecords.documentAnalysisId, id))
+        .from(attachmentAnalysisRecords)
+        .where(eq(attachmentAnalysisRecords.attachmentAnalysisId, id))
         // Stable page order; null pageIndex sorts last.
-        .orderBy(sql`${documentAnalysisRecords.pageIndex} is null`, asc(documentAnalysisRecords.pageIndex));
+        .orderBy(sql`${attachmentAnalysisRecords.pageIndex} is null`, asc(attachmentAnalysisRecords.pageIndex));
 
     return NextResponse.json(rows);
 }

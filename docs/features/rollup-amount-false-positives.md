@@ -14,23 +14,23 @@ correctly. Two distinct causes remain (the `0.0` short-circuit was already fixed
 
 ## Problem A — first-record-of-role wins (record selection)
 
-`_rollup_document_fields` (`scripts/analysis/documentos.py`) picks the **first** record of
+`_rollup_attachment_fields` (`scripts/analysis/attachments.py`) picks the **first** record of
 the preferred role, not the one matching the entry. When a document bundles several payment
 records, the wrong one wins:
 
-| entry amount | extracted | a record holds |
-| ------------ | --------- | -------------- |
-| R$ 10000 | 30000 | `valor_pago: 10000` |
-| R$ 362.50 | 1087.50 | `valor_pago: 362.50` |
+| entry amount | extracted | a record holds       |
+| ------------ | --------- | -------------------- |
+| R$ 10000     | 30000     | `valor_pago: 10000`  |
+| R$ 362.50    | 1087.50   | `valor_pago: 362.50` |
 
 The entry amount is known at roll-up time (`entry_amount`), so selection could prefer the
 record whose value matches the entry (within the existing 5% tolerance) before falling back to
 the precedence order.
 
-**Caution (audit-tool semantics):** simply switching validation to "does *any* extracted amount
+**Caution (audit-tool semantics):** simply switching validation to "does _any_ extracted amount
 match the entry?" would clear these cases but risks **false negatives** — hiding a genuine
 discrepancy is worse than a false positive for a fraud/forgery tool. Any "match-aware selection"
-must keep a real mismatch visible (e.g. record *which* artifact matched, and still surface when
+must keep a real mismatch visible (e.g. record _which_ artifact matched, and still surface when
 none does). Treat this as a deliberate design decision, not a blind patch.
 
 ## Problem B — invoice ↔ entry cardinality (Phase 2 reconciliation)

@@ -15,7 +15,7 @@ return value is a terse result, so the orchestrator's context never fills with d
 ## Input (from the orchestrator)
 
 - The `false` **mismatch** row + its `root_cause` (`area`, `hypothesis`) from the verdict.
-- The `period` and the affected `document_id`(s), so you can verify with a scoped re-analyze.
+- The `period` and the affected `attachment_id`(s), so you can verify with a scoped re-analyze.
 
 ## Procedure
 
@@ -30,8 +30,8 @@ Use the **`speckit`** skill to design and implement a fix targeting the hypothes
 
 - `reading` → the page-classification prompt/skill (`.claude/skills/classify-doc-page`) or field
   extraction.
-- `rollup-precedence` → the roll-up ordering in `scripts/analysis/documentos.py`
-  (`build_document_analysis`).
+- `rollup-precedence` → the roll-up ordering in `scripts/analysis/attachments.py`
+  (`build_attachment_analysis`).
 - `grouping` → byte-identical grouping in `scripts/analysis/nf_groups.py`.
 - `reconciliation-tolerance` → the tolerance in `nf_groups.reconcile_group`.
 - `other` → wherever the hypothesis points; investigate first.
@@ -44,11 +44,11 @@ Where feasible, re-run the scoped chain for the affected documents and confirm t
 gone **without** introducing new ones in scope:
 
 ```bash
-cd scripts && uv run python -m analysis docs-plan --periodo <period> --document-id <ids…> [--remote]
+cd scripts && uv run python -m analysis docs-plan --periodo <period> --attachment-id <ids…> [--remote]
 #   (classify the replanned pages via the classify-doc-page skill if reading changed)
 cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--remote]
 cd scripts && uv run python -m analysis analyze --periodo <period> [--remote]
-cd scripts && uv run python -m analysis mismatches --periodo <period> --document-id <ids…> [--remote]
+cd scripts && uv run python -m analysis mismatches --periodo <period> --attachment-id <ids…> [--remote]
 ```
 
 These read the period from D1 and images from R2 (default local; pass `--remote` to verify against production) and write analyses/alerts to D1.

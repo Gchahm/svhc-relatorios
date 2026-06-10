@@ -1,6 +1,6 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
-import { documentAnalyses, documents } from "@/db/fiscal.schema";
+import { attachmentAnalyses, attachments } from "@/db/fiscal.schema";
 import { contentTypeForExt, getDocumentsBucket, objectKeyFromFilePath, parsePage } from "@/lib/r2";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
@@ -9,11 +9,11 @@ import { type NextRequest, NextResponse } from "next/server";
 const ALLOWED_ROLES = ["admin", "member"];
 
 /**
- * GET /api/document-analyses/[id]/image/[page]
+ * GET /api/attachment-analyses/[id]/image/[page]
  *
  * Streams one page image from the R2 `DOCUMENTS` bucket. The object key is resolved server-side
- * from the document's `file_path`, so the client never supplies a raw key — `[page]` can only
- * select among this document's own pages (Constitution IV).
+ * from the attachment's `file_path`, so the client never supplies a raw key — `[page]` can only
+ * select among this attachment's own pages (Constitution IV).
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string; page: string }> }) {
     const authInstance = await initAuth();
@@ -27,10 +27,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const db = await getDb();
 
     const rows = await db
-        .select({ filePath: documents.filePath })
-        .from(documentAnalyses)
-        .innerJoin(documents, eq(documentAnalyses.documentId, documents.id))
-        .where(eq(documentAnalyses.id, id))
+        .select({ filePath: attachments.filePath })
+        .from(attachmentAnalyses)
+        .innerJoin(attachments, eq(attachmentAnalyses.attachmentId, attachments.id))
+        .where(eq(attachmentAnalyses.id, id))
         .limit(1);
 
     const filePath = rows[0]?.filePath;

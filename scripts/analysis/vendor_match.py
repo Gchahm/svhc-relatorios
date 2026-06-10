@@ -11,12 +11,12 @@ This module centralizes the deterministic, stdlib-only reconciliation:
   common Portuguese business-name abbreviations, trailing legal/size suffixes);
 - a **payer denylist** so the condominium itself (the destinatário/payer that the reader
   sometimes captures as issuer) never satisfies a vendor match nor wins the roll-up;
-- **cross-page reconciliation**: a document bundles several pages (invoice + boleto +
+- **cross-page reconciliation**: an attachment bundles several pages (invoice + boleto +
   payment proof) whose issuer/beneficiary names are different forms of one entity, so the
   ledger vendor is reconciled against **every** page's issuer name, not just one roll-up.
 
 The ledger side carries only a vendor name (no CNPJ), so "CNPJ-aware" reconciliation is
-realized by matching across the document's pages — on at least one page (commonly the
+realized by matching across the attachment's pages — on at least one page (commonly the
 payment artifact) the same entity appears under the name the ledger uses.
 """
 

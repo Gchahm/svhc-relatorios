@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PageImageViewer from "./PageImageViewer";
-import type { DocAnalysisRow } from "./EntriesClient";
+import type { AttachmentAnalysisRow } from "./EntriesClient";
 
-interface DocAnalysisRecord {
+interface AttachmentAnalysisRecord {
     id: string;
     analysisType: string;
     pageIndex: number | null;
@@ -56,7 +56,7 @@ function formatValue(value: unknown, currency?: boolean) {
 }
 
 /** Parse a record's stored `response` JSON, falling back to raw text / parse error. */
-function parseResponse(record: DocAnalysisRecord): {
+function parseResponse(record: AttachmentAnalysisRecord): {
     values: Record<string, unknown> | null;
     fallback: string | null;
 } {
@@ -73,7 +73,7 @@ function parseResponse(record: DocAnalysisRecord): {
     return { values: null, fallback: record.parseError || record.rawText || null };
 }
 
-function pageLabelDisplay(record: DocAnalysisRecord) {
+function pageLabelDisplay(record: AttachmentAnalysisRecord) {
     if (record.pageLabel) return record.pageLabel;
     if (record.pageIndex !== null) return `page ${record.pageIndex + 1}`;
     return "?";
@@ -92,7 +92,7 @@ function Field({ label, value }: { label: string; value: string | null | undefin
     );
 }
 
-function RecordValues({ record }: { record: DocAnalysisRecord }) {
+function RecordValues({ record }: { record: AttachmentAnalysisRecord }) {
     const { values, fallback } = parseResponse(record);
 
     if (!values) {
@@ -132,14 +132,14 @@ function RecordValues({ record }: { record: DocAnalysisRecord }) {
     );
 }
 
-export default function DocumentAnalysisDetailDialog({
+export default function AttachmentAnalysisDetailDialog({
     analysis,
     onOpenChange,
 }: {
-    analysis: DocAnalysisRow | null;
+    analysis: AttachmentAnalysisRow | null;
     onOpenChange: (open: boolean) => void;
 }) {
-    const [records, setRecords] = useState<DocAnalysisRecord[]>([]);
+    const [records, setRecords] = useState<AttachmentAnalysisRecord[]>([]);
     const [pages, setPages] = useState<PageInfo[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -152,12 +152,12 @@ export default function DocumentAnalysisDetailDialog({
         setLoading(true);
         setError(null);
         setRecords([]);
-        fetch(`/api/document-analyses/${analysisId}`)
+        fetch(`/api/attachment-analyses/${analysisId}`)
             .then(res => {
                 if (!res.ok) throw new Error("Failed to load records");
                 return res.json();
             })
-            .then((data: DocAnalysisRecord[]) => {
+            .then((data: AttachmentAnalysisRecord[]) => {
                 if (!cancelled) setRecords(data);
             })
             .catch(e => {
@@ -177,7 +177,7 @@ export default function DocumentAnalysisDetailDialog({
         if (!analysisId) return;
         let cancelled = false;
         setPages([]);
-        fetch(`/api/document-analyses/${analysisId}/pages`)
+        fetch(`/api/attachment-analyses/${analysisId}/pages`)
             .then(res => (res.ok ? res.json() : []))
             .then((data: PageInfo[]) => {
                 if (!cancelled) setPages(Array.isArray(data) ? data : []);
@@ -211,7 +211,7 @@ export default function DocumentAnalysisDetailDialog({
             <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        Document Analysis
+                        Attachment Analysis
                         {analysis?.documentType && (
                             <Badge variant="outline" className="text-xs font-normal">
                                 {analysis.documentType}

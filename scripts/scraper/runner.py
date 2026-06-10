@@ -57,8 +57,8 @@ def _entry_id(period: str, date_str: str, description: str, amount: float, subca
     return _det_id("entry", period, date_str, description, str(amount), subcategory_id, str(index))
 
 
-def _document_id(entry_id: str, external_document_id: int) -> str:
-    return _det_id("document", entry_id, str(external_document_id))
+def _attachment_id(entry_id: str, external_document_id: int) -> str:
+    return _det_id("attachment", entry_id, str(external_document_id))
 
 
 def _subtotal_id(period: str, subcategory_id: str, movement_type: str) -> str:
@@ -161,7 +161,7 @@ def _build_period_data(
     entries: list[dict],
     category_subtotals: list[dict],
     approvers: list[dict],
-    documents: list[dict],
+    attachments: list[dict],
 ) -> dict:
     """Build the JSON structure for a single period file."""
     return {
@@ -174,8 +174,8 @@ def _build_period_data(
         "entries": entries,
         "category_subtotals": category_subtotals,
         "approvers": approvers,
-        "documents": documents,
-        "document_analyses": [],
+        "attachments": attachments,
+        "attachment_analyses": [],
         "alerts": [],
     }
 
@@ -183,7 +183,7 @@ def _build_period_data(
 def _upload_pages_to_r2(local_paths: list[str], periodo: str, target: Target) -> list[str]:
     """Upload each downloaded page to R2 at key ``<period>/<basename>``; return the keys.
 
-    The returned keys are what gets stored in ``documents.file_path`` (R2-key form), which
+    The returned keys are what gets stored in ``attachments.file_path`` (R2-key form), which
     ``src/lib/r2.ts:objectKeyFromFilePath()`` resolves back to the same key for the frontend.
     """
     keys: list[str] = []
@@ -208,7 +208,7 @@ async def run_scrape(
         target: D1/R2 target — "local" (default) or "remote".
         book_ids: Specific accountability book IDs to scrape.
         periodos_filter: Specific periods to scrape (e.g. ["2026-01"]).
-        download_docs: Whether to download document images (uploaded to R2 during the run).
+        download_docs: Whether to download attachment images (uploaded to R2 during the run).
         cache_dir: Ephemeral local scratch for downloaded images before upload (never the data folder).
     """
     cache_path = Path(cache_dir)
@@ -380,9 +380,9 @@ async def _scrape_periodo(
         "updated_at": now,
     }
 
-    # Build entries and document refs
+    # Build entries and attachment refs
     entries_out = []
-    documents_out = []
+    attachments_out = []
     doc_download_tasks = []
     entry_key_counts: dict[tuple, int] = defaultdict(int)  # track duplicates for deterministic IDs
     for lanc in lancamentos_data:
@@ -422,14 +422,14 @@ async def _scrape_periodo(
         if documento_ids:
             entry_doc_records = []
             for ext_doc_id in documento_ids:
-                doc_id = _document_id(entry_id, ext_doc_id)
+                doc_id = _attachment_id(entry_id, ext_doc_id)
                 doc_record = {
                     "id": doc_id,
                     "entry_id": entry_id,
                     "external_document_id": ext_doc_id,
                     "file_path": None,
                 }
-                documents_out.append(doc_record)
+                attachments_out.append(doc_record)
                 entry_doc_records.append(doc_record)
             doc_download_tasks.append((entry_id, documento_ids, entry_doc_records))
 
@@ -460,12 +460,12 @@ async def _scrape_periodo(
             "status": aprov["status"],
         })
 
-    # Download documents to the local cache, then upload each page to R2. The
-    # document's file_path stores the R2-key tokens (`<period>/<basename>`), matching
+    # Download attachments to the local cache, then upload each page to R2. The
+    # attachment's file_path stores the R2-key tokens (`<period>/<basename>`), matching
     # objectKeyFromFilePath() in src/lib/r2.ts — nothing rests in the data folder.
     if download_docs and doc_download_tasks:
         total_docs = sum(len(ids) for _, ids, _ in doc_download_tasks)
-        logger.info("  Downloading %d documents for %d entries...", total_docs, len(doc_download_tasks))
+        logger.info("  Downloading %d attachments for %d entries...", total_docs, len(doc_download_tasks))
 
         dest_dir = cache_dir / periodo
         downloaded = 0
@@ -479,15 +479,15 @@ async def _scrape_periodo(
                     keys = _upload_pages_to_r2(paths_by_id[ext_id], periodo, target)
                     doc_record["file_path"] = ";".join(keys)
                     downloaded += 1
-        logger.info("  Documents uploaded to R2 (%s): %d/%d", target, downloaded, total_docs)
+        logger.info("  Attachments uploaded to R2 (%s): %d/%d", target, downloaded, total_docs)
 
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",
-        periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(documents_out),
+        periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(attachments_out),
     )
 
     return _build_period_data(
-        refs, scrape_run, report, entries_out, subtotals_out, approvers_out, documents_out
+        refs, scrape_run, report, entries_out, subtotals_out, approvers_out, attachments_out
     )
 
 
@@ -496,10 +496,10 @@ async def run_download_docs(
     periodos_filter: list[str] | None = None,
     cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Download documents that are missing their R2 images and upload them.
+    """Download attachments that are missing their R2 images and upload them.
 
-    Finds documents whose ``file_path`` is still NULL in D1, downloads their pages to the
-    local cache, uploads each to R2, and updates ``documents.file_path`` in D1.
+    Finds attachments whose ``file_path`` is still NULL in D1, downloads their pages to the
+    local cache, uploads each to R2, and updates ``attachments.file_path`` in D1.
 
     Args:
         target: D1/R2 target — "local" (default) or "remote".
@@ -515,7 +515,7 @@ async def run_download_docs(
         where += f" AND r.period IN ({in_list})"
     pending = d1.query(
         "SELECT d.id, d.entry_id, d.external_document_id, r.period "
-        "FROM documents d "
+        "FROM attachments d "
         "JOIN entries e ON d.entry_id = e.id "
         "JOIN accountability_reports r ON e.report_id = r.id "
         f"WHERE {where}",
@@ -523,7 +523,7 @@ async def run_download_docs(
     )
 
     if not pending:
-        logger.info("All documents already have images in R2")
+        logger.info("All attachments already have images in R2")
         return
 
     # Group by (period, entry_id) for batch downloading
@@ -531,7 +531,7 @@ async def run_download_docs(
     for doc in pending:
         by_entry[(doc["period"], doc["entry_id"])].append(doc)
 
-    logger.info("Will download %d documents across %d entries", len(pending), len(by_entry))
+    logger.info("Will download %d attachments across %d entries", len(pending), len(by_entry))
 
     browser = BRCondosBrowser()
     try:
@@ -559,10 +559,10 @@ async def run_download_docs(
                     })
 
         if updated_docs:
-            d1.upsert_tables({"documents": updated_docs}, target=target)
-        logger.info("Updated %d/%d documents in D1 (%s)", len(updated_docs), len(pending), target)
+            d1.upsert_tables({"attachments": updated_docs}, target=target)
+        logger.info("Updated %d/%d attachments in D1 (%s)", len(updated_docs), len(pending), target)
 
     except Exception as e:
-        logger.error("Fatal error during document download: %s", e, exc_info=True)
+        logger.error("Fatal error during attachment download: %s", e, exc_info=True)
     finally:
         await browser.close()

@@ -39,9 +39,9 @@ Add a pnpm build-approval allowlist to `package.json` (no existing `pnpm` config
 
 ```jsonc
 {
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "msw", "sharp", "unrs-resolver", "workerd"]
-  }
+    "pnpm": {
+        "onlyBuiltDependencies": ["esbuild", "msw", "sharp", "unrs-resolver", "workerd"],
+    },
 }
 ```
 

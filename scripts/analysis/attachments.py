@@ -1,4 +1,4 @@
-"""Document analysis using Vision Language Model.
+"""Attachment analysis using Vision Language Model.
 
 Extracts structured data from receipt/invoice images and validates
 against entry data to detect mismatches and potential fraud.
@@ -10,7 +10,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field
 from common import det_id, now_ms, d1
-from .nf_groups import group_documents, reconcile_group
+from .nf_groups import group_attachments, reconcile_group
 from .vendor_match import is_payer_name, reconcile_vendor
 
 logger = logging.getLogger(__name__)
@@ -18,15 +18,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PageAnalysisRecord:
-    """A single per-page (per analysis kind) analysis record for a document.
+    """A single per-page (per analysis kind) analysis record for a attachment.
 
-    Persisted nested under its document analysis in the period JSON and
-    normalized into the `document_analysis_records` table on import. Many per
-    document and more than one per page are allowed (distinguished by
+    Persisted nested under its attachment analysis in the period JSON and
+    normalized into the `attachment_analysis_records` table on import. Many per
+    attachment and more than one per page are allowed (distinguished by
     `analysis_type`) so future analysis kinds attach without a schema change.
     """
 
-    document_analysis_id: str
+    attachment_analysis_id: str
     analysis_type: str = "page_extraction"
     page_index: int | None = None
     page_label: str | None = None
@@ -38,8 +38,8 @@ class PageAnalysisRecord:
     def to_dict(self) -> dict:
         page_ref = self.page_label or (str(self.page_index) if self.page_index is not None else "?")
         return {
-            "id": det_id("analysis_record", self.document_analysis_id, self.analysis_type, page_ref),
-            "document_analysis_id": self.document_analysis_id,
+            "id": det_id("analysis_record", self.attachment_analysis_id, self.analysis_type, page_ref),
+            "attachment_analysis_id": self.attachment_analysis_id,
             "analysis_type": self.analysis_type,
             "page_index": self.page_index,
             "page_label": self.page_label,
@@ -52,8 +52,8 @@ class PageAnalysisRecord:
 
 
 @dataclass
-class DocAnalysisResult:
-    document_id: str
+class AttachmentAnalysisResult:
+    attachment_id: str
     entry_id: str
     entry_amount: float | None = None
     document_type: str | None = None
@@ -72,8 +72,8 @@ class DocAnalysisResult:
 
     def to_dict(self) -> dict:
         return {
-            "id": det_id("doc_analysis", self.document_id),
-            "document_id": self.document_id,
+            "id": det_id("attachment_analysis", self.attachment_id),
+            "attachment_id": self.attachment_id,
             "analyzed_at": now_ms(),
             "document_type": self.document_type,
             "extracted_amount": self.extracted_amount,
@@ -150,17 +150,17 @@ def _check_date_in_period(date_str: str | None, period: str) -> bool | None:
     return doc_period in (period, prev_period)
 
 
-def _document_in_period(records, period: str) -> bool | None:
-    """Cash-basis period membership across ALL of a document's page records.
+def _attachment_in_period(records, period: str) -> bool | None:
+    """Cash-basis period membership across ALL of a attachment's page records.
 
-    The condominium books on a cash basis: a document bundles an invoice issued
+    The condominium books on a cash basis: a attachment bundles an invoice issued
     in an earlier month plus a payment artifact (boleto vencimento / PIX / Sicredi
-    comprovante) settled inside the period. A document therefore belongs to the
+    comprovante) settled inside the period. A attachment therefore belongs to the
     period if ANY of its pages carries an in-period date — the in-period payment,
     vencimento, or issue date establishes membership, regardless of which page it
     is on. This removes the false out-of-period flags on the normal lag between an
     invoice's issue date and its in-period payment, while preserving detection: a
-    document with no in-period date on ANY page is still flagged.
+    attachment with no in-period date on ANY page is still flagged.
 
     Returns True if any page date is in the period window (period month or the
     previous month), False if at least one page has a date but none is in window,
@@ -249,7 +249,7 @@ def _issuer_names_of(records) -> list[str]:
 
 
 def _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records):
-    """Choose the document-level issuer name.
+    """Choose the attachment-level issuer name.
 
     Prefers the party actually paid: a payment-artifact (payment_proof/boleto)
     beneficiary, then the invoice/nfse header, then any record. The condominium payer
@@ -271,10 +271,10 @@ def _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records):
     return fallback
 
 
-def _pick_document_date(records) -> str | None:
-    """Choose the document-level date for display, preferring the payment date.
+def _pick_attachment_date(records) -> str | None:
+    """Choose the attachment-level date for display, preferring the payment date.
 
-    A document bundles an invoice issued in an earlier month plus an in-period
+    A attachment bundles an invoice issued in an earlier month plus an in-period
     payment artifact; the meaningful date for a cash-basis entry is the
     settlement/competência date, not the upstream invoice issue date. This mirrors
     the amount/issuer roll-up precedence (which prefers the payment artifact).
@@ -284,7 +284,7 @@ def _pick_document_date(records) -> str | None:
     remaining dated page. Returns ``None`` if no page carries a date.
 
     Note this is for the surfaced ``extracted_date`` only; period membership is
-    decided across ALL page dates by ``_document_in_period`` (a stale receipt date
+    decided across ALL page dates by ``_attachment_in_period`` (a stale receipt date
     can never by itself create an out-of-period flag).
     """
 
@@ -327,19 +327,19 @@ def _pick_document_date(records) -> str | None:
 
 
 def _pick_payment_amount(payment_recs) -> float | None:
-    """Choose the document amount among MULTIPLE payment-proof pages.
+    """Choose the attachment amount among MULTIPLE payment-proof pages.
 
-    A document can bundle more than one payment-proof page: a recibo / NFS-e that
+    A attachment can bundle more than one payment-proof page: a recibo / NFS-e that
     carries a headline ``valor_pago`` equal to a GROSS or full-agreement total,
     plus a genuine settlement *comprovante* (a bank/PIX transaction receipt) for
     the parcela actually paid. The cash-basis amount that matches the ledger entry
     is the genuine comprovante's paid value, NOT the headline gross — so prefer it,
-    using the same ranking as ``_pick_document_date`` (comprovante-with-valor_pago
+    using the same ranking as ``_pick_attachment_date`` (comprovante-with-valor_pago
     > any comprovante > any page reporting valor_pago > valor_total).
 
     Non-positive values are skipped (a spurious ``valor_pago: 0.0`` must not win).
     With exactly one payment proof this reduces to the prior behavior (its
-    ``valor_pago`` then ``valor_total``), so common single-receipt documents are
+    ``valor_pago`` then ``valor_total``), so common single-receipt attachments are
     unchanged.
     """
 
@@ -377,8 +377,8 @@ def _pick_payment_amount(payment_recs) -> float | None:
 def _sum_distinct_invoices(invoice_recs) -> float | None:
     """Sum the GROSS ``valor_total`` of DISTINCT invoice pages, else None.
 
-    A document with no payment artifact may hold several distinct invoice pages
-    (a charge split across separate NF-e / DANFE line items); the document amount
+    A attachment with no payment artifact may hold several distinct invoice pages
+    (a charge split across separate NF-e / DANFE line items); the attachment amount
     is then the SUM of those invoices, not a single page (the ledger entry is the
     combined charge). Pages are de-duplicated on (``numero_documento``,
     ``valor_total``) so a re-scanned duplicate of one invoice is not double-counted.
@@ -402,10 +402,10 @@ def _sum_distinct_invoices(invoice_recs) -> float | None:
     return round(sum(totals), 2)
 
 
-def _rollup_document_fields(result: "DocAnalysisResult") -> None:
-    """Derive the document-level summary from the per-page records.
+def _rollup_attachment_fields(result: "AttachmentAnalysisResult") -> None:
+    """Derive the attachment-level summary from the per-page records.
 
-    Heterogeneity-aware (a document may bundle invoice + boleto + payment proof):
+    Heterogeneity-aware (a attachment may bundle invoice + boleto + payment proof):
     - identity fields prefer the invoice/nfse record, else the first record that
       has each field;
     - the amount used for amount_match follows the precedence
@@ -438,7 +438,7 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
     result.issuer_name = _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records)
     # Date: prefer the payment-artifact (settlement/competência) date over the
     # upstream invoice issue date, mirroring the amount/issuer precedence above.
-    result.extracted_date = _pick_document_date(parsed_records)
+    result.extracted_date = _pick_attachment_date(parsed_records)
     result.document_number = first_field("numero_documento")
     result.service_description = first_field("descricao_servico")
 
@@ -454,12 +454,12 @@ def _rollup_document_fields(result: "DocAnalysisResult") -> None:
         return None
 
     # Among MULTIPLE payment proofs, prefer the genuine settlement comprovante's
-    # paid value over a recibo/invoice headline gross (mirrors _pick_document_date).
+    # paid value over a recibo/invoice headline gross (mirrors _pick_attachment_date).
     amount = _pick_payment_amount(payment_recs)
     if amount is None:
         amount = pick(boleto_recs, "valor_total", "valor_pago")
     # No payment artifact but several distinct invoice pages (a charge split across
-    # separate NF line items): the document amount is their SUM, not a single page.
+    # separate NF line items): the attachment amount is their SUM, not a single page.
     if amount is None and not boleto_recs:
         amount = _sum_distinct_invoices(invoice_recs)
     if amount is None:
@@ -490,7 +490,7 @@ def nf_total_for_reconciliation(record_responses, fallback: float | None = None)
     return fallback
 
 
-def _apply_group_amount_match(result: "DocAnalysisResult", sibling_sum: float) -> str | None:
+def _apply_group_amount_match(result: "AttachmentAnalysisResult", sibling_sum: float) -> str | None:
     """Override ``amount_match`` from group reconciliation; returns the outcome.
 
     For a shared NF the meaningful question is whether the sibling entries sum to
@@ -508,13 +508,13 @@ def _apply_group_amount_match(result: "DocAnalysisResult", sibling_sum: float) -
 
 
 def _fanout_result(
-    rep: "DocAnalysisResult",
-    document_id: str,
+    rep: "AttachmentAnalysisResult",
+    attachment_id: str,
     entry_id: str,
     entry_amount: float,
     vendor_name: str | None,
     period: str,
-) -> "DocAnalysisResult":
+) -> "AttachmentAnalysisResult":
     """Build a sibling's analysis by reusing a representative's VLM extraction.
 
     Siblings sharing one byte-identical NF need not be re-analyzed (Story 3): we
@@ -523,7 +523,7 @@ def _fanout_result(
     checks against the sibling's entry. ``amount_match`` is set later from group
     reconciliation, so it is not computed here.
     """
-    new = DocAnalysisResult(document_id=document_id, entry_id=entry_id, entry_amount=entry_amount)
+    new = AttachmentAnalysisResult(attachment_id=attachment_id, entry_id=entry_id, entry_amount=entry_amount)
     new.error = rep.error
     new.document_type = rep.document_type
     new.extracted_amount = rep.extracted_amount
@@ -533,11 +533,11 @@ def _fanout_result(
     new.document_number = rep.document_number
     new.service_description = rep.service_description
 
-    new_analysis_id = det_id("doc_analysis", document_id)
+    new_analysis_id = det_id("attachment_analysis", attachment_id)
     for r in rep.records:
         new.records.append(
             PageAnalysisRecord(
-                document_analysis_id=new_analysis_id,
+                attachment_analysis_id=new_analysis_id,
                 analysis_type=r.analysis_type,
                 page_index=r.page_index,
                 page_label=r.page_label,
@@ -554,7 +554,7 @@ def _fanout_result(
     new.vendor_match = reconcile_vendor(vendor_name, issuer_names)
     # Cash-basis period membership across every copied page (an in-period payment
     # date establishes membership even if the invoice issue date is earlier).
-    new.date_match = _document_in_period(new.records, period)
+    new.date_match = _attachment_in_period(new.records, period)
     return new
 
 
@@ -565,28 +565,28 @@ def _fanout_result(
 ExtractionProvider = "Callable[[str], tuple[dict | None, str | None]]"
 
 
-def build_document_analysis(
+def build_attachment_analysis(
     file_path: str,
     entry_amount: float,
     vendor_name: str | None,
     period: str,
-    document_id: str,
+    attachment_id: str,
     entry_id: str,
     provider,
-) -> DocAnalysisResult:
-    """Build a document's analysis from per-page extractions supplied by ``provider``.
+) -> AttachmentAnalysisResult:
+    """Build a attachment's analysis from per-page extractions supplied by ``provider``.
 
     Emits one page_extraction record per page image (paths joined by ";"), then
-    derives the document-level roll-up across all pages and validates it against
+    derives the attachment-level roll-up across all pages and validates it against
     the entry. A page the provider cannot extract is recorded with a parse_error
-    and skipped — it does not abort the document.
+    and skipped — it does not abort the attachment.
     """
-    result = DocAnalysisResult(
-        document_id=document_id,
+    result = AttachmentAnalysisResult(
+        attachment_id=attachment_id,
         entry_id=entry_id,
         entry_amount=entry_amount,
     )
-    doc_analysis_id = det_id("doc_analysis", document_id)
+    doc_analysis_id = det_id("attachment_analysis", attachment_id)
 
     paths = [p.strip() for p in file_path.split(";") if p.strip()]
     if not paths:
@@ -597,7 +597,7 @@ def build_document_analysis(
     for idx, path in enumerate(paths):
         page_label = _page_label_from_path(path, idx)
         record = PageAnalysisRecord(
-            document_analysis_id=doc_analysis_id,
+            attachment_analysis_id=doc_analysis_id,
             page_index=idx,
             page_label=page_label,
         )
@@ -615,57 +615,57 @@ def build_document_analysis(
         result.error = "no page produced a parseable response"
         return result
 
-    # Roll up document-level fields from the per-page records (heterogeneity-aware).
-    _rollup_document_fields(result)
+    # Roll up attachment-level fields from the per-page records (heterogeneity-aware).
+    _rollup_attachment_fields(result)
 
     # Validate against the entry on the rolled-up fields (existing tolerances).
     if result.extracted_amount is not None and entry_amount > 0:
         diff_pct = abs(result.extracted_amount - entry_amount) / entry_amount
         result.amount_match = diff_pct < 0.05
 
-    # Reconcile the ledger vendor against EVERY page's issuer name (a document bundles
+    # Reconcile the ledger vendor against EVERY page's issuer name (a attachment bundles
     # invoice/boleto/payment-proof pages naming the same entity under different forms);
     # excludes the condominium payer. Falls back to the rolled-up issuer if no page name.
     issuer_names = _issuer_names_of(result.records) or ([result.issuer_name] if result.issuer_name else [])
     result.vendor_match = reconcile_vendor(vendor_name, issuer_names)
 
-    # Cash-basis period membership across every page: the document is in period if
+    # Cash-basis period membership across every page: the attachment is in period if
     # ANY page carries an in-period date (the in-period payment/vencimento/issue
     # date), so the normal lag between an earlier-month invoice and its in-period
-    # payment no longer flags out-of-period; a truly stale document (no in-period
+    # payment no longer flags out-of-period; a truly stale attachment (no in-period
     # date on any page) still flags. A stale date on one page cannot by itself
     # create an out-of-period flag.
-    result.date_match = _document_in_period(result.records, period)
+    result.date_match = _attachment_in_period(result.records, period)
 
     return result
 
 
-def _merge_and_write(result: "DocAnalysisResult", *, target) -> None:
-    """Write one document's analysis to D1 as delete-then-insert.
+def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
+    """Write one attachment's analysis to D1 as delete-then-insert.
 
-    Reproduces the old "drop existing for this document_id, append" semantics: a
-    plain INSERT OR REPLACE alone would orphan stale per-page ``document_analysis_records``
+    Reproduces the old "drop existing for this attachment_id, append" semantics: a
+    plain INSERT OR REPLACE alone would orphan stale per-page ``attachment_analysis_records``
     when a re-analysis yields fewer pages or a different NF grouping, so the prior
-    analysis row and its records are deleted first. Called after each document so
+    analysis row and its records are deleted first. Called after each attachment so
     partial results land incrementally and an interruption is healed by a re-run.
     """
-    doc_analysis_id = det_id("doc_analysis", result.document_id)
-    did = result.document_id.replace("'", "''")
+    doc_analysis_id = det_id("attachment_analysis", result.attachment_id)
+    did = result.attachment_id.replace("'", "''")
     aid = doc_analysis_id.replace("'", "''")
     d1.execute_sql(
-        f"DELETE FROM document_analysis_records WHERE document_analysis_id = '{aid}';\n"
-        f"DELETE FROM document_analyses WHERE document_id = '{did}';",
+        f"DELETE FROM attachment_analysis_records WHERE attachment_analysis_id = '{aid}';\n"
+        f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';",
         target=target,
     )
-    d1.upsert_tables({"document_analyses": [result.to_dict()]}, target=target)
+    d1.upsert_tables({"attachment_analyses": [result.to_dict()]}, target=target)
 
 
 @dataclass
 class WorkItem:
-    """One document selected for analysis, with its shared-NF group context."""
+    """One attachment selected for analysis, with its shared-NF group context."""
 
     period: str
-    document: dict
+    attachment: dict
     entry: dict
     raw: dict
     group_key: str
@@ -679,10 +679,10 @@ def select_work(
     min_amount: float | None = None,
     limit: int | None = None,
     reanalyze: bool = False,
-    document_ids: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> list[WorkItem]:
-    """Select documents to analyze, grouped by byte-identical NF content.
+    """Select attachments to analyze, grouped by byte-identical NF content.
 
     The single source of truth for "what to analyze", shared by the legacy VLM
     runner and the agent-flow planner. Applies the id/min-amount filters and
@@ -691,9 +691,9 @@ def select_work(
     filter still counts toward reconciliation), sorts by entry amount descending,
     and truncates to ``limit``.
     """
-    document_id_filter = set(document_ids) if document_ids else None
+    attachment_id_filter = set(attachment_ids) if attachment_ids else None
     entry_id_filter = set(entry_ids) if entry_ids else None
-    targeted = document_id_filter is not None or entry_id_filter is not None
+    targeted = attachment_id_filter is not None or entry_id_filter is not None
 
     work: list[WorkItem] = []
     for period_key, period_data in periods.items():
@@ -702,10 +702,10 @@ def select_work(
         # skipped as "already analyzed".
         existing = set()
         if not reanalyze and not targeted:
-            existing = {a["document_id"] for a in period_data.raw.get("document_analyses", [])}
+            existing = {a["attachment_id"] for a in period_data.raw.get("attachment_analyses", [])}
 
-        with_path = [d for d in period_data.documents if d.get("file_path")]
-        groups = group_documents(with_path)
+        with_path = [d for d in period_data.attachments if d.get("file_path")]
+        groups = group_attachments(with_path)
         group_of: dict[str, str] = {}
         group_sum: dict[str, float] = {}
         group_size: dict[str, int] = {}
@@ -719,10 +719,10 @@ def select_work(
                     total += gentry["amount"]
             group_sum[gkey] = total
 
-        for doc in period_data.documents:
+        for doc in period_data.attachments:
             if not doc.get("file_path"):
                 continue
-            if document_id_filter is not None and doc["id"] not in document_id_filter:
+            if attachment_id_filter is not None and doc["id"] not in attachment_id_filter:
                 continue
             if entry_id_filter is not None and doc["entry_id"] not in entry_id_filter:
                 continue
@@ -744,8 +744,8 @@ def select_work(
     return work
 
 
-def summarize_results(results: list["DocAnalysisResult"]) -> None:
-    """Print the document-analysis summary + mismatch list to stdout."""
+def summarize_results(results: list["AttachmentAnalysisResult"]) -> None:
+    """Print the attachment-analysis summary + mismatch list to stdout."""
     analyzed = [r for r in results if not r.error]
     errors = [r for r in results if r.error]
     amount_ok = sum(1 for r in analyzed if r.amount_match is True)
@@ -753,7 +753,7 @@ def summarize_results(results: list["DocAnalysisResult"]) -> None:
     vendor_ok = sum(1 for r in analyzed if r.vendor_match is True)
     vendor_bad = sum(1 for r in analyzed if r.vendor_match is False)
 
-    print(f"\nDocument Analysis Complete: {len(analyzed)}/{len(results)} analyzed")
+    print(f"\nAttachment Analysis Complete: {len(analyzed)}/{len(results)} analyzed")
     if errors:
         print(f"  Errors: {len(errors)}")
     print(f"  Amount:  {amount_ok} OK, {amount_bad} mismatch")
@@ -770,4 +770,4 @@ def summarize_results(results: list["DocAnalysisResult"]) -> None:
             if r.vendor_match is False:
                 flags.append(f"vendor: '{r.issuer_name}'")
             if flags:
-                print(f"  Doc {r.document_id[:8]}: {', '.join(flags)}")
+                print(f"  Doc {r.attachment_id[:8]}: {', '.join(flags)}")

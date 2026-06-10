@@ -4,9 +4,9 @@ import logging
 from collections import defaultdict
 
 from common import det_id
-from ..documentos import nf_total_for_reconciliation
+from ..attachments import nf_total_for_reconciliation
 from ..models import Alert, PeriodData, RefIndex
-from ..nf_groups import group_documents, reconcile_group
+from ..nf_groups import group_attachments, reconcile_group
 
 logger = logging.getLogger(__name__)
 
@@ -185,35 +185,35 @@ def check_delinquency(
 def check_duplicate_billing(period: PeriodData) -> list[Alert]:
     """Detect a single NF claimed for more than its face value (over-claim).
 
-    The fraud counterpart of a legitimate split: documents are grouped by
-    byte-identical NF content, the NF total is read from the persisted document
+    The fraud counterpart of a legitimate split: attachments are grouped by
+    byte-identical NF content, the NF total is read from the persisted attachment
     analyses, and the sibling entry amounts are summed. When the siblings sum to
     MORE than the NF total (beyond tolerance) the invoice is being claimed above
     its worth — distinct from a legitimate split (sum ≈ total, no alert) and an
     incomplete split (sum < total, a plain mismatch, no over-claim alert).
 
-    Requires document analyses to be present; a group whose NF total cannot be
+    Requires attachment analyses to be present; a group whose NF total cannot be
     read is skipped (graceful degradation — no spurious alert).
     """
     alerts: list[Alert] = []
-    analyses = period.raw.get("document_analyses", [])
+    analyses = period.raw.get("attachment_analyses", [])
     if not analyses:
         return alerts
-    analysis_by_doc = {a["document_id"]: a for a in analyses}
+    analysis_by_doc = {a["attachment_id"]: a for a in analyses}
     entry_map = {e["id"]: e for e in period.entries}
 
-    with_path = [d for d in period.documents if d.get("file_path")]
-    for gkey, gdocs in group_documents(with_path).items():
+    with_path = [d for d in period.attachments if d.get("file_path")]
+    for gkey, gdocs in group_attachments(with_path).items():
         if len(gdocs) <= 1:
             continue
 
         sibling_sum = 0.0
         entry_ids: list[str] = []
-        document_ids: list[str] = []
+        attachment_ids: list[str] = []
         nf_total: float | None = None
         numero = cnpj = None
         for gdoc in gdocs:
-            document_ids.append(gdoc["id"])
+            attachment_ids.append(gdoc["id"])
             entry = entry_map.get(gdoc["entry_id"])
             if entry:
                 sibling_sum += entry["amount"]
@@ -238,7 +238,7 @@ def check_duplicate_billing(period: PeriodData) -> list[Alert]:
             f"{len(entry_ids)} lançamentos que somam R$ {sibling_sum:.2f} — "
             f"cobrança de R$ {over:.2f} acima do valor da nota.",
             {"nf_total": round(nf_total, 2), "sum_entries": round(sibling_sum, 2),
-             "over_claim": over, "entry_ids": entry_ids, "document_ids": document_ids,
+             "over_claim": over, "entry_ids": entry_ids, "attachment_ids": attachment_ids,
              "numero_documento": numero, "cnpj_emitente": cnpj},
             discriminator=gkey,
         ))
