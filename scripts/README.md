@@ -6,7 +6,7 @@ or `--remote` for production (mirrors the project's `wrangler --local/--remote` 
 access from Python goes through `scripts/common/d1.py` (a thin `wrangler`-CLI wrapper). All entities
 use deterministic UUIDs — the same data always produces the same IDs, so re-scraping a period safely
 upserts via `INSERT OR REPLACE`. An ephemeral, git-ignored cache (`.cache/analysis/`) holds
-materialized page images and the analysis working files (manifest, `.classify.json`, verdicts).
+materialized page images and the analysis working files (`.classify.json`, verdicts).
 
 ## Scraper
 
@@ -78,10 +78,12 @@ uv run python -m analysis docs-plan --periodo 2025-12 [--attachment-id <ids…>]
 
 Reads the period from D1, materializes its page images from R2 into the cache, selects the attachments
 to analyze (a whole period, or just the attachments/entries you name), and groups **byte-identical Nota
-Fiscal copies** so each unique invoice is read only once. Writes the work manifest
-`.cache/analysis/<period>.extract-todo.json` — the representative page images to read (local cache
-paths) plus the ledger context for reconciliation. Targeting specific ids re-plans those even if
-already analyzed.
+Fiscal copies** so each unique invoice is read only once. Grouping reads the persisted
+`attachments.content_hash` (computed at scrape time); for rows captured before that column existed it
+falls back to hashing the materialized page files. **Prints the plan as JSON to stdout** — the
+representative page images to read (local cache `read_path`s) plus the ledger context for
+reconciliation — and writes **no manifest file**. Targeting specific ids re-plans those even if already
+analyzed.
 
 ### 2. `classify` — read each page image into structured fields (vision)
 
@@ -96,14 +98,16 @@ This is the only non-deterministic step.
 
 ```bash
 cd scripts
-uv run python -m analysis apply-extractions --periodo 2025-12
+uv run python -m analysis apply-extractions --periodo 2025-12 [--attachment-id <ids…>] [--entry-id <ids…>]
 ```
 
-Reads each page's `.classify.json`, rolls each document up (heterogeneity-aware: a document bundling
-an invoice, a boleto, and a payment proof resolves to one amount by precedence), reconciles shared-NF
-groups (sum of sibling entries vs. the NF total), fans the result out to the sibling entries,
-validates amount / vendor / date against the ledger entry, and writes `attachment_analyses` (with
-per-page `analysis_records`) into the period JSON.
+Re-derives the same plan from D1 (no manifest — same `content_hash` grouping `docs-plan` used; pass the
+same selection flags for a scoped re-run), reads each page's `.classify.json`, rolls each document up
+(heterogeneity-aware: a document bundling an invoice, a boleto, and a payment proof resolves to one
+amount by precedence), reconciles shared-NF groups (sum of sibling entries vs. the NF total), fans the
+result out to the sibling entries, validates amount / vendor / date against the ledger entry, and writes
+`attachment_analyses` (with per-page `analysis_records`) into D1. It also lazily backfills
+`attachments.content_hash` for any legacy rows it materializes.
 
 ### 4. `analyze` — run the checks
 
@@ -127,9 +131,9 @@ Prints a compact JSON list of classification mismatches — `amount` / `vendor` 
 `page-error` / `duplicate_billing` — each joined with the ledger-vs-extracted values. Read-only (no
 writes). This is exactly what the `analyze-docs` agent returns to its caller.
 
-The `.extract-todo.json` and `.classify.json` files are ephemeral working artifacts under
-`.cache/analysis/` (gitignored, reproducible from D1+R2); **Cloudflare D1 is the source of truth** and
-the analysis commands write their results straight there.
+The `.classify.json` files are ephemeral working artifacts under `.cache/analysis/` (gitignored,
+reproducible from D1+R2); the extraction plan is derived from D1 each run (no manifest file).
+**Cloudflare D1 is the source of truth** and the analysis commands write their results straight there.
 
 ## Typical workflow
 
@@ -150,8 +154,8 @@ cd scripts
 
 # 1. Plan + classify the attachments (steps 1-2). In Claude Code, invoke the
 #    classify-period skill for the period; it runs docs-plan (materializing images
-#    from R2) and writes the per-page <image>.classify.json files in the cache.
-#    (Or analyze a subset with --attachment-id.)
+#    from R2, printing the plan to stdout) and writes the per-page <image>.classify.json
+#    files in the cache. (Or analyze a subset with --attachment-id.)
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12

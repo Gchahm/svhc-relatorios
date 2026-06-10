@@ -31,7 +31,7 @@ it to you as your prompt). It carries:
 
 - **Page image(s):** open each `read_path` in the mismatch's `page_refs[]` with the **Read** tool
   (a materialized local cache image). (For `duplicate_billing`, `page_refs` covers every document in
-  `attachment_ids`.) You do not need the work manifest — the summary already carries the refs.
+  `attachment_ids`.) You do not need the work plan — the summary already carries the refs.
 - **Ledger entry:** the period data lives in Cloudflare D1 (there is no `data/scrape` period JSON).
   Use the read-only, D1-backed lookup `python -m analysis mismatches --periodo <period> --attachment-id
   <id> [--remote]` to see the entry-vs-extracted values for the document. Read-only — never write D1.

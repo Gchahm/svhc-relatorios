@@ -179,6 +179,10 @@ export const attachments = sqliteTable(
             .references(() => entries.id),
         externalDocumentId: integer("external_document_id").notNull(), // portal ("documento") id — KEEP
         filePath: text("file_path"),
+        // Shared-NF grouping key: a stable content hash over the attachment's page-image
+        // bytes, written at scrape time. Byte-identical page sets (the same NF copied per
+        // entry) share it; NULL when pages are absent/unreadable or captured pre-016.
+        contentHash: text("content_hash"),
     },
     table => [index("attachments_entry_id_idx").on(table.entryId)]
 );

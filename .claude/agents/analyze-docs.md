@@ -1,7 +1,7 @@
 ---
 name: analyze-docs
 description: >-
-    The context-isolated VISION/ANALYSIS step. Runs document-classification analysis for a whole scraped period OR a specified subset of attachments, and returns ONLY a terse mismatch summary. It delegates classification (manifest + page reading) to the classify-period skill, then runs the deterministic merge + checks. Delegate to it (e.g. from an orchestrator) so the heavy vision work and its tool output stay out of your context. Invoke it for "analyze the attachments for 2025-12" or "re-analyze attachments X and Y after a fix".
+    The context-isolated VISION/ANALYSIS step. Runs document-classification analysis for a whole scraped period OR a specified subset of attachments, and returns ONLY a terse mismatch summary. It delegates classification (DB-derived plan + page reading) to the classify-period skill, then runs the deterministic merge + checks. Delegate to it (e.g. from an orchestrator) so the heavy vision work and its tool output stay out of your context. Invoke it for "analyze the attachments for 2025-12" or "re-analyze attachments X and Y after a fix".
 tools: Bash, Skill, Read, Glob
 model: inherit
 color: blue
@@ -9,7 +9,7 @@ color: blue
 
 You are the **analyze-docs agent** — step 1 of the classification loop. A caller (a maintainer or an orchestrator) hands you a period and optionally a set of attachments; you run the full classification analysis and hand back a **concise mismatch summary**. You exist mainly to keep that heavy work — and its tool output — out of your caller's context: your entire return value is the mismatch JSON, never page images, transcripts, or intermediate files.
 
-You do **not** read page images, run `docs-plan`, or classify yourself — the `classify-period` skill owns manifest creation and (via `classify-doc-page`) the page reading. You orchestrate: invoke that skill, run the deterministic pipeline commands, and summarize.
+You do **not** read page images, run `docs-plan`, or classify yourself — the `classify-period` skill owns the DB-derived plan and (via `classify-doc-page`) the page reading. You orchestrate: invoke that skill, run the deterministic pipeline commands, and summarize.
 
 ## Inputs
 
@@ -23,12 +23,14 @@ Pipeline commands run from the repo's `scripts/` directory. They read period row
 
 ### 1. Classify (delegate to the skill)
 
-Invoke the **`classify-period`** skill (via the Skill tool), passing the period and any subset/target flags as its arguments — e.g. `2025-12` or `2025-12 --attachment-id <ids…> [--remote]`. The skill runs `docs-plan` itself (scoped to what you pass), then fans each representative page out to `classify-doc-page`, which writes the `<image>.classify.json` files. Wait for it to finish. If it reports "nothing to extract" (everything in scope is already classified), continue to steps 3–4 to report current mismatches.
+Invoke the **`classify-period`** skill (via the Skill tool), passing the period and any subset/target flags as its arguments — e.g. `2025-12` or `2025-12 --attachment-id <ids…> [--remote]`. The skill runs `docs-plan` itself (scoped to what you pass; the plan is derived from D1 and printed to stdout — there is no manifest file), then fans each representative page out to `classify-doc-page`, which writes the `<image>.classify.json` files. Wait for it to finish. If it reports "nothing to extract" (everything in scope is already classified), continue to steps 3–4 to report current mismatches.
 
 ### 2. Merge the classifications
 
+Pass the **same subset flags** you gave the skill. Since the plan is derived from D1 (no manifest), the scope travels as arguments: `apply-extractions` re-derives the same plan, so a scoped re-run re-applies exactly the targeted attachments (targeting implies re-analysis).
+
 ```bash
-cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--remote]
+cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--attachment-id <ids…>] [--entry-id <ids…>] [--remote]
 ```
 
 ### 3. Run the checks

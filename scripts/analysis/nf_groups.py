@@ -7,15 +7,17 @@ content hash over the attachment's page image files — `file_path` (named per
 entry) and `external_document_id` (per entry) both differ across siblings, and
 the extracted NF number is noisy, so neither is usable as the primary key.
 
+The hash is computed once at scrape time and persisted as ``attachments.content_hash``
+(see ``common.hashing.content_hash``, re-exported here for existing callers). Grouping
+therefore reads that column; for rows captured before the column existed it falls back to
+computing the hash from the (materialized) page files, so behavior is identical on legacy
+data.
+
 Used by both the attachment-analysis stage (dedup + group reconciliation) and the
 duplicate-billing check, so the definition of "same NF" lives in one place.
 """
 
-import hashlib
-import pathlib
-
-# Read files in chunks so a large multi-page PDF render doesn't load wholesale.
-_CHUNK = 1 << 20
+from common.hashing import content_hash  # re-exported: the canonical "same NF" key
 
 # Reconciliation tolerance, reused from the existing conventions: attachments.py
 # uses a 5% relative band for amount-match and consistency.py uses R$ 0.05 for
@@ -23,6 +25,8 @@ _CHUNK = 1 << 20
 # totals (rounding-dominated) and large totals (percentage-dominated) both sane.
 AMOUNT_REL_TOL = 0.05
 AMOUNT_ABS_TOL = 0.05
+
+__all__ = ["content_hash", "within_tolerance", "reconcile_group", "group_attachments"]
 
 
 def within_tolerance(value: float, reference: float) -> bool:
@@ -49,52 +53,34 @@ def reconcile_group(sibling_sum: float, nf_total: float | None) -> str | None:
     return "over_claim" if sibling_sum > nf_total else "under_claim"
 
 
-def _split_paths(file_path: str) -> list[str]:
-    """Page image paths from a attachment's ``;``-separated ``file_path``."""
-    return [p.strip() for p in (file_path or "").split(";") if p.strip()]
+def _group_key(doc: dict) -> str:
+    """The "same NF" key for one attachment.
 
-
-def content_hash(file_path: str) -> str | None:
-    """Joined md5 of a attachment's page image files.
-
-    Paths are used as-is (resolved against the current working directory, the
-    same way ``attachments.py`` reads them). Returns ``None`` if there are no
-    pages or any page file cannot be read — callers must treat ``None`` as
-    "ungroupable" and never merge such attachments.
+    Prefers the persisted ``content_hash`` column (written at scrape time). For a row
+    captured before that column existed it falls back to hashing the attachment's
+    (materialized) page files — identical to the historical behavior. An attachment whose
+    pages can't be hashed gets a singleton key derived from its id, so a read failure or a
+    missing hash never merges distinct attachments.
     """
-    paths = _split_paths(file_path)
-    if not paths:
-        return None
-
-    digest = hashlib.md5()
-    for path in paths:
-        p = pathlib.Path(path)
-        if not p.exists():
-            return None
-        try:
-            with p.open("rb") as fh:
-                while chunk := fh.read(_CHUNK):
-                    digest.update(chunk)
-        except OSError:
-            return None
-        # Length-delimit pages so [AB] and [A, B] can't collide.
-        digest.update(f":{p.stat().st_size}:".encode())
-    return digest.hexdigest()
+    key = doc.get("content_hash")
+    if key:
+        return key
+    key = content_hash(doc.get("file_path"))
+    if key:
+        return key
+    return f"doc:{doc['id']}"
 
 
 def group_attachments(attachments: list[dict]) -> dict[str, list[dict]]:
     """Map a "same NF" key to the attachments whose page bytes are identical.
 
-    Attachments that share byte-identical pages land under one content-hash key.
-    A attachment whose pages can't be hashed (missing/unreadable) gets its own
-    singleton group keyed by its id, so a read failure never merges distinct
-    attachments. The common single-entry case yields singleton groups, letting
-    callers preserve their existing per-attachment behavior.
+    Attachments that share the same content hash (``content_hash`` column, else a
+    fallback hash of their page files) land under one key. A attachment with no usable
+    hash gets its own singleton group keyed by its id, so a missing/unreadable hash never
+    merges distinct attachments. The common single-entry case yields singleton groups,
+    letting callers preserve their existing per-attachment behavior.
     """
     groups: dict[str, list[dict]] = {}
     for doc in attachments:
-        key = content_hash(doc.get("file_path"))
-        if key is None:
-            key = f"doc:{doc['id']}"
-        groups.setdefault(key, []).append(doc)
+        groups.setdefault(_group_key(doc), []).append(doc)
     return groups

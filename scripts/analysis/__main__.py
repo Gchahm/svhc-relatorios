@@ -27,7 +27,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-# Ephemeral local scratch (materialized R2 images + manifests/verdicts); repo-root, gitignored.
+# Ephemeral local scratch (materialized R2 images + per-page classifications/verdicts); repo-root, gitignored.
 CACHE_DIR = "../.cache/analysis"
 
 
@@ -44,7 +44,7 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("docs-plan", help="Plan attachment extraction: write <period>.extract-todo.json (cache)")
+    p = sub.add_parser("docs-plan", help="Print the DB-derived extraction plan as JSON to stdout (no manifest file)")
     _add_common(p)
     p.add_argument("--min-amount", type=float, help="Only plan attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of attachments to plan.")
@@ -54,6 +54,13 @@ def main(argv=None):
 
     p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into attachment_analyses (D1)")
     _add_common(p)
+    # Selection flags mirror docs-plan: the scope travels as arguments now that the
+    # manifest is gone, so a scoped re-run re-applies exactly the planned attachments.
+    p.add_argument("--min-amount", type=float, help="Only apply attachments for entries >= this amount.")
+    p.add_argument("--limit", type=int, help="Maximum number of attachments to apply.")
+    p.add_argument("--reanalyze", action="store_true", help="Re-apply already analyzed attachments.")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Only these attachment ids (implies re-analysis).")
+    p.add_argument("--entry-id", type=str, nargs="*", help="Only attachments for these entry ids (implies re-analysis).")
 
     p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
     _add_common(p)
@@ -101,7 +108,16 @@ def main(argv=None):
             entry_ids=args.entry_id,
         )
     elif args.command == "apply-extractions":
-        apply_extractions(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
+        apply_extractions(
+            target=target,
+            periods_filter=args.periodo,
+            cache_dir=args.cache_dir,
+            min_amount=args.min_amount,
+            limit=args.limit,
+            reanalyze=args.reanalyze,
+            attachment_ids=args.attachment_id,
+            entry_ids=args.entry_id,
+        )
     elif args.command == "analyze":
         run_analysis(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "mismatches":

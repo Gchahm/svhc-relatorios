@@ -5,18 +5,22 @@ around a Claude vision skill (`.claude/skills/classify-doc-page`, usually driven
 per period by `.claude/skills/classify-period`):
 
 1. ``plan_extractions`` selects + groups the attachments to analyze (reusing
-   ``select_work``) and writes a work manifest ``<period>.extract-todo.json``.
+   ``select_work``) and **prints** the work plan as JSON to stdout — the
+   ``classify-period`` skill parses that, no file is written.
 2. The vision skill views each representative page image and writes, **next to the
    image**, a per-page ``<image-stem>.classify.json`` holding that page's parsed
    fields (or ``{"error": ...}``).
-3. ``apply_extractions`` consumes the manifest, reads each page's sibling
+3. ``apply_extractions`` re-derives the identical plan from D1 (the plan is a pure
+   function of D1 + materialized images via ``build_plan``), reads each page's sibling
    ``.classify.json`` (via ``FileExtractionProvider``), and runs the existing
    deterministic roll-up / group reconciliation / sibling fan-out / entry
    validation / write-back, producing ``attachment_analyses`` identical in shape to
    the old flow.
 
-The manifest contract lives under ``specs/006-analyze-docs-agent/contracts/``; the
-per-page classification contract is ``.claude/skills/classify-doc-page``.
+The plan is derived from the database (feature 016): the shared-NF grouping key lives
+in ``attachments.content_hash`` (written at scrape time), so there is no longer a
+``<period>.extract-todo.json`` manifest. The per-page classification contract is
+``.claude/skills/classify-doc-page``.
 """
 
 import json
@@ -44,11 +48,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_CACHE_DIR = "../.cache/analysis"
 
 
-def extract_todo_path(cache_dir: str, period: str) -> Path:
-    """Path of the work manifest for a period (ephemeral local scratch)."""
-    return Path(cache_dir) / f"{period}.extract-todo.json"
-
-
 CLASSIFY_SUFFIX = ".classify.json"
 
 
@@ -60,14 +59,6 @@ def classify_path_for(image_path: str | Path) -> Path:
     """
     p = Path(image_path)
     return p.with_name(p.stem + CLASSIFY_SUFFIX)
-
-
-def _read_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_json(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 class FileExtractionProvider:
@@ -102,9 +93,9 @@ class FileExtractionProvider:
         return val, None
 
 
-def plan_extractions(
-    target: Target = "local",
-    periods_filter: list[str] | None = None,
+def build_plan(
+    periods,
+    refs,
     *,
     cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
@@ -112,22 +103,18 @@ def plan_extractions(
     reanalyze: bool = False,
     attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
-) -> None:
-    """Write the work manifest(s) the analyze-docs agent consumes.
+) -> list[dict]:
+    """Derive the per-period extraction plan from loaded D1 data (no file).
 
-    One ``<period>.extract-todo.json`` (in the cache dir) per period with attachments to
-    analyze. Materializes the period's page images from R2 into the cache first, so NF
-    grouping can hash them and each page's ``read_path`` points at a local cache file.
-    Each shared-NF group lists its representative attachment's pages plus the member list.
+    Pure function of the already-loaded ``periods`` + ``refs`` (and the materialized
+    page images they point at): selects + groups the attachments to analyze via
+    ``select_work`` and returns one plan envelope per period —
+    ``{period, cache_dir, generated_for, groups: [...]}`` — where each group lists its
+    representative attachment's pages and the full member list. This is the same
+    structure the old ``<period>.extract-todo.json`` manifest held, so both
+    ``plan_extractions`` (prints it) and ``apply_extractions`` (applies it) build it the
+    same way and stay consistent without a shared file.
     """
-    periods, refs = load_all_periods(target, periods_filter)
-    if not periods:
-        logger.info("No periods to plan")
-        return
-
-    # Bring the period's images local (R2 -> cache) so content_hash + read_paths work.
-    materialize_period_images(periods, cache_dir, target)
-
     work = select_work(
         periods,
         min_amount=min_amount,
@@ -136,10 +123,6 @@ def plan_extractions(
         attachment_ids=attachment_ids,
         entry_ids=entry_ids,
     )
-    if not work:
-        logger.info("No attachments to plan")
-        print("\nNothing to extract (no matching attachments).")
-        return
 
     # Group selected items by period then NF group, preserving the amount-desc
     # order from select_work so items[0] is the highest-amount representative.
@@ -147,8 +130,15 @@ def plan_extractions(
     for item in work:
         by_period.setdefault(item.period, {}).setdefault(item.group_key, []).append(item)
 
-    total_groups = 0
-    total_pages = 0
+    generated_for = {
+        "min_amount": min_amount,
+        "limit": limit,
+        "reanalyze": reanalyze,
+        "attachment_ids": attachment_ids,
+        "entry_ids": entry_ids,
+    }
+
+    envelopes: list[dict] = []
     for period, groups in by_period.items():
         out_groups = []
         for gkey, items in groups.items():
@@ -185,33 +175,75 @@ def plan_extractions(
                     "members": members,
                 }
             )
-            total_groups += 1
-            total_pages += len(pages)
-
-        manifest = {
-            "period": period,
-            "cache_dir": cache_dir,
-            "generated_for": {
-                "min_amount": min_amount,
-                "limit": limit,
-                "reanalyze": reanalyze,
-                "attachment_ids": attachment_ids,
-                "entry_ids": entry_ids,
-            },
-            "groups": out_groups,
-        }
-        path = extract_todo_path(cache_dir, period)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(path, manifest)
-        logger.info("Wrote %s: %d group(s), %d page(s) to extract", path, len(out_groups), total_pages)
-
-    print(f"\nPlanned {total_groups} group(s), {total_pages} representative page(s) across {len(by_period)} period(s).")
-    print("Next: classify each page (the classify-doc-page skill writes <image>.classify.json), then `apply-extractions`.")
+        envelopes.append(
+            {
+                "period": period,
+                "cache_dir": cache_dir,
+                "generated_for": generated_for,
+                "groups": out_groups,
+            }
+        )
+    return envelopes
 
 
-def _periods_with_manifests(cache_dir: str) -> list[str]:
-    suffix = ".extract-todo.json"
-    return sorted(p.name[: -len(suffix)] for p in Path(cache_dir).glob(f"*{suffix}"))
+def plan_extractions(
+    target: Target = "local",
+    periods_filter: list[str] | None = None,
+    *,
+    cache_dir: str = DEFAULT_CACHE_DIR,
+    min_amount: float | None = None,
+    limit: int | None = None,
+    reanalyze: bool = False,
+    attachment_ids: list[str] | None = None,
+    entry_ids: list[str] | None = None,
+) -> list[dict]:
+    """Print the DB-derived work plan to stdout (no manifest file).
+
+    Materializes the period's page images from R2 into the cache (so each page's
+    ``read_path`` points at a local file the vision skill can read and grouping can hash
+    legacy rows), derives the plan via ``build_plan``, and prints it as a JSON list of
+    per-period envelopes to **stdout** — which the ``classify-period`` skill parses. All
+    human/progress text goes to the log (stderr), keeping stdout pure JSON. Returns the
+    envelopes too (for in-process callers/tests).
+    """
+    periods, refs = load_all_periods(target, periods_filter)
+    if not periods:
+        logger.info("No periods to plan")
+        print("[]")
+        return []
+
+    # Bring the period's images local (R2 -> cache) so read_paths/grouping work.
+    # docs-plan is read-only: it does NOT backfill content_hash (a D1 write would stream
+    # the wrangler banner onto stdout and corrupt the JSON the skill parses). The backfill
+    # happens in apply-extractions instead.
+    materialize_period_images(periods, cache_dir, target, backfill_hash=False)
+
+    envelopes = build_plan(
+        periods,
+        refs,
+        cache_dir=cache_dir,
+        min_amount=min_amount,
+        limit=limit,
+        reanalyze=reanalyze,
+        attachment_ids=attachment_ids,
+        entry_ids=entry_ids,
+    )
+
+    total_groups = sum(len(env["groups"]) for env in envelopes)
+    total_pages = sum(len(g["pages"]) for env in envelopes for g in env["groups"])
+    if not total_groups:
+        logger.info("Nothing to extract (no matching attachments).")
+        print("[]")
+        return []
+
+    logger.info(
+        "Planned %d group(s), %d representative page(s) across %d period(s). "
+        "Next: classify each page (classify-doc-page writes <image>.classify.json), then apply-extractions.",
+        total_groups, total_pages, len(envelopes),
+    )
+    # stdout is pure JSON so the classify-period skill can parse it directly.
+    print(json.dumps(envelopes, ensure_ascii=False, indent=2))
+    return envelopes
 
 
 def apply_extractions(
@@ -219,33 +251,53 @@ def apply_extractions(
     periods_filter: list[str] | None = None,
     *,
     cache_dir: str = DEFAULT_CACHE_DIR,
+    min_amount: float | None = None,
+    limit: int | None = None,
+    reanalyze: bool = False,
+    attachment_ids: list[str] | None = None,
+    entry_ids: list[str] | None = None,
 ) -> None:
     """Merge per-page classifications into ``attachment_analyses`` in D1.
 
-    For each period with a manifest (in the cache dir), rebuilds the representative
-    attachment's analysis from each page's sibling ``<image-stem>.classify.json`` (via
-    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out
-    to sibling members, and writes each result to D1 (delete-then-insert) — the same
-    output the old flow produced. A page whose ``.classify.json`` is missing is
-    recorded as a per-page error and does not abort the attachment.
+    Re-derives the same plan ``docs-plan`` produced (via ``build_plan`` from D1 +
+    materialized images — no manifest file), rebuilds each representative attachment's
+    analysis from each page's sibling ``<image-stem>.classify.json`` (via
+    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out to
+    sibling members, and writes each result to D1 (delete-then-insert) — the same output
+    the old flow produced. A page whose ``.classify.json`` is missing is recorded as a
+    per-page error and does not abort the attachment.
+
+    The selection flags mirror ``docs-plan`` so a scoped run (e.g. the improve loop
+    re-analyzing specific ``--attachment-id``\\ s after a fix) re-applies exactly the
+    same attachments the scoped plan listed — the scope travels as arguments now that the
+    manifest is gone.
     """
-    target_periods = periods_filter or _periods_with_manifests(cache_dir)
-    if not target_periods:
-        logger.info("No manifests found; run docs-plan first")
+    periods, refs = load_all_periods(target, periods_filter)
+    if not periods:
+        logger.info("No periods to apply")
         return
+
+    # Bring images local (R2 -> cache) so the sibling .classify.json files resolve and
+    # legacy rows get a content_hash for grouping/backfill.
+    materialize_period_images(periods, cache_dir, target)
+
+    envelopes = build_plan(
+        periods,
+        refs,
+        cache_dir=cache_dir,
+        min_amount=min_amount,
+        limit=limit,
+        reanalyze=reanalyze,
+        attachment_ids=attachment_ids,
+        entry_ids=entry_ids,
+    )
 
     provider = FileExtractionProvider()
     all_results: list[AttachmentAnalysisResult] = []
-    for period in target_periods:
-        todo_path = extract_todo_path(cache_dir, period)
-        if not todo_path.exists():
-            logger.warning("No manifest for %s (%s); run docs-plan first", period, todo_path)
-            continue
-
-        manifest = _read_json(todo_path)
-
+    for env in envelopes:
+        period = env["period"]
         results: list[AttachmentAnalysisResult] = []
-        for group in manifest.get("groups", []):
+        for group in env["groups"]:
             gsize = group["group_size"]
             sibling_sum = group["sibling_sum"]
             members = group["members"]
