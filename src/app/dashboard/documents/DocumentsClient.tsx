@@ -255,7 +255,7 @@ export default function DocumentsClient() {
 
             {/* Detail dialog: a document's linked entries, each deep-linking to the entries view. */}
             <Dialog open={detailLoading || detail !== null} onOpenChange={open => !open && setDetail(null)}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl overflow-hidden">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <FileText className="h-4 w-4" />
@@ -263,7 +263,7 @@ export default function DocumentsClient() {
                         </DialogTitle>
                     </DialogHeader>
                     {detail && (
-                        <div className="space-y-3">
+                        <div className="space-y-3 min-w-0">
                             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
                                 <span>
                                     <span className="text-muted-foreground">Issuer:</span> {detail.issuerName ?? "—"} (
@@ -283,7 +283,7 @@ export default function DocumentsClient() {
                                 <StatusBadge status={detail.status} />
                             </div>
 
-                            <div className="rounded-md border max-h-80 overflow-auto">
+                            <div className="rounded-md border max-h-80 overflow-auto min-w-0">
                                 <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b sticky top-0">
                                     <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
                                     <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
