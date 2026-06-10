@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -105,14 +106,20 @@ function MatchCell({ match }: { match: boolean | null | undefined }) {
 }
 
 export default function EntriesClient() {
+    // Deep link (from an alert): ?period=<YYYY-MM>&entry=<entryId>. Read once on mount; the
+    // period seeds the initial selection and the entry auto-opens its detail dialog after load.
+    const searchParams = useSearchParams();
+    const deepLinkPeriod = searchParams.get("period");
+    const deepLinkEntry = searchParams.get("entry");
+
     const [entries, setEntries] = useState<Entry[]>([]);
     const [attachmentAnalyses, setAttachmentAnalyses] = useState<AttachmentAnalysisRow[]>([]);
     const [periods, setPeriods] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Filters
-    const [selectedPeriod, setSelectedPeriod] = useState(getCurrentPeriod());
+    // Filters — a deep-link period overrides the current-month default.
+    const [selectedPeriod, setSelectedPeriod] = useState(deepLinkPeriod || getCurrentPeriod());
     const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
     const [search, setSearch] = useState("");
     const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
@@ -120,6 +127,10 @@ export default function EntriesClient() {
 
     // Attachment detail dialog
     const [selectedAnalysis, setSelectedAnalysis] = useState<AttachmentAnalysisRow | null>(null);
+
+    // Deep-link target row highlight; the effect below runs once per (period|entry) param set.
+    const [highlightedEntryId, setHighlightedEntryId] = useState<string | null>(null);
+    const deepLinkHandledRef = useRef<string | null>(null);
 
     // Fetch available periods
     useEffect(() => {
@@ -269,6 +280,27 @@ export default function EntriesClient() {
         estimateSize: () => 36,
         overscan: 20,
     });
+
+    // Deep link: once the target period's entries + analyses have loaded, scroll/highlight the
+    // entry row and auto-open its attachment-analysis dialog. Runs once per (period|entry) set.
+    useEffect(() => {
+        if (!deepLinkEntry || loading) return;
+        // Wait until the period state matches the deep-link period (data is then for it).
+        if (deepLinkPeriod && selectedPeriod !== deepLinkPeriod) return;
+        const key = `${deepLinkPeriod ?? ""}|${deepLinkEntry}`;
+        if (deepLinkHandledRef.current === key) return;
+        deepLinkHandledRef.current = key;
+
+        const idx = filtered.findIndex(e => String(e.id) === deepLinkEntry);
+        if (idx >= 0) {
+            virtualizer.scrollToIndex(idx, { align: "center" });
+            setHighlightedEntryId(deepLinkEntry);
+        }
+        // Open the validation dialog when an analysis exists for the entry (FR-007); when the
+        // entry has no analysis we still scrolled/highlighted above — no dialog, no error (FR-008).
+        const analysis = analysisByEntry.get(deepLinkEntry);
+        if (analysis) setSelectedAnalysis(analysis);
+    }, [deepLinkEntry, deepLinkPeriod, loading, selectedPeriod, filtered, analysisByEntry, virtualizer]);
 
     if (error) {
         return (
@@ -473,12 +505,13 @@ export default function EntriesClient() {
                                             ? "error"
                                             : analysis.documentType || "doc"
                                         : null;
+                                    const isHighlighted = highlightedEntryId === String(entry.id);
                                     return (
                                         <div
                                             key={entry.id}
                                             className={`flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full ${
                                                 analysis ? "cursor-pointer" : ""
-                                            }`}
+                                            } ${isHighlighted ? "bg-yellow-100 ring-1 ring-inset ring-yellow-400" : ""}`}
                                             style={{
                                                 height: `${virtualRow.size}px`,
                                                 transform: `translateY(${virtualRow.start}px)`,

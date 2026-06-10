@@ -28,6 +28,7 @@ export async function GET() {
             resolved: alerts.resolved,
             resolvedAt: alerts.resolvedAt,
             notes: alerts.notes,
+            metadata: alerts.metadata,
         })
         .from(alerts)
         .orderBy(asc(alerts.resolved), desc(alerts.severity), desc(alerts.referencePeriod));

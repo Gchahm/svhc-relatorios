@@ -45,6 +45,7 @@ from .attachments import (
 )
 from .images import materialize_period_images
 from .loader import load_all_periods
+from .mismatches import KIND_AMOUNT, KIND_DATE, KIND_PAGE_ERROR, KIND_VENDOR, detect_attachment_mismatches
 from .page_classifications import D1ExtractionProvider
 
 logger = logging.getLogger(__name__)
@@ -361,43 +362,35 @@ def summarize_mismatches(
 
     out: list[dict] = []
     for period, pd in periods.items():
-        entry_map = {e["id"]: e for e in pd.entries}
         doc_map = {d["id"]: d for d in pd.attachments}
 
-        for a in pd.raw.get("attachment_analyses", []):
-            doc = doc_map.get(a["attachment_id"])
-            entry_id = doc.get("entry_id") if doc else None
-            if doc_filter is not None and a["attachment_id"] not in doc_filter:
+        # Per-attachment mismatches come from the shared detector (single source of truth
+        # with check_attachment_mismatches — FR-004), then get page_refs + scoping added here.
+        for mm in detect_attachment_mismatches(pd, refs):
+            if doc_filter is not None and mm.attachment_id not in doc_filter:
                 continue
-            if entry_filter is not None and entry_id not in entry_filter:
+            if entry_filter is not None and mm.entry_id not in entry_filter:
                 continue
-            entry = entry_map.get(entry_id) if entry_id else None
             base = {
                 "period": period,
-                "attachment_id": a["attachment_id"],
-                "entry_id": entry_id,
-                "page_refs": _page_refs_for_doc(doc),
+                "attachment_id": mm.attachment_id,
+                "entry_id": mm.entry_id,
+                "page_refs": _page_refs_for_doc(doc_map.get(mm.attachment_id)),
             }
-
-            if a.get("error"):
-                out.append({**base, "kind": "page-error", "detail": a["error"]})
-                continue
-            if a.get("amount_match") == 0:
+            if mm.kind == KIND_PAGE_ERROR:
+                out.append({**base, "kind": "page-error", "detail": mm.detail})
+            elif mm.kind == KIND_AMOUNT:
                 out.append(
-                    {
-                        **base,
-                        "kind": "amount",
-                        "ledger_amount": entry.get("amount") if entry else None,
-                        "extracted_amount": a.get("extracted_amount"),
-                    }
+                    {**base, "kind": "amount", "ledger_amount": mm.ledger_value, "extracted_amount": mm.extracted_value}
                 )
-            if a.get("vendor_match") == 0:
-                vendor = refs.vendor_name(entry["vendor_id"]) if entry and entry.get("vendor_id") else None
+            elif mm.kind == KIND_VENDOR:
                 out.append(
-                    {**base, "kind": "vendor", "ledger_vendor": vendor, "extracted_issuer": a.get("issuer_name")}
+                    {**base, "kind": "vendor", "ledger_vendor": mm.ledger_value, "extracted_issuer": mm.extracted_value}
                 )
-            if a.get("date_match") == 0:
-                out.append({**base, "kind": "date", "expected_period": period, "extracted_date": a.get("extracted_date")})
+            elif mm.kind == KIND_DATE:
+                out.append(
+                    {**base, "kind": "date", "expected_period": period, "extracted_date": mm.extracted_value}
+                )
 
         for al in pd.raw.get("alerts", []):
             if al.get("type") != "duplicate_billing":

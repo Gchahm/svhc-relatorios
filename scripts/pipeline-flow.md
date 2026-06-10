@@ -5,20 +5,20 @@ For command reference and usage, see [`scripts/README.md`](./README.md).
 
 ## What runs where
 
-| Step                                                 | Runs in                                                     | Entry point                                                |
-| ---------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
-| Scrape ledger + download attachments                 | **Your machine** (Python + Playwright, run from `scripts/`) | `python -m scraper scrape --download-docs [--remote]`      |
-| Backfill missing attachment images                   | Your machine                                                | `python -m scraper download-docs [--remote]`               |
-| Plan extraction work (DB-derived, printed to stdout) | Your machine                                                | `python -m analysis docs-plan [--remote]`                  |
-| Read ONE page image → fields, record to D1           | **Claude Code** (vision skill) + `record-classification` CLI | `classify-doc-page` skill                                  |
-| Orchestrate per-page classification                  | Claude Code                                                 | `classify-period` skill (runs `docs-plan`, fans out pages) |
-| Merge classifications → roll-up + reconcile          | Your machine                                                | `python -m analysis apply-extractions [--remote]`          |
-| Run checks → write alerts                            | Your machine                                                | `python -m analysis analyze [--remote]`                    |
-| Terse mismatch summary                               | Your machine                                                | `python -m analysis mismatches [--remote]`                 |
-| One-shot vision+analysis wrapper                     | Claude Code                                                 | `analyze-docs` agent                                       |
-| Judge a mismatch true/false                          | Claude Code                                                 | `review-mismatch` agent                                    |
-| Fix a false mismatch → PR                            | Claude Code                                                 | `fix-mismatch` agent (human-gated PR)                      |
-| Drive the whole loop                                 | Claude Code                                                 | `improve-classification` skill                             |
+| Step                                                                                  | Runs in                                                      | Entry point                                                |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
+| Scrape ledger + download attachments                                                  | **Your machine** (Python + Playwright, run from `scripts/`)  | `python -m scraper scrape --download-docs [--remote]`      |
+| Backfill missing attachment images                                                    | Your machine                                                 | `python -m scraper download-docs [--remote]`               |
+| Plan extraction work (DB-derived, printed to stdout)                                  | Your machine                                                 | `python -m analysis docs-plan [--remote]`                  |
+| Read ONE page image → fields, record to D1                                            | **Claude Code** (vision skill) + `record-classification` CLI | `classify-doc-page` skill                                  |
+| Orchestrate per-page classification                                                   | Claude Code                                                  | `classify-period` skill (runs `docs-plan`, fans out pages) |
+| Merge classifications → roll-up + reconcile                                           | Your machine                                                 | `python -m analysis apply-extractions [--remote]`          |
+| Run checks → write alerts (incl. per-attachment mismatch alerts, clickable in the UI) | Your machine                                                 | `python -m analysis analyze [--remote]`                    |
+| Terse mismatch summary                                                                | Your machine                                                 | `python -m analysis mismatches [--remote]`                 |
+| One-shot vision+analysis wrapper                                                      | Claude Code                                                  | `analyze-docs` agent                                       |
+| Judge a mismatch true/false                                                           | Claude Code                                                  | `review-mismatch` agent                                    |
+| Fix a false mismatch → PR                                                             | Claude Code                                                  | `fix-mismatch` agent (human-gated PR)                      |
+| Drive the whole loop                                                                  | Claude Code                                                  | `improve-classification` skill                             |
 
 **Key seams**
 
