@@ -4,9 +4,7 @@ import logging
 from collections import defaultdict
 
 from common import det_id
-from ..attachments import nf_total_for_reconciliation
 from ..models import Alert, PeriodData, RefIndex
-from ..nf_groups import group_attachments, reconcile_group
 from .attachments import check_attachment_mismatches
 
 logger = logging.getLogger(__name__)
@@ -183,68 +181,11 @@ def check_delinquency(
     return alerts
 
 
-def check_duplicate_billing(period: PeriodData) -> list[Alert]:
-    """Detect a single NF claimed for more than its face value (over-claim).
-
-    The fraud counterpart of a legitimate split: attachments are grouped by
-    byte-identical NF content, the NF total is read from the persisted attachment
-    analyses, and the sibling entry amounts are summed. When the siblings sum to
-    MORE than the NF total (beyond tolerance) the invoice is being claimed above
-    its worth — distinct from a legitimate split (sum ≈ total, no alert) and an
-    incomplete split (sum < total, a plain mismatch, no over-claim alert).
-
-    Requires attachment analyses to be present; a group whose NF total cannot be
-    read is skipped (graceful degradation — no spurious alert).
-    """
-    alerts: list[Alert] = []
-    analyses = period.raw.get("attachment_analyses", [])
-    if not analyses:
-        return alerts
-    analysis_by_doc = {a["attachment_id"]: a for a in analyses}
-    entry_map = {e["id"]: e for e in period.entries}
-
-    with_path = [d for d in period.attachments if d.get("file_path")]
-    for gkey, gdocs in group_attachments(with_path).items():
-        if len(gdocs) <= 1:
-            continue
-
-        sibling_sum = 0.0
-        entry_ids: list[str] = []
-        attachment_ids: list[str] = []
-        nf_total: float | None = None
-        numero = cnpj = None
-        for gdoc in gdocs:
-            attachment_ids.append(gdoc["id"])
-            entry = entry_map.get(gdoc["entry_id"])
-            if entry:
-                sibling_sum += entry["amount"]
-                entry_ids.append(entry["id"])
-            # Siblings are the same NF, so any analyzed copy gives the NF total.
-            analysis = analysis_by_doc.get(gdoc["id"])
-            if analysis and nf_total is None:
-                responses = [r.get("response") for r in analysis.get("analysis_records", [])]
-                total = nf_total_for_reconciliation(responses, analysis.get("extracted_amount"))
-                if total is not None:
-                    nf_total = total
-                    numero = analysis.get("document_number")
-                    cnpj = analysis.get("extracted_cnpj")
-
-        if reconcile_group(sibling_sum, nf_total) != "over_claim":
-            continue
-
-        over = round(sibling_sum - nf_total, 2)
-        alerts.append(_alert(period.period, "duplicate_billing", "critical",
-            f"Nota fiscal cobrada acima do valor em {period.period}",
-            f"Uma nota fiscal (total R$ {nf_total:.2f}) está vinculada a "
-            f"{len(entry_ids)} lançamentos que somam R$ {sibling_sum:.2f} — "
-            f"cobrança de R$ {over:.2f} acima do valor da nota.",
-            {"nf_total": round(nf_total, 2), "sum_entries": round(sibling_sum, 2),
-             "over_claim": over, "entry_ids": entry_ids, "attachment_ids": attachment_ids,
-             "numero_documento": numero, "cnpj_emitente": cnpj},
-            discriminator=gkey,
-        ))
-
-    return alerts
+# NOTE: the former ``check_duplicate_billing`` over-claim signal was retired in
+# feature 020. Its entity-backed successor is ``check_document_overpayment``
+# (``scripts/analysis/documents.py``), which reconciles the linked entries of a
+# persisted ``documents`` row against its total across periods and emits the
+# ``document_overpayment`` alert. Keeping both would double-report the same case.
 
 
 SCORE_WEIGHTS = {"critical": 10, "warning": 5, "info": 1}
@@ -260,7 +201,6 @@ def run_advanced(
     alerts.extend(check_category_growth(period, all_periods, refs))
     alerts.extend(check_seasonality(period, all_periods))
     alerts.extend(check_delinquency(period, refs))
-    alerts.extend(check_duplicate_billing(period))
     alerts.extend(check_attachment_mismatches(period, refs))
 
     logger.info("Advanced %s: %d alerts", period.period, len(alerts))

@@ -359,7 +359,7 @@ def summarize_mismatches(
     """Terse, machine-readable list of classification mismatches for a caller/loop.
 
     Read-only (no model, no writes): joins the persisted ``attachment_analyses``
-    (amount / vendor / date / page-error) and ``duplicate_billing`` alerts with the
+    (amount / vendor / date / page-error) and ``document_overpayment`` alerts with the
     ledger entries, optionally scoped to specific attachment or entry ids. Each row
     carries ``page_refs`` (the attachment's page image(s)) so the review worker can
     open the evidence directly (FR-004). This is the concise hand-back the vision
@@ -405,8 +405,12 @@ def summarize_mismatches(
                     {**base, "kind": "date", "expected_period": period, "extracted_date": mm.extracted_value}
                 )
 
+        # document_overpayment (feature 020) — the entity-backed successor to the retired
+        # duplicate_billing over-claim signal. Its metadata carries entry_ids (no
+        # attachment_ids), so page_refs are resolved via the entries' attachments.
+        entry_to_doc = {a["entry_id"]: a["id"] for a in pd.attachments}
         for al in pd.raw.get("alerts", []):
-            if al.get("type") != "duplicate_billing":
+            if al.get("type") != "document_overpayment":
                 continue
             meta = {}
             if al.get("metadata"):
@@ -414,25 +418,27 @@ def summarize_mismatches(
                     meta = json.loads(al["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     meta = {}
-            docids = meta.get("attachment_ids", []) or []
             entids = meta.get("entry_ids", []) or []
+            docids = [entry_to_doc[e] for e in entids if e in entry_to_doc]
             if doc_filter is not None and not (set(docids) & doc_filter):
                 continue
             if entry_filter is not None and not (set(entids) & entry_filter):
                 continue
-            dup_page_refs: list[dict] = []
+            over_page_refs: list[dict] = []
             for did in docids:
-                dup_page_refs.extend(_page_refs_for_doc(doc_map.get(did)))
+                over_page_refs.extend(_page_refs_for_doc(doc_map.get(did)))
             out.append(
                 {
                     "period": period,
-                    "kind": "duplicate_billing",
+                    "kind": "document_overpayment",
+                    "document_id": meta.get("document_id"),
+                    "document_number": meta.get("document_number"),
                     "attachment_ids": docids,
                     "entry_ids": entids,
-                    "nf_total": meta.get("nf_total"),
+                    "total_value": meta.get("total_value"),
                     "sum_entries": meta.get("sum_entries"),
-                    "over_claim": meta.get("over_claim"),
-                    "page_refs": dup_page_refs,
+                    "over_amount": meta.get("over_amount"),
+                    "page_refs": over_page_refs,
                 }
             )
     return out
