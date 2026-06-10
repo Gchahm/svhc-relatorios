@@ -298,6 +298,58 @@ export const alerts = sqliteTable(
     ]
 );
 
+// ─── Documents (documento real) ──────────────────────────────────────────────
+// A real fiscal document (NF / NFS-e / receipt / boleto) identified inside attachment
+// pages. GLOBAL (not period-scoped): the same invoice re-submitted in another period
+// resolves to one row via the semantic key (normalized document number + issuer CNPJ).
+// Built by the analysis pipeline (`build-documents`) from attachment_analyses; linked
+// N:N to entries via `document_entries`. Distinct from `attachments` (the per-entry page
+// bundle). See specs/020-documents-entity.
+
+export const documents = sqliteTable(
+    "documents",
+    {
+        id: uuid(),
+        documentNumber: text("document_number", { length: 100 }).notNull(), // normalized NF number (the key)
+        issuerCnpj: text("issuer_cnpj", { length: 14 }).notNull(), // 14 digits (the other key part)
+        issuerName: text("issuer_name", { length: 200 }), // display name
+        documentType: text("document_type", { length: 50 }), // NF / NFS-e / receipt / boleto / …
+        totalValue: real("total_value"), // invoice gross (max confident reconciliation total)
+        ...timestamps,
+    },
+    table => [
+        uniqueIndex("documents_number_cnpj_idx").on(table.documentNumber, table.issuerCnpj),
+        index("documents_type_idx").on(table.documentType),
+    ]
+);
+
+// ─── Document Entries (vinculo documento↔lancamento) ─────────────────────────
+// The N:N link: one row per (document, entry) it is referenced by. Stores the source
+// attachment for provenance; the claimed amount is read LIVE from entries.amount, never
+// frozen here. Links accrue across periods as more attachments are analyzed.
+
+export const documentEntries = sqliteTable(
+    "document_entries",
+    {
+        id: uuid(),
+        documentId: text("document_id")
+            .notNull()
+            .references(() => documents.id),
+        entryId: text("entry_id")
+            .notNull()
+            .references(() => entries.id),
+        sourceAttachmentId: text("source_attachment_id").references(() => attachments.id), // provenance
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    table => [
+        uniqueIndex("document_entries_doc_entry_idx").on(table.documentId, table.entryId),
+        index("document_entries_document_id_idx").on(table.documentId),
+        index("document_entries_entry_id_idx").on(table.entryId),
+    ]
+);
+
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const scrapeRunsRelations = relations(scrapeRuns, ({ many }) => ({
@@ -399,5 +451,24 @@ export const attachmentAnalysisRecordsRelations = relations(attachmentAnalysisRe
     attachmentAnalysis: one(attachmentAnalyses, {
         fields: [attachmentAnalysisRecords.attachmentAnalysisId],
         references: [attachmentAnalyses.id],
+    }),
+}));
+
+export const documentsRelations = relations(documents, ({ many }) => ({
+    documentEntries: many(documentEntries),
+}));
+
+export const documentEntriesRelations = relations(documentEntries, ({ one }) => ({
+    document: one(documents, {
+        fields: [documentEntries.documentId],
+        references: [documents.id],
+    }),
+    entry: one(entries, {
+        fields: [documentEntries.entryId],
+        references: [entries.id],
+    }),
+    sourceAttachment: one(attachments, {
+        fields: [documentEntries.sourceAttachmentId],
+        references: [attachments.id],
     }),
 }));

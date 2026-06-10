@@ -130,6 +130,20 @@ uv run python -m analysis mark-pending --periodo 2025-12 --attachment-id <ids…
 `docs-plan`/`apply-extractions` re-processes exactly those. This is how scope is controlled — by D1
 state, deterministically — instead of passing id flags through the classify pipeline.
 
+### 3b. `build-documents` — build the global documents entity
+
+```bash
+cd scripts
+uv run python -m analysis build-documents        # global — no --periodo; add --remote for prod
+```
+
+Derives the **documents** entity from `attachment_analyses` (feature 020): one `documents` row per
+unique fiscal document keyed by **(normalized `document_number`, 14-digit `issuer_cnpj`)** and one
+`document_entries` link per referencing entry, **globally** (deduped across all periods; links
+accrue as more periods are analyzed). An analysis missing a confident number or CNPJ creates
+nothing. Idempotent (deterministic ids + unique indexes). `analyze` runs this automatically at its
+start, so you only call it directly for backfill.
+
 ### 4. `analyze` — run the checks
 
 ```bash
@@ -138,9 +152,11 @@ uv run python -m analysis analyze --periodo 2025-12
 ```
 
 Runs the financial / consistency / fraud checks over the period JSON and writes `alerts` — e.g.
-`duplicate_billing` when one Nota Fiscal is claimed above its face value, vendor concentration, new
-vendors, delinquency, etc. It also emits **per-attachment mismatch alerts** — one per
-(attachment, kind): `attachment_amount_mismatch` / `attachment_vendor_mismatch` /
+**`document_overpayment`** (critical) when a real document's linked entries' amounts sum above its
+total value (the entity-backed successor to the retired `duplicate_billing` over-claim check; built
+and checked globally so it spans periods, with `metadata.entry_ids` driving per-entry deep links),
+vendor concentration, new vendors, delinquency, etc. It also emits **per-attachment mismatch
+alerts** — one per (attachment, kind): `attachment_amount_mismatch` / `attachment_vendor_mismatch` /
 `attachment_date_mismatch` (severity `warning`) and `attachment_page_error` (`info`) — so a human
 can drill into each from the alerts page (feature 018). Their detection is shared with `mismatches`
 (`analysis/mismatches.py:detect_attachment_mismatches`) so the two can't drift, and each alert's
@@ -156,7 +172,7 @@ uv run python -m analysis mismatches --periodo 2025-12 [--attachment-id <ids…>
 ```
 
 Prints a compact JSON list of classification mismatches — `amount` / `vendor` / `date` /
-`page-error` / `duplicate_billing` — each joined with the ledger-vs-extracted values. Read-only (no
+`page-error` / `document_overpayment` — each joined with the ledger-vs-extracted values. Read-only (no
 writes). This is exactly what the `analyze-docs` agent returns to its caller. The per-attachment
 detection here is the **same** `detect_attachment_mismatches` the `analyze` step uses for its
 per-attachment alerts (single source of truth).

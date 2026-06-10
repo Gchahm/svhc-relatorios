@@ -38,7 +38,8 @@ flowchart TD
         ddocs["scraper download-docs<br/>(backfill missing images)"]
         plan["analysis docs-plan<br/>(extractions.build_plan:<br/>select_work + nf_groups,<br/>prints plan JSON to stdout)"]
         apply["analysis apply-extractions<br/>(attachments.build_attachment_analysis:<br/>roll-up + reconcile + sibling fan-out)"]
-        analyze["analysis analyze<br/>(checks: consistency / trends / advanced)"]
+        builddocs["analysis build-documents<br/>(documents.build_documents:<br/>global dedup by (number, cnpj) + links)"]
+        analyze["analysis analyze<br/>(build-documents + checks:<br/>consistency / trends / advanced /<br/>document_overpayment)"]
         mismatch["analysis mismatches<br/>(terse JSON + page_refs)"]
         d1wrap{{"scripts/common/d1.py<br/>wrangler CLI wrapper"}}
     end
@@ -53,7 +54,7 @@ flowchart TD
     end
 
     subgraph CF["Cloudflare — local Miniflare OR --remote prod"]
-        d1[("D1 'fiscal-db'<br/>entries · attachments ·<br/>page_classifications ·<br/>attachment_analyses ·<br/>attachment_analysis_records · alerts")]
+        d1[("D1 'fiscal-db'<br/>entries · attachments ·<br/>page_classifications ·<br/>attachment_analyses ·<br/>attachment_analysis_records ·<br/>documents · document_entries · alerts")]
         r2[("R2 'fiscal-documents'<br/>page images (per-period keys)")]
     end
 
@@ -81,6 +82,8 @@ flowchart TD
     classifyD -->|record-classification| d1wrap
     apply -->|build_plan + read page_classifications from D1| d1wrap
     apply --> d1wrap
+    builddocs -->|read analyses, write documents + links| d1wrap
+    analyze -->|runs build-documents| builddocs
     analyze --> d1wrap
     mismatch --> d1wrap
 

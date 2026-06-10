@@ -15,6 +15,7 @@ import logging
 import sys
 
 from . import run_analysis
+from .documents import build_documents
 from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
 from .page_classifications import record_classification
 from .verdicts import (
@@ -79,6 +80,13 @@ def main(argv=None):
     p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
     p.add_argument("--attachment-id", type=str, nargs="*", help="Re-queue these attachment ids.")
     p.add_argument("--entry-id", type=str, nargs="*", help="Re-queue attachments for these entry ids.")
+
+    p = sub.add_parser(
+        "build-documents",
+        help="Build the global documents entity + entry links from attachment_analyses (D1)",
+    )
+    # Intentionally GLOBAL — no --periodo: documents dedup across all periods.
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
 
     p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
     _add_common(p)
@@ -157,6 +165,9 @@ def main(argv=None):
             entry_ids=args.entry_id,
         )
         print(f"Marked {n} id(s) pending (classified_at = NULL).")
+    elif args.command == "build-documents":
+        n_docs, n_links = build_documents(target=target)
+        print(f"Built {n_docs} document(s) with {n_links} entry link(s).")
     elif args.command == "analyze":
         run_analysis(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "mismatches":

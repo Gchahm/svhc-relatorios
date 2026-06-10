@@ -67,13 +67,12 @@ def mismatch_key(mismatch: dict) -> str:
     (otherwise the loop would never converge).
 
     - per-attachment kinds: ``period|kind|attachment_id|entry_id``
-    - ``duplicate_billing``: ``period|kind|sorted(attachment_ids)``
+    - ``document_overpayment``: ``period|kind|document_id`` (the stable global key)
     """
     period = mismatch.get("period", "")
     kind = mismatch.get("kind", "")
-    if kind == "duplicate_billing":
-        docids = ",".join(sorted(str(d) for d in (mismatch.get("attachment_ids") or [])))
-        return f"{period}|{kind}|{docids}"
+    if kind == "document_overpayment":
+        return f"{period}|{kind}|{mismatch.get('document_id')}"
     attachment_id = mismatch.get("attachment_id")
     entry_id = mismatch.get("entry_id")
     return f"{period}|{kind}|{attachment_id}|{entry_id}"
@@ -81,7 +80,7 @@ def mismatch_key(mismatch: dict) -> str:
 
 def _attachment_ids_of(mismatch: dict) -> list[str]:
     """Attachments implicated by a mismatch (for affected-doc rescoping)."""
-    if mismatch.get("kind") == "duplicate_billing":
+    if mismatch.get("kind") == "document_overpayment":
         return [str(d) for d in (mismatch.get("attachment_ids") or [])]
     did = mismatch.get("attachment_id")
     return [str(did)] if did else []

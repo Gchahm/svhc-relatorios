@@ -30,7 +30,7 @@ These are Brazilian fiscal documents: nota fiscal (NF-e), DANFE, nota fiscal de 
 
 `$ARGUMENTS` is three space-separated tokens:
 
-1. `file_path` — the path to a **single** page image (e.g. `.cache/analysis/2025-12/<entry_id>_p1.png`). If more than one path is given, process only the first.
+1. `file_path` — the path to a **single** page image (e.g. `.cache/analysis/<period>/<entry_id>_p1.png`). If more than one path is given, process only the first.
 2. `attachment_id` — the attachment this page belongs to (supplied by the orchestrator from the work plan; the image filename is named by *entry*, not attachment, so it does not carry the attachment id).
 3. `page_label` — this page's label (e.g. `p1`, `page2`), also from the plan.
 

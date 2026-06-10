@@ -10,6 +10,7 @@ import {
     Receipt,
     BarChart3,
     FileSpreadsheet,
+    FileText,
     Store,
     Building2,
     AlertTriangle,
@@ -68,6 +69,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         {/* Entities */}
                         <NavLink href="/dashboard/vendors" icon={<Store className="h-3.5 w-3.5" />}>
                             Vendors
+                        </NavLink>
+                        <NavLink href="/dashboard/documents" icon={<FileText className="h-3.5 w-3.5" />}>
+                            Documents
                         </NavLink>
                         <NavLink href="/dashboard/units" icon={<Building2 className="h-3.5 w-3.5" />}>
                             Units

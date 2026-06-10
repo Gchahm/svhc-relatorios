@@ -44,6 +44,8 @@ TABLE_ORDER = [
     "page_classifications",
     "attachment_analyses",
     "attachment_analysis_records",
+    "documents",
+    "document_entries",
     "alerts",
 ]
 
