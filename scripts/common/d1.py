@@ -218,10 +218,14 @@ def query(sql: str, *, target: Target) -> list[dict]:
 
 def put_object(key: str, file_path: str, content_type: str, *, target: Target) -> None:
     """Upload a local file to R2 at ``fiscal-documents/<key>`` (idempotent overwrite)."""
+    # Resolve to absolute against the caller's CWD: wrangler runs with cwd=_REPO_ROOT,
+    # so a relative --file (e.g. the scraper's ``../.cache/...`` from scripts/) would be
+    # mis-resolved against the repo root and not found.
+    abs_path = str(Path(file_path).resolve())
     subprocess.run(
         [
             "npx", "wrangler", "r2", "object", "put", f"{_BUCKET}/{key}",
-            "--file", file_path, "--content-type", content_type, target_flag(target),
+            "--file", abs_path, "--content-type", content_type, target_flag(target),
         ],
         cwd=_REPO_ROOT,
         check=True,
@@ -230,13 +234,16 @@ def put_object(key: str, file_path: str, content_type: str, *, target: Target) -
 
 def get_object(key: str, dest_path: str, *, target: Target) -> bool:
     """Download an R2 object to ``dest_path``. Returns False if the key does not exist."""
-    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    # Resolve to absolute (see put_object): wrangler's cwd=_REPO_ROOT must not re-anchor
+    # a relative dest_path, or the bytes land somewhere the caller never looks.
+    abs_dest = str(Path(dest_path).resolve())
+    Path(abs_dest).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", dest_path, target_flag(target)],
+        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
         return False
-    return Path(dest_path).exists()
+    return Path(abs_dest).exists()
