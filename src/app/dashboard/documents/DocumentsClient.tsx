@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, ExternalLink } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { DocumentStatus } from "@/lib/documents";
+import { StatusBadge } from "./StatusBadge";
 
 interface DocumentRow {
     id: string;
@@ -23,58 +22,19 @@ interface DocumentRow {
     status: DocumentStatus;
 }
 
-interface LinkedEntry {
-    entryId: string;
-    period: string;
-    date: string;
-    description: string;
-    amount: number;
-    sourceAttachmentId: string | null;
-}
-
-interface DocumentDetail extends Omit<DocumentRow, "linkedCount"> {
-    entries: LinkedEntry[];
-}
-
 function formatCurrency(value: number | null): string {
     if (value === null) return "—";
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-/** Deep link to the entries page focused on one entry (feature 018). */
-function entryHref(period: string, entryId: string): string {
-    return `/dashboard/entries?period=${encodeURIComponent(period)}&entry=${encodeURIComponent(entryId)}`;
-}
-
-function StatusBadge({ status }: { status: DocumentStatus }) {
-    if (status === "over") return <Badge variant="destructive">over</Badge>;
-    if (status === "within") {
-        return (
-            <Badge variant="outline" className="border-green-400 text-green-700">
-                within
-            </Badge>
-        );
-    }
-    if (status === "under") {
-        return (
-            <Badge variant="outline" className="border-yellow-400 text-yellow-700">
-                under
-            </Badge>
-        );
-    }
-    return <Badge variant="secondary">unknown</Badge>;
-}
-
 export default function DocumentsClient() {
+    const router = useRouter();
     const [data, setData] = useState<DocumentRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [typeFilter, setTypeFilter] = useState<string>("all");
     const [search, setSearch] = useState("");
-
-    const [detail, setDetail] = useState<DocumentDetail | null>(null);
-    const [detailLoading, setDetailLoading] = useState(false);
 
     useEffect(() => {
         fetch("/api/documents")
@@ -103,19 +63,6 @@ export default function DocumentsClient() {
             return true;
         });
     }, [data, typeFilter, search]);
-
-    const openDetail = (id: string) => {
-        setDetailLoading(true);
-        setDetail(null);
-        fetch(`/api/documents/${id}`)
-            .then(res => {
-                if (!res.ok) throw new Error("Failed to fetch document");
-                return res.json();
-            })
-            .then(setDetail)
-            .catch(e => setError(e.message))
-            .finally(() => setDetailLoading(false));
-    };
 
     const parentRef = useRef<HTMLDivElement>(null);
     const virtualizer = useVirtualizer({
@@ -213,8 +160,8 @@ export default function DocumentsClient() {
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
-                                                onClick={() => openDetail(row.id)}
-                                                title="Click to view linked entries"
+                                                onClick={() => router.push(`/dashboard/documents/${row.id}`)}
+                                                title="Click to open the document detail page"
                                             >
                                                 <div
                                                     className="w-[140px] px-3 shrink-0 truncate font-medium tabular-nums"
@@ -252,77 +199,6 @@ export default function DocumentsClient() {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* Detail dialog: a document's linked entries, each deep-linking to the entries view. */}
-            <Dialog open={detailLoading || detail !== null} onOpenChange={open => !open && setDetail(null)}>
-                <DialogContent className="max-w-2xl overflow-hidden">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            {detail ? `NF ${detail.documentNumber}` : "Loading…"}
-                        </DialogTitle>
-                    </DialogHeader>
-                    {detail && (
-                        <div className="space-y-3 min-w-0">
-                            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                                <span>
-                                    <span className="text-muted-foreground">Issuer:</span> {detail.issuerName ?? "—"} (
-                                    {detail.issuerCnpj})
-                                </span>
-                                <span>
-                                    <span className="text-muted-foreground">Type:</span> {detail.documentType ?? "—"}
-                                </span>
-                                <span>
-                                    <span className="text-muted-foreground">Total:</span>{" "}
-                                    {formatCurrency(detail.totalValue)}
-                                </span>
-                                <span>
-                                    <span className="text-muted-foreground">Sum entries:</span>{" "}
-                                    {formatCurrency(detail.sumEntries)}
-                                </span>
-                                <StatusBadge status={detail.status} />
-                            </div>
-
-                            <div className="rounded-md border max-h-80 overflow-auto min-w-0">
-                                <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b sticky top-0">
-                                    <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
-                                    <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
-                                    <div className="flex-1 px-3 py-2 min-w-0">Description</div>
-                                    <div className="w-[110px] px-3 py-2 shrink-0 text-right">Amount</div>
-                                    <div className="w-[70px] px-3 py-2 shrink-0 text-right">Open</div>
-                                </div>
-                                {detail.entries.map(e => (
-                                    <div
-                                        key={e.entryId}
-                                        className="flex items-center border-b border-border/50 text-sm hover:bg-muted/30"
-                                    >
-                                        <div className="w-[80px] px-3 py-1.5 shrink-0 text-muted-foreground text-xs">
-                                            {e.period}
-                                        </div>
-                                        <div className="w-[90px] px-3 py-1.5 shrink-0 text-xs tabular-nums">
-                                            {e.date}
-                                        </div>
-                                        <div className="flex-1 px-3 py-1.5 min-w-0 truncate" title={e.description}>
-                                            {e.description}
-                                        </div>
-                                        <div className="w-[110px] px-3 py-1.5 shrink-0 text-right tabular-nums">
-                                            {formatCurrency(e.amount)}
-                                        </div>
-                                        <div className="w-[70px] px-3 py-1.5 shrink-0 flex justify-end">
-                                            <Link
-                                                href={entryHref(e.period, e.entryId)}
-                                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                            >
-                                                Open <ExternalLink className="h-3 w-3" />
-                                            </Link>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
