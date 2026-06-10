@@ -41,6 +41,7 @@ TABLE_ORDER = [
     "category_subtotals",
     "approvers",
     "attachments",
+    "page_classifications",
     "attachment_analyses",
     "attachment_analysis_records",
     "alerts",

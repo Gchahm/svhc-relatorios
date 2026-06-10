@@ -215,7 +215,6 @@ export const attachmentAnalyses = sqliteTable(
         dateMatch: integer("date_match", { mode: "boolean" }),
         documentNumber: text("document_number", { length: 100 }),
         serviceDescription: text("service_description"),
-        rawResponse: text("raw_response"),
         error: text("error"),
     },
     table => [index("attachment_analyses_attachment_id_idx").on(table.attachmentId)]
@@ -239,13 +238,38 @@ export const attachmentAnalysisRecords = sqliteTable(
         pageLabel: text("page_label", { length: 20 }), // e.g. p3 (the _pN suffix) or pageN
         artifactRole: text("artifact_role", { length: 30 }), // invoice/nfse/boleto/payment_proof/other
         response: text("response"), // JSON-serialized parsed page values
-        rawText: text("raw_text"), // VLM raw text, kept when parsing failed
         parseError: text("parse_error"), // error when image missing/unreadable or unparseable
         analyzedAt: integer("analyzed_at", { mode: "timestamp_ms" })
             .notNull()
             .$defaultFn(() => new Date()),
     },
     table => [index("attachment_analysis_records_attachment_analysis_id_idx").on(table.attachmentAnalysisId)]
+);
+
+// ─── Page Classifications (classificacao_pagina) ─────────────────────────────
+// Per-page staging input for the analysis merge: the raw vision result for ONE
+// page of ONE attachment, written by the classify-doc-page flow (via the
+// `record-classification` CLI) and read by `apply-extractions` to build the
+// authoritative roll-up (attachment_analyses + records). One row per
+// (attachment, page_label). Replaces the former `<image>.classify.json` file
+// seam; NOT the surfaced analysis — pipeline input only.
+
+export const pageClassifications = sqliteTable(
+    "page_classifications",
+    {
+        id: uuid(),
+        attachmentId: text("attachment_id")
+            .notNull()
+            .references(() => attachments.id),
+        pageLabel: text("page_label", { length: 20 }).notNull(), // e.g. p3 (the _pN suffix) or pageN
+        pageIndex: integer("page_index"), // 0-based index into the file_path page list (reference)
+        response: text("response"), // JSON-serialized extracted fields; NULL on an error result
+        error: text("error"), // short error reason; NULL on a successful fields object
+        recordedAt: integer("recorded_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    table => [index("page_classifications_attachment_id_idx").on(table.attachmentId)]
 );
 
 // ─── Alerts (alerta) ─────────────────────────────────────────────────────────
@@ -347,12 +371,20 @@ export const approversRelations = relations(approvers, ({ one }) => ({
     }),
 }));
 
-export const attachmentsRelations = relations(attachments, ({ one }) => ({
+export const attachmentsRelations = relations(attachments, ({ one, many }) => ({
     entry: one(entries, {
         fields: [attachments.entryId],
         references: [entries.id],
     }),
     analysis: one(attachmentAnalyses),
+    pageClassifications: many(pageClassifications),
+}));
+
+export const pageClassificationsRelations = relations(pageClassifications, ({ one }) => ({
+    attachment: one(attachments, {
+        fields: [pageClassifications.attachmentId],
+        references: [attachments.id],
+    }),
 }));
 
 export const attachmentAnalysesRelations = relations(attachmentAnalyses, ({ one, many }) => ({

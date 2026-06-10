@@ -70,8 +70,8 @@ Compute `mismatch_key` exactly as above. Return only this JSON, optionally with 
 
 ## Boundaries (non-negotiable)
 
-- You read images and run read-only lookups only; you **never** write code, schema, D1, `.classify.json`, or
-  the verdicts file. The orchestrator persists your verdict with `record-verdict`.
+- You read images and run read-only lookups only; you **never** write code, schema, D1 (including the
+  `page_classifications` table), or the verdicts file. The orchestrator persists your verdict with `record-verdict`.
 - You judge exactly **one** mismatch per invocation and return only the terse verdict.
 - A `page-error` is its own category — never report it as a `true` finding.
 - You never re-classify or "fix" anything — those are the orchestrator's / fix worker's steps.

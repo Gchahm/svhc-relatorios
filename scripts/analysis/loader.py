@@ -106,6 +106,23 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
         for a in analyses:
             a["analysis_records"] = by_analysis.get(a["id"], [])
 
+    # Per-page classification staging rows (the merge's per-page extraction input), joined
+    # through attachments->entries to the report. Decode each row's `response` JSON back to an
+    # object so D1ExtractionProvider serves parsed fields (mirrors the analysis_records decode).
+    page_classifications = d1.query(
+        "SELECT pc.* FROM page_classifications pc "
+        "JOIN attachments d ON pc.attachment_id = d.id "
+        f"JOIN entries e ON d.entry_id = e.id WHERE e.report_id = {_sql_str(rid)}",
+        target=target,
+    )
+    for pc in page_classifications:
+        resp = pc.get("response")
+        if isinstance(resp, str):
+            try:
+                pc["response"] = json.loads(resp) if resp else None
+            except json.JSONDecodeError:
+                pc["response"] = None
+
     alerts = d1.query(f"SELECT * FROM alerts WHERE reference_period = {_sql_str(period)}", target=target)
 
     return {
@@ -119,6 +136,7 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
         "category_subtotals": subtotals,
         "approvers": approvers,
         "attachments": attachments,
+        "page_classifications": page_classifications,
         "attachment_analyses": analyses,
         "alerts": alerts,
     }

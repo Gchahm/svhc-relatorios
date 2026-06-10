@@ -2,9 +2,10 @@
 """Analysis CLI — ``python -m analysis <command>``.
 
 Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
-Playwright scraping stack. Commands: docs-plan, apply-extractions, analyze,
-mismatches (see specs/008-decouple-analysis-scripts/contracts/analysis-cli.md);
-record-verdict, loop-state (the self-improving loop's bookkeeping — see
+Playwright scraping stack. Commands: docs-plan, record-classification, apply-extractions,
+mark-pending, analyze, mismatches (see specs/008-decouple-analysis-scripts/contracts/analysis-cli.md
+and specs/017-classify-to-d1/contracts/record-classification-cli.md); record-verdict,
+loop-state (the self-improving loop's bookkeeping — see
 specs/007-classification-improve-loop/contracts/verdict-cli.md).
 """
 
@@ -15,6 +16,7 @@ import sys
 
 from . import run_analysis
 from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
+from .page_classifications import record_classification
 from .verdicts import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_NO_PROGRESS_WINDOW,
@@ -52,11 +54,25 @@ def main(argv=None):
     p.add_argument("--min-amount", type=float, help="Only plan pending attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of pending attachments to plan.")
 
-    p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into attachment_analyses (D1)")
+    p = sub.add_parser("apply-extractions", help="Merge per-page classifications (D1 page_classifications) into attachment_analyses (D1)")
     _add_common(p)
     # Same DB-controlled selection as docs-plan (the pending set); mark-pending controls scope.
     p.add_argument("--min-amount", type=float, help="Only apply pending attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of pending attachments to apply.")
+
+    p = sub.add_parser(
+        "record-classification",
+        help="Record ONE page's extraction into the page_classifications staging table (D1)",
+    )
+    p.add_argument("--attachment-id", required=True, help="Attachment the page belongs to (plan representative id).")
+    p.add_argument("--page", dest="page_label", required=True, help="Page label (e.g. p1, page2) from the plan page.")
+    p.add_argument("--page-index", type=int, help="0-based page index from the plan page (stored for reference).")
+    p.add_argument(
+        "--json",
+        dest="payload_json",
+        help="Extraction as a JSON string (fields object or {\"error\": ...}). Omit or '-' to read stdin.",
+    )
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
 
     p = sub.add_parser("mark-pending", help="Clear classified_at (re-queue attachments for classification) — SQL-controlled scope")
     p.add_argument("--periodo", type=str, help="Period YYYY-MM (for logging; ids are globally unique).")
@@ -112,6 +128,27 @@ def main(argv=None):
             min_amount=args.min_amount,
             limit=args.limit,
         )
+    elif args.command == "record-classification":
+        raw = args.payload_json
+        if raw is None or raw == "-":
+            raw = sys.stdin.read()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"error: extraction is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            record_classification(
+                args.attachment_id,
+                args.page_label,
+                payload,
+                page_index=args.page_index,
+                target=target,
+            )
+        except ValueError as e:
+            print(f"error: classification rejected: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Recorded classification for {args.attachment_id} {args.page_label}.")
     elif args.command == "mark-pending":
         n = mark_pending(
             target=target,

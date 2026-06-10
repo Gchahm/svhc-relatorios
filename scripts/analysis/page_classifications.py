@@ -1,0 +1,172 @@
+"""Per-page classification staging: the DB-backed seam between the vision skill and apply.
+
+Replaces the former ``<image>.classify.json`` file seam (feature 017). The
+``classify-doc-page`` skill records one extraction per page through the
+``record-classification`` CLI, which writes a row to the ``page_classifications`` table
+(one row per ``(attachment_id, page_label)``). ``apply-extractions`` then reads those
+rows — via :class:`D1ExtractionProvider` — to build the authoritative roll-up
+(``attachment_analyses`` + ``attachment_analysis_records``). The staging table is the
+merge's *input*; the finalized roll-up remains the authoritative analysis.
+
+This module owns: the frozen per-page field contract (ported from the skill's former
+``validate_classify.py`` PostToolUse hook, which no longer fires because the skill no
+longer writes a file), the deterministic row id, the record-write, and the
+D1-backed extraction provider. Stdlib only.
+"""
+
+from __future__ import annotations
+
+from common import d1, det_id, now_ms
+from common.d1 import Target
+
+TABLE = "page_classifications"
+
+# ─── Frozen per-page field contract ──────────────────────────────────────────
+# Mirrors .claude/skills/classify-doc-page/templates/result.json and the page-extraction
+# contract the deterministic pipeline consumes. Keep in sync with the skill's template.
+REQUIRED_KEYS = {
+    "papel_artefato",
+    "tipo_documento",
+    "valor_total",
+    "valor_liquido",
+    "valor_pago",
+    "cnpj_emitente",
+    "nome_emitente",
+    "data_emissao",
+    "numero_documento",
+    "descricao_servico",
+}
+PAPEL_VALUES = {"invoice", "nfse", "boleto", "payment_proof", "other"}
+STRING_OR_NULL = {
+    "tipo_documento",
+    "cnpj_emitente",
+    "nome_emitente",
+    "data_emissao",
+    "numero_documento",
+    "descricao_servico",
+}
+AMOUNT_KEYS = {"valor_total", "valor_liquido", "valor_pago"}
+
+
+def validate_page_fields(obj) -> str | None:
+    """Validate a per-page extraction against the frozen contract.
+
+    Returns an error message describing the first violation, or ``None`` when the
+    payload is valid. Accepts EITHER the full fields object (exactly ``REQUIRED_KEYS``,
+    ``papel_artefato`` in the allowed set, string-or-null and amount typing) OR the single
+    permitted alternative ``{"error": "<non-empty string>"}``. This is the canonical
+    validator the ``record-classification`` CLI enforces (it used to be the skill's
+    file-write hook).
+    """
+    if not isinstance(obj, dict):
+        return f"expected a single JSON object, got {type(obj).__name__}"
+
+    keys = set(obj)
+
+    # An error object is the one allowed alternative to the fields object.
+    if "error" in keys:
+        if keys != {"error"}:
+            return f'an error result must be exactly {{"error": "..."}}, got keys {sorted(keys)}'
+        if not isinstance(obj["error"], str) or not obj["error"].strip():
+            return '"error" must be a non-empty string'
+        return None
+
+    missing = REQUIRED_KEYS - keys
+    extra = keys - REQUIRED_KEYS
+    if missing:
+        return f"missing required field(s): {sorted(missing)}"
+    if extra:
+        return f"unexpected field(s) (do not add/rename keys): {sorted(extra)}"
+
+    papel = obj["papel_artefato"]
+    if papel not in PAPEL_VALUES:
+        return f"papel_artefato must be one of {sorted(PAPEL_VALUES)}, got {papel!r}"
+
+    for k in STRING_OR_NULL:
+        v = obj[k]
+        if v is not None and not isinstance(v, str):
+            return f"{k} must be a string or null, got {type(v).__name__}"
+
+    for k in AMOUNT_KEYS:
+        v = obj[k]
+        if v is None:
+            continue
+        # bool is a subclass of int — reject it explicitly.
+        if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+            return f"{k} must be a number, a currency string, or null, got {type(v).__name__}"
+
+    return None
+
+
+def page_classification_id(attachment_id: str, page_label: str) -> str:
+    """Deterministic row id for one page's classification.
+
+    Keyed on ``(attachment_id, page_label)`` so re-recording the same page replaces the
+    same row (idempotent upsert; latest extraction wins).
+    """
+    return det_id("page_classification", attachment_id, page_label)
+
+
+def record_classification(
+    attachment_id: str,
+    page_label: str,
+    payload: dict,
+    *,
+    page_index: int | None = None,
+    target: Target = "local",
+) -> None:
+    """Validate then upsert one page's extraction into ``page_classifications``.
+
+    ``payload`` is either the full fields object or ``{"error": "<reason>"}`` (already
+    parsed from JSON). Raises :class:`ValueError` on a contract violation so the caller
+    (the CLI) can exit non-zero and the classifier can correct and re-record. A fields
+    object sets ``response`` and leaves ``error`` NULL; an error result sets ``error`` and
+    leaves ``response`` NULL.
+    """
+    err = validate_page_fields(payload)
+    if err is not None:
+        raise ValueError(err)
+
+    is_error = "error" in payload
+    row = {
+        "id": page_classification_id(attachment_id, page_label),
+        "attachment_id": attachment_id,
+        "page_label": page_label,
+        "page_index": page_index,
+        # d1._escape_sql JSON-serializes a dict; store None for an error result.
+        "response": None if is_error else payload,
+        "error": str(payload["error"]) if is_error else None,
+        "recorded_at": now_ms(),
+    }
+    d1.upsert_tables({TABLE: [row]}, target=target)
+
+
+class D1ExtractionProvider:
+    """Extraction provider backed by the loaded ``page_classifications`` rows.
+
+    Built from the period's staging rows (batch-loaded once by the loader), so each
+    lookup is in-memory — no per-page ``wrangler`` round trip. Matches the
+    ``ExtractionProvider`` seam in ``attachments.build_attachment_analysis``, but keyed by
+    ``(attachment_id, page_label)`` (a page-image filename is named by *entry*, not
+    attachment, so identity comes from the plan, not the path). Returns:
+
+    - ``(fields, None)`` for a recorded fields object,
+    - ``(None, reason)`` for a recorded error result,
+    - ``(None, "no classification for page …")`` when no row exists for the page.
+    """
+
+    def __init__(self, rows: list[dict] | None = None):
+        self._by_key: dict[tuple[str, str], dict] = {}
+        for r in rows or []:
+            self._by_key[(r["attachment_id"], r["page_label"])] = r
+
+    def __call__(self, attachment_id: str, page_label: str) -> tuple[dict | None, str | None]:
+        row = self._by_key.get((attachment_id, page_label))
+        if row is None:
+            return None, "no classification for page (run classify-doc-page)"
+        if row.get("error"):
+            return None, str(row["error"])
+        resp = row.get("response")
+        if not isinstance(resp, dict):
+            return None, "invalid classification (no fields recorded)"
+        return resp, None

@@ -24,7 +24,7 @@ Pipeline commands run from the repo's `scripts/` directory. They read period row
 
 ### 1. Classify (delegate to the skill)
 
-Invoke the **`classify-period`** skill (via the Skill tool), passing the period (and `--remote` if applicable) as its arguments — e.g. `2025-12`. The skill runs `docs-plan` itself (the plan is the pending set, derived from D1 and printed to stdout — there is no manifest file), then fans each representative page out to `classify-doc-page`, which writes the `<image>.classify.json` files. Wait for it to finish. If it reports "nothing to extract" (everything is already classified), continue to steps 3–4 to report current mismatches.
+Invoke the **`classify-period`** skill (via the Skill tool), passing the period (and `--remote` if applicable) as its arguments — e.g. `2025-12`. The skill runs `docs-plan` itself (the plan is the pending set, derived from D1 and printed to stdout — there is no manifest file), then fans each representative page out to `classify-doc-page`, which records each page's extraction to D1 (the `page_classifications` staging table — there is no `.classify.json` file). Wait for it to finish. If it reports "nothing to extract" (everything is already classified), continue to steps 3–4 to report current mismatches.
 
 ### 2. Merge the classifications
 
@@ -50,6 +50,6 @@ cd scripts && uv run python -m analysis mismatches --periodo <period> [--remote]
 
 ## Boundaries (non-negotiable)
 
-- You never read page images, write `.classify.json`, or run `docs-plan` — the `classify-period` / `classify-doc-page` skills do that. You orchestrate; you do not transcribe or plan.
+- You never read page images, record classifications, or run `docs-plan` — the `classify-period` / `classify-doc-page` skills do that. You orchestrate; you do not transcribe or plan.
 - You never edit application code or the database schema, and you never write to D1 by hand. You only invoke the classification skill and run the pipeline commands (`apply-extractions`, `analyze`, `mismatches`), which write their results to D1 for you. Deciding whether a mismatch is real, and any fix, are **other** steps — out of scope here.
 - Your hand-back is only the mismatch summary. Keep your caller's context clean: terse in, terse out.
