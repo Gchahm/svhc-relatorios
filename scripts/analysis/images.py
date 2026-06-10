@@ -49,6 +49,35 @@ def _backfill_content_hashes(updates: list[tuple[str, str]], target: Target) -> 
         logger.warning("content_hash backfill failed (%d row(s)); continuing: %s", len(updates), e)
 
 
+def attachments_needing_hash_backfill(
+    periods: dict,
+    attachment_ids: list[str] | None = None,
+) -> list[str]:
+    """Return the in-scope attachment ids that genuinely need an image fetch for a backfill.
+
+    The only reason ``apply-extractions`` still touches R2 is to hash the attachments whose
+    ``content_hash`` column is empty (legacy rows, or a future page-bearing row that ever
+    lands without a hash) — grouping reads the stored column for everything else. An
+    attachment qualifies iff it is **page-bearing** (non-empty ``file_path``) **and** has a
+    falsy ``content_hash``. A page-less attachment (empty ``file_path``) is never returned:
+    it has no hash by nature, groups as a singleton, and has nothing to materialize.
+
+    Pure read of the in-memory ``periods`` (no D1/R2, no mutation). When ``attachment_ids``
+    is given, only those ids are considered. Returns ids in deterministic iteration order.
+    """
+    scope = set(attachment_ids) if attachment_ids else None
+    needing: list[str] = []
+    for pd in periods.values():
+        for doc in pd.attachments:
+            if scope is not None and doc["id"] not in scope:
+                continue
+            if not _split_tokens(doc.get("file_path")):
+                continue  # page-less: not hashable, never work
+            if not doc.get("content_hash"):
+                needing.append(doc["id"])
+    return needing
+
+
 def materialize_period_images(
     periods: dict,
     cache_dir: str,

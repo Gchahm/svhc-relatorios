@@ -43,7 +43,7 @@ from .attachments import (
     select_work,
     summarize_results,
 )
-from .images import materialize_period_images
+from .images import attachments_needing_hash_backfill, materialize_period_images
 from .loader import load_all_periods
 from .mismatches import KIND_AMOUNT, KIND_DATE, KIND_PAGE_ERROR, KIND_VENDOR, detect_attachment_mismatches
 from .page_classifications import D1ExtractionProvider
@@ -209,15 +209,28 @@ def apply_extractions(
     arguments: the set of attachments processed is exactly the **pending** set
     (``classified_at IS NULL``), controlled in D1 via ``mark-pending``. So a scoped re-run
     is "mark those attachments pending, then run this" — deterministic and file-free.
+
+    Apply reads **no image bytes** itself (per-page extractions come from D1, page labels
+    are parsed from ``file_path`` tokens, and grouping prefers the persisted
+    ``attachments.content_hash`` column), so materialization is now **conditional**: it runs
+    only to hash + backfill the attachments whose ``content_hash`` is still NULL. When every
+    page-bearing attachment is already keyed (the normal case post-scrape), the R2 round-trip
+    is skipped entirely. The classify (``docs-plan``) and review (``mismatches``) paths are
+    unaffected — they keep materializing their images.
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
         logger.info("No periods to apply")
         return
 
-    # Bring images local (R2 -> cache) so grouping works and legacy rows get a
-    # content_hash for grouping/backfill (per-page extractions come from D1, not files).
-    materialize_period_images(periods, cache_dir, target)
+    # Only attachments still missing a content_hash need their images (to hash + backfill);
+    # everything else groups from the stored column, and apply reads no image bytes. So skip
+    # the R2 round-trip when there's nothing to backfill (scope the fetch to what needs it).
+    needing = attachments_needing_hash_backfill(periods)
+    if needing:
+        materialize_period_images(periods, cache_dir, target, attachment_ids=needing)
+    else:
+        logger.info("All page-bearing attachments already have content_hash; skipping R2 image materialization")
 
     envelopes = build_plan(periods, refs, cache_dir=cache_dir, min_amount=min_amount, limit=limit)
 

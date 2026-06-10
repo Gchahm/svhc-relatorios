@@ -109,8 +109,15 @@ bundling an invoice, a boleto, and a payment proof resolves to one amount by pre
 shared-NF groups (sum of sibling entries vs. the NF total), fans the result out to the sibling entries,
 validates amount / vendor / date against the ledger entry, and writes `attachment_analyses` (with
 per-page `analysis_records`) into D1. It **stamps `attachments.classified_at`** on each processed
-attachment (so it leaves the pending set) and lazily backfills `attachments.content_hash` for any legacy
-rows it materializes.
+attachment (so it leaves the pending set).
+
+Apply reads **no page-image bytes** itself — per-page extractions come from D1 (`page_classifications`),
+page labels are parsed from `file_path` tokens, and grouping prefers the persisted
+`attachments.content_hash` column. So it materializes from R2 **only** to hash + backfill the
+attachments whose `content_hash` is still NULL (legacy/edge rows); when every page-bearing attachment
+is already keyed (the normal case post-scrape), it makes **no R2 image reads**. A page-less attachment
+(empty `file_path`) legitimately has no hash and is never materialized. (The classify `docs-plan` and
+review `mismatches` steps still materialize their images — the vision/review workers need them.)
 
 To re-classify specific attachments (e.g. after merging a classifier fix), mark them pending first:
 
