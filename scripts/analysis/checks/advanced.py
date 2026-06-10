@@ -7,6 +7,7 @@ from common import det_id
 from ..attachments import nf_total_for_reconciliation
 from ..models import Alert, PeriodData, RefIndex
 from ..nf_groups import group_attachments, reconcile_group
+from .attachments import check_attachment_mismatches
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,7 @@ def run_advanced(
     alerts.extend(check_seasonality(period, all_periods))
     alerts.extend(check_delinquency(period, refs))
     alerts.extend(check_duplicate_billing(period))
+    alerts.extend(check_attachment_mismatches(period, refs))
 
     logger.info("Advanced %s: %d alerts", period.period, len(alerts))
     return alerts

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AlertTriangle, ExternalLink } from "lucide-react";
 
 interface AlertRow {
     id: string;
@@ -17,6 +19,72 @@ interface AlertRow {
     resolved: boolean;
     resolvedAt: number | null;
     notes: string | null;
+    metadata: string | null;
+}
+
+/**
+ * Entry ids an alert concerns, parsed from its (untyped JSON) metadata. Covers both the
+ * per-attachment mismatch alerts (single `entry_id`) and the entry-level alerts that store
+ * an `entry_ids` array (duplicate_billing, duplicate_entry, negative_credit,
+ * large_expense_no_attachment). Period/category-level alerts have neither → no links.
+ * Parses defensively: any malformed/absent metadata yields no links rather than throwing.
+ */
+function affectedEntryIds(metadata: string | null): string[] {
+    if (!metadata) return [];
+    try {
+        const meta = JSON.parse(metadata) as { entry_ids?: unknown; entry_id?: unknown };
+        if (Array.isArray(meta.entry_ids)) {
+            return meta.entry_ids.filter((v): v is string => typeof v === "string");
+        }
+        if (typeof meta.entry_id === "string") return [meta.entry_id];
+        return [];
+    } catch {
+        return [];
+    }
+}
+
+/** Deep link to the entries page focused on one entry, with the detail dialog auto-opened. */
+function entryHref(period: string, entryId: string): string {
+    return `/dashboard/entries?period=${encodeURIComponent(period)}&entry=${encodeURIComponent(entryId)}`;
+}
+
+/** Renders an alert's affected-entry links: nothing / one inline link / a popover list. */
+function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }) {
+    if (entryIds.length === 0) {
+        return <span className="text-muted-foreground text-xs">—</span>;
+    }
+    if (entryIds.length === 1) {
+        return (
+            <Link
+                href={entryHref(period, entryIds[0])}
+                onClick={e => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+            >
+                Open <ExternalLink className="h-3 w-3" />
+            </Link>
+        );
+    }
+    return (
+        <Popover>
+            <PopoverTrigger onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline">
+                {entryIds.length} entries ▾
+            </PopoverTrigger>
+            <PopoverContent className="w-44 p-1" onClick={e => e.stopPropagation()}>
+                <div className="flex flex-col">
+                    {entryIds.map((id, i) => (
+                        <Link
+                            key={id}
+                            href={entryHref(period, id)}
+                            onClick={e => e.stopPropagation()}
+                            className="inline-flex items-center justify-between gap-1 rounded px-2 py-1 text-xs text-blue-600 hover:bg-muted hover:underline"
+                        >
+                            Entry {i + 1} <ExternalLink className="h-3 w-3" />
+                        </Link>
+                    ))}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -238,6 +306,7 @@ export default function AlertsClient() {
                             <div className="w-[90px] px-3 py-2 shrink-0">Severity</div>
                             <div className="w-[200px] px-3 py-2 shrink-0">Title</div>
                             <div className="flex-1 px-3 py-2 min-w-0">Description</div>
+                            <div className="w-[100px] px-3 py-2 shrink-0">Entries</div>
                             <div className="w-[90px] px-3 py-2 shrink-0 text-right">Status</div>
                         </div>
 
@@ -254,6 +323,7 @@ export default function AlertsClient() {
                                 >
                                     {virtualizer.getVirtualItems().map(virtualRow => {
                                         const row = filtered[virtualRow.index];
+                                        const entryIds = affectedEntryIds(row.metadata);
                                         return (
                                             <div
                                                 key={row.id}
@@ -282,6 +352,9 @@ export default function AlertsClient() {
                                                     title={row.description}
                                                 >
                                                     {row.description}
+                                                </div>
+                                                <div className="w-[100px] px-3 shrink-0">
+                                                    <EntryLinks period={row.referencePeriod} entryIds={entryIds} />
                                                 </div>
                                                 <div className="w-[90px] px-3 shrink-0 flex justify-end">
                                                     <StatusBadge resolved={row.resolved} />

@@ -132,7 +132,14 @@ uv run python -m analysis analyze --periodo 2025-12
 
 Runs the financial / consistency / fraud checks over the period JSON and writes `alerts` — e.g.
 `duplicate_billing` when one Nota Fiscal is claimed above its face value, vendor concentration, new
-vendors, delinquency, etc.
+vendors, delinquency, etc. It also emits **per-attachment mismatch alerts** — one per
+(attachment, kind): `attachment_amount_mismatch` / `attachment_vendor_mismatch` /
+`attachment_date_mismatch` (severity `warning`) and `attachment_page_error` (`info`) — so a human
+can drill into each from the alerts page (feature 018). Their detection is shared with `mismatches`
+(`analysis/mismatches.py:detect_attachment_mismatches`) so the two can't drift, and each alert's
+`metadata` carries `{attachment_id, entry_id, kind, ledger_value, extracted_value}` for the UI's
+deep link. Ids are deterministic (`det_id("alert", period, type, attachment_id)`) and `analyze`
+delete-then-inserts per `reference_period`, so re-runs are idempotent.
 
 ### 5. `mismatches` — terse summary of what disagrees
 
@@ -143,7 +150,9 @@ uv run python -m analysis mismatches --periodo 2025-12 [--attachment-id <ids…>
 
 Prints a compact JSON list of classification mismatches — `amount` / `vendor` / `date` /
 `page-error` / `duplicate_billing` — each joined with the ledger-vs-extracted values. Read-only (no
-writes). This is exactly what the `analyze-docs` agent returns to its caller.
+writes). This is exactly what the `analyze-docs` agent returns to its caller. The per-attachment
+detection here is the **same** `detect_attachment_mismatches` the `analyze` step uses for its
+per-attachment alerts (single source of truth).
 
 Per-page classifications are stored in D1 (`page_classifications`), not in the cache; the
 `.cache/analysis/` dir holds only materialized page images + the loop's verdicts file (gitignored,
