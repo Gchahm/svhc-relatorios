@@ -57,6 +57,20 @@
       "when": 1781048890400,
       "tag": "0007_rename_documents_to_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781095891943,
+      "tag": "0008_lucky_hemingway",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781097986170,
+      "tag": "0009_petite_puff_adder",
+      "breakpoints": true
     }
   ]
 }

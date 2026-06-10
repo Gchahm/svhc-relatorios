@@ -18,6 +18,7 @@ from .extractors.periodos import list_periodos
 from common import det_id as _det_id, now_ms as _now_ms
 from common import d1
 from common.d1 import Target
+from common.hashing import content_hash
 
 DEFAULT_CACHE_DIR = "../.cache/analysis"
 
@@ -428,6 +429,8 @@ async def _scrape_periodo(
                     "entry_id": entry_id,
                     "external_document_id": ext_doc_id,
                     "file_path": None,
+                    # Shared-NF grouping key; filled below once pages are downloaded.
+                    "content_hash": None,
                 }
                 attachments_out.append(doc_record)
                 entry_doc_records.append(doc_record)
@@ -476,8 +479,13 @@ async def _scrape_periodo(
             for doc_record in doc_records:
                 ext_id = doc_record["external_document_id"]
                 if ext_id in paths_by_id:
-                    keys = _upload_pages_to_r2(paths_by_id[ext_id], periodo, target)
+                    local_paths = paths_by_id[ext_id]
+                    keys = _upload_pages_to_r2(local_paths, periodo, target)
                     doc_record["file_path"] = ";".join(keys)
+                    # Hash the local page bytes we just downloaded (file_path stores R2
+                    # keys, not local paths) so the grouping key is the same value the
+                    # analysis pipeline expects from nf_groups.content_hash.
+                    doc_record["content_hash"] = content_hash(";".join(local_paths))
                     downloaded += 1
         logger.info("  Attachments uploaded to R2 (%s): %d/%d", target, downloaded, total_docs)
 
@@ -550,12 +558,15 @@ async def run_download_docs(
             for doc in entry_docs:
                 ext_id = doc["external_document_id"]
                 if ext_id in paths_by_id:
-                    keys = _upload_pages_to_r2(paths_by_id[ext_id], periodo, target)
+                    local_paths = paths_by_id[ext_id]
+                    keys = _upload_pages_to_r2(local_paths, periodo, target)
                     updated_docs.append({
                         "id": doc["id"],
                         "entry_id": doc["entry_id"],
                         "external_document_id": ext_id,
                         "file_path": ";".join(keys),
+                        # Grouping key from the local page bytes (see _scrape_periodo).
+                        "content_hash": content_hash(";".join(local_paths)),
                     })
 
         if updated_docs:

@@ -179,6 +179,15 @@ export const attachments = sqliteTable(
             .references(() => entries.id),
         externalDocumentId: integer("external_document_id").notNull(), // portal ("documento") id — KEEP
         filePath: text("file_path"),
+        // Shared-NF grouping key: a stable content hash over the attachment's page-image
+        // bytes, written at scrape time. Byte-identical page sets (the same NF copied per
+        // entry) share it; NULL when pages are absent/unreadable or captured pre-016.
+        contentHash: text("content_hash"),
+        // Classification state (the work-selection key): NULL = pending (needs
+        // classification), set = classified. apply-extractions stamps it; the plan selects
+        // WHERE classified_at IS NULL. Re-classify deterministically via SQL
+        // (UPDATE attachments SET classified_at = NULL WHERE id IN (...)), not CLI id flags.
+        classifiedAt: integer("classified_at", { mode: "timestamp_ms" }),
     },
     table => [index("attachments_entry_id_idx").on(table.entryId)]
 );

@@ -14,7 +14,7 @@ import logging
 import sys
 
 from . import run_analysis
-from .extractions import apply_extractions, plan_extractions, summarize_mismatches
+from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
 from .verdicts import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_NO_PROGRESS_WINDOW,
@@ -27,7 +27,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-# Ephemeral local scratch (materialized R2 images + manifests/verdicts); repo-root, gitignored.
+# Ephemeral local scratch (materialized R2 images + per-page classifications/verdicts); repo-root, gitignored.
 CACHE_DIR = "../.cache/analysis"
 
 
@@ -44,16 +44,25 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("docs-plan", help="Plan attachment extraction: write <period>.extract-todo.json (cache)")
+    p = sub.add_parser("docs-plan", help="Print the DB-derived extraction plan as JSON to stdout (no manifest file)")
     _add_common(p)
-    p.add_argument("--min-amount", type=float, help="Only plan attachments for entries >= this amount.")
-    p.add_argument("--limit", type=int, help="Maximum number of attachments to plan.")
-    p.add_argument("--reanalyze", action="store_true", help="Re-plan already analyzed attachments.")
-    p.add_argument("--attachment-id", type=str, nargs="*", help="Only these attachment ids (implies re-analysis).")
-    p.add_argument("--entry-id", type=str, nargs="*", help="Only attachments for these entry ids (implies re-analysis).")
+    # Selection is DB-controlled: the plan is the PENDING set (classified_at IS NULL).
+    # To (re)classify specific attachments, mark them pending in D1 (`mark-pending`),
+    # not via id flags here. --min-amount/--limit are orthogonal filters on the pending set.
+    p.add_argument("--min-amount", type=float, help="Only plan pending attachments for entries >= this amount.")
+    p.add_argument("--limit", type=int, help="Maximum number of pending attachments to plan.")
 
     p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into attachment_analyses (D1)")
     _add_common(p)
+    # Same DB-controlled selection as docs-plan (the pending set); mark-pending controls scope.
+    p.add_argument("--min-amount", type=float, help="Only apply pending attachments for entries >= this amount.")
+    p.add_argument("--limit", type=int, help="Maximum number of pending attachments to apply.")
+
+    p = sub.add_parser("mark-pending", help="Clear classified_at (re-queue attachments for classification) — SQL-controlled scope")
+    p.add_argument("--periodo", type=str, help="Period YYYY-MM (for logging; ids are globally unique).")
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Re-queue these attachment ids.")
+    p.add_argument("--entry-id", type=str, nargs="*", help="Re-queue attachments for these entry ids.")
 
     p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
     _add_common(p)
@@ -83,8 +92,6 @@ def main(argv=None):
         "--no-progress-window", type=int, default=DEFAULT_NO_PROGRESS_WINDOW,
         help="Consecutive-iteration window for the no-progress guard (default 2).",
     )
-    p.add_argument("--attachment-id", type=str, nargs="*", help="Scope the join to these attachment ids.")
-    p.add_argument("--entry-id", type=str, nargs="*", help="Scope the join to these entry ids.")
 
     args = parser.parse_args(argv)
     target = "remote" if getattr(args, "remote", False) else "local"
@@ -96,12 +103,23 @@ def main(argv=None):
             cache_dir=args.cache_dir,
             min_amount=args.min_amount,
             limit=args.limit,
-            reanalyze=args.reanalyze,
+        )
+    elif args.command == "apply-extractions":
+        apply_extractions(
+            target=target,
+            periods_filter=args.periodo,
+            cache_dir=args.cache_dir,
+            min_amount=args.min_amount,
+            limit=args.limit,
+        )
+    elif args.command == "mark-pending":
+        n = mark_pending(
+            target=target,
+            period=args.periodo,
             attachment_ids=args.attachment_id,
             entry_ids=args.entry_id,
         )
-    elif args.command == "apply-extractions":
-        apply_extractions(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
+        print(f"Marked {n} id(s) pending (classified_at = NULL).")
     elif args.command == "analyze":
         run_analysis(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "mismatches":
@@ -147,8 +165,6 @@ def main(argv=None):
             iteration=args.iteration,
             max_iterations=args.max_iterations,
             no_progress_window=args.no_progress_window,
-            attachment_ids=args.attachment_id,
-            entry_ids=args.entry_id,
         )
         print(json.dumps(state, ensure_ascii=False, indent=2))
 
