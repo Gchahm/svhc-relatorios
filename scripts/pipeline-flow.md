@@ -135,7 +135,7 @@ sequenceDiagram
     U->>W: analysis apply-extractions
     W->>D1: build_plan + read page_classifications (same grouping)
     W->>D1: write attachment_analyses (+ records), delete-then-insert
-    W->>D1: backfill content_hash for legacy rows
+    Note over W,R2: materialize from R2 only to hash + backfill<br/>content_hash IS NULL rows; skipped when all keyed
 
     U->>W: analysis analyze
     W->>D1: load → run checks → write alerts
