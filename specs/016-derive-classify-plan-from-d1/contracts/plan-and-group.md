@@ -74,3 +74,31 @@ pipeline functions/CLIs that change, plus the schema column. Each is independent
 
 - `grep -r "extract-todo" scripts .claude` returns nothing (code, skill, agent). Docs may reference it
   only in a historical/"removed" note if at all.
+
+## C10 — Classification state column (`attachments.classified_at`)
+
+- Drizzle column `classifiedAt: integer("classified_at", { mode: "timestamp_ms" })`; migration `0009`
+  adds it; existing rows are NULL (pending).
+- `select_work` selects pending = `classified_at IS NULL` (no analysis-row-presence check, no
+  reanalyze/id params). `apply-extractions` (`_merge_and_write`) stamps `classified_at = now` for each
+  attachment it writes (success or error), so a re-run with nothing re-queued plans/applies nothing.
+- Verifiable: after `apply-extractions`, `SELECT count(classified_at) FROM attachments` equals the
+  number of attachments with pages; a second `docs-plan` prints `[]`.
+
+## C11 — `mark-pending` (SQL-controlled scope)
+
+- `python -m analysis mark-pending --periodo P --attachment-id <ids…> [--entry-id <ids…>] [--remote]`
+  issues `UPDATE attachments SET classified_at = NULL WHERE id IN (…) [OR entry_id IN (…)]`.
+- After it, `docs-plan`/`apply-extractions` select exactly the re-queued attachments (plus any other
+  still-pending ones). Verifiable: stamp all classified, `mark-pending --attachment-id X`, then
+  `docs-plan` plans exactly X's group.
+
+## C12 — No id-targeting flags on the classify selection path (supersedes C5/C6 flag text)
+
+- `docs-plan`, `apply-extractions`, the `classify-period` skill, and the `analyze-docs` agent take **no**
+  `--attachment-id`/`--entry-id`/`--reanalyze`. They keep `--min-amount`/`--limit` (orthogonal filters).
+- `loop-state` takes no id-scoping flags (runs period-wide). `mismatches` keeps `--attachment-id`/
+  `--entry-id` as a read filter (used by `review-mismatch`); `mark-pending` takes them to choose what to
+  re-queue.
+- The `improve-classification` loop re-queues `affected_attachment_ids` via `mark-pending` then re-runs
+  the period. Verifiable: `grep -rn "attachment-id" .claude/skills/classify-period .claude/agents/analyze-docs.md` finds nothing.

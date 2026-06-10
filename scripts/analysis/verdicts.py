@@ -247,22 +247,20 @@ def loop_state(
     iteration: int | None = None,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     no_progress_window: int = DEFAULT_NO_PROGRESS_WINDOW,
-    attachment_ids: list[str] | None = None,
-    entry_ids: list[str] | None = None,
 ) -> dict:
     """Recompute, persist, and return the deterministic loop state for a period.
 
-    Joins the current ``mismatches`` summary (read from D1) with stored verdicts (from
-    the cache) to compute the open set, findings, data-quality items, the attachments to
-    re-scope next iteration, the per-iteration history, and a ``terminate`` signal.
-    Byte-stable for identical inputs.
+    Joins the current ``mismatches`` summary for the **whole period** (read from D1) with
+    stored verdicts (from the cache) to compute the open set, findings, data-quality
+    items, the ``affected_attachment_ids`` to re-queue next iteration, the per-iteration
+    history, and a ``terminate`` signal. Byte-stable for identical inputs. The loop runs
+    this period-wide (no id scoping): re-classification scope is controlled in D1 via
+    ``mark-pending`` on ``affected_attachment_ids``, not by scoping this read.
     """
     data = load_verdicts_file(cache_dir, period)
     latest = _latest_verdicts(data)
 
-    mismatches = summarize_mismatches(
-        target, [period], cache_dir=cache_dir, attachment_ids=attachment_ids, entry_ids=entry_ids
-    )
+    mismatches = summarize_mismatches(target, [period], cache_dir=cache_dir)
 
     open_keys: list[str] = []
     findings: list[str] = []

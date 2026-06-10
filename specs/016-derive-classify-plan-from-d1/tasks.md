@@ -72,6 +72,25 @@ T001; after one run the column is populated.
 - [ ] T025 Equivalence verification: on the feature branch (migration applied), re-run `cd scripts && uv run python -m analysis apply-extractions --periodo <P>` then `analyze --periodo <P>` for the baseline period(s) from T001; snapshot `attachment_analyses` + `alerts` to `/tmp/after_*.json` and diff against `/tmp/before_*.json`. Groups, `amount_match`/`vendor_match`/`date_match`, and `duplicate_billing` alerts MUST match. Confirm `ls .cache/analysis/*.extract-todo.json` finds nothing.
 - [ ] T026 Quality gates: `pnpm lint` and `pnpm format`; confirm `drizzle/0008_*.sql` + `src/db/fiscal.schema.ts` are committed together.
 
+## Phase 7: SQL-controlled classification state (revision — `classified_at`)
+
+Added after the initial implementation, per a design revision: replace the "pending = no analysis
+row" heuristic and the id-list threading with a stored `attachments.classified_at` (NULL = pending),
+controlled via SQL. Removes `--attachment-id`/`--entry-id`/`--reanalyze` from the classify selection
+path and updates the improve loop to mark dirty via SQL.
+
+- [x] T027 Add `attachments.classified_at` (timestamp_ms, nullable) to `src/db/fiscal.schema.ts`; generate + apply migration `0009_*.sql` (`ALTER TABLE attachments ADD COLUMN classified_at integer;`).
+- [x] T028 [US1] `select_work` (`scripts/analysis/attachments.py`): select pending = `classified_at IS NULL`; drop the `reanalyze`/`attachment_ids`/`entry_ids` params and the analysis-row-presence skip.
+- [x] T029 [US1] `_merge_and_write` (`attachments.py`): stamp `UPDATE attachments SET classified_at = <now_ms> WHERE id = …` alongside the analysis delete-then-insert (so the attachment leaves the pending set, even on error rows).
+- [x] T030 [US1] `build_plan`/`plan_extractions`/`apply_extractions` (`extractions.py`): drop the `reanalyze`/`attachment_ids`/`entry_ids` params; keep `min_amount`/`limit`.
+- [x] T031 [US1] Add `mark_pending(target, period, *, attachment_ids, entry_ids)` to `extractions.py` (clears `classified_at` via `d1.execute_sql`); wire a `mark-pending` CLI subcommand in `__main__.py`.
+- [x] T032 [US1] `__main__.py`: remove `--attachment-id`/`--entry-id`/`--reanalyze` from docs-plan + apply-extractions (keep `--min-amount`/`--limit`); remove `--attachment-id`/`--entry-id` from loop-state; keep them on `mismatches` (read filter) and add them to `mark-pending`.
+- [x] T033 [US1] `verdicts.py:loop_state`: drop the `attachment_ids`/`entry_ids` params (runs period-wide; `summarize_mismatches` called unscoped).
+- [x] T034 [P] Update `classify-period` skill + `analyze-docs` agent: no id flags; period-only; scope via `mark-pending`.
+- [x] T035 [P] Update `improve-classification` skill: re-queue `affected_attachment_ids` with `mark-pending` then re-run the period (no id-scoped analyze-docs); update boundaries.
+- [x] T036 [P] Docs: `CLAUDE.md`, `scripts/README.md` (add a `mark-pending` section), `scripts/pipeline-flow.md` (loop node + selection note).
+- [x] T037 Verify the DB-controlled cycle locally: docs-plan plans all pending → apply stamps `classified_at` → docs-plan plans 0 → `mark-pending --attachment-id <one>` → docs-plan plans exactly that one. (Done: 116→0→1.)
+
 ## Dependencies & Execution Order
 
 - **Setup (T001)** → before everything (baseline for equivalence).

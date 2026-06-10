@@ -1,7 +1,7 @@
 ---
 description: >-
-    The thin orchestrator for the self-improving document-classification loop. Runs analyze → review each mismatch (true/false/transient/page-error) → for each false, delegate a human-gated speckit fix that opens a PR → re-run scoped to the affected documents → repeat until convergence, a max-iteration cap, or a no-progress guard halts it. It coordinates only: every heavy step (vision, review, fix) is a separate context-isolated worker, and all loop bookkeeping lives in the deterministic `loop-state` CLI — so this skill never holds page images, diffs, or large state. Use it for "run the classification improvement loop for 2025-12" or to drive the loop over a subset of attachments.
-argument-hint: "[period] [--attachment-id <ids…>] [--entry-id <ids…>] [--max-iterations N] [--remote]"
+    The thin orchestrator for the self-improving document-classification loop. Runs analyze → review each mismatch (true/false/transient/page-error) → for each false, delegate a human-gated speckit fix that opens a PR → mark the affected attachments pending in D1 and re-run the period → repeat until convergence, a max-iteration cap, or a no-progress guard halts it. It coordinates only: every heavy step (vision, review, fix) is a separate context-isolated worker, and all loop bookkeeping lives in the deterministic `loop-state` CLI — so this skill never holds page images, diffs, or large state. Use it for "run the classification improvement loop for 2025-12".
+argument-hint: "[period] [--max-iterations N] [--remote]"
 allowed-tools: Task, Bash, Read, Glob, Skill
 ---
 
@@ -16,32 +16,35 @@ classification yourself, or merge a fix. Keeping your own context flat is a hard
 
 `$ARGUMENTS`: a period in `YYYY-MM` form (first token), optionally followed by:
 
-- `--attachment-id <id…>` / `--entry-id <id…>` — restrict the **initial** scope to a subset.
 - `--max-iterations N` — override the iteration cap (default 3). `--no-progress-window` (default 2)
   may also be forwarded to `loop-state`.
 - `--remote` — run the whole loop against the production D1 + R2 (default local). Forward it to the
-  `analyze-docs` delegation and to every `loop-state` command. (`record-verdict` writes only the local
-  cache file and takes no `--remote`.)
+  `analyze-docs` delegation, `mark-pending`, and every `loop-state` command. (`record-verdict` writes
+  only the local cache file and takes no `--remote`.)
+
+There is **no id-scoping argument**: which attachments get (re)classified is controlled in the
+database (the pending set, `attachments.classified_at IS NULL`). You re-queue work between iterations
+by marking attachments pending via `mark-pending` (step 5), not by passing id lists.
 
 Pipeline commands run from the repo's `scripts/` directory. The period data lives in Cloudflare D1
 and images in R2; the verdicts/loop-state working file lives in the local cache (`../.cache/analysis/`).
 
 # Loop
 
-Track only two things across iterations: the current `iteration` (starts at 1) and the current
-`scope` (initial subset, or the whole period). Everything else comes from `loop-state`.
+Track only the current `iteration` (starts at 1). Everything else comes from `loop-state` and D1 state.
 
 ### 1. Analyze (delegate)
 
-Delegate to the **`analyze-docs`** agent (via the Task tool) for the current `scope` — pass the period
-and any `--attachment-id`/`--entry-id`. It classifies, merges, runs checks, and returns ONLY a terse
-mismatch summary. Keep that summary; do not expand it.
+Delegate to the **`analyze-docs`** agent (via the Task tool) for the **period** (pass `--remote` if
+applicable; never id flags). It classifies the period's *pending* attachments, merges, runs checks, and
+returns ONLY a terse mismatch summary. Keep that summary; do not expand it. (On iteration 1 the pending
+set is everything; on later iterations it is exactly the attachments you re-queued in step 5.)
 
 ### 2. Loop state
 
 ```bash
 cd scripts && uv run python -m analysis loop-state --periodo <period> --iteration <iteration> \
-    [--max-iterations N] [--attachment-id <scope ids…>] [--entry-id <scope ids…>] [--remote]
+    [--max-iterations N] [--remote]
 ```
 
 Read `open`, `findings`, `data_quality`, `affected_attachment_ids`, and `terminate`. **If `terminate`
@@ -61,8 +64,9 @@ cd scripts && uv run python -m analysis record-verdict --periodo <period> --iter
 
 - **true** → leave as a finding. Never fix, never suppress (FR-010).
 - **page-error** → leave as a data-quality item. Never fix.
-- **transient** → add its document to the next iteration's `scope` for **one** re-classification
-  attempt; do **not** delegate a fix.
+- **transient** → its mismatch stays open, so its attachment is already in
+  `affected_attachment_ids` and will be re-queued in step 5 for **one** re-classification attempt; do
+  **not** delegate a fix.
 - **false** → delegate the **`fix-mismatch`** worker (via the Task tool) with the mismatch + its
   `root_cause`. It opens a PR and **never merges**. Record the PR reference:
 
@@ -71,15 +75,23 @@ cd scripts && uv run python -m analysis record-verdict --periodo <period> --iter
       --json '{"mismatch_key":"<key>"}' --fix-branch <b> --fix-pr <url> --fix-status pr-open --fix-summary "<one line>"
   ```
 
-### 5. Rescope and continue
+### 5. Re-queue and continue
 
 ```bash
 cd scripts && uv run python -m analysis loop-state --periodo <period> [--remote]
 ```
 
-Set `scope ← --attachment-id <affected_attachment_ids>` (re-runs after the first iteration are scoped —
-FR-009/SC-006). If `terminate` is now non-null → Report. Otherwise `iteration ← iteration + 1` and go
-back to step 1.
+If `terminate` is now non-null → Report. Otherwise **mark the affected attachments pending in D1** so
+the next iteration re-classifies exactly them (re-runs after the first iteration are scoped via DB
+state, not id flags — FR-009/SC-006):
+
+```bash
+cd scripts && uv run python -m analysis mark-pending --periodo <period> \
+    --attachment-id <affected_attachment_ids…> [--remote]
+```
+
+Then `iteration ← iteration + 1` and go back to step 1. (If `affected_attachment_ids` is empty,
+`terminate` will already be set, so you will have gone to Report.)
 
 ### Report (on termination)
 
@@ -93,11 +105,11 @@ anything.
 - **Delegation only**: vision, review, and fix each run in their own worker (Task tool). You handle
   ids + terse JSON; you never read page images, run `classify-*`/`apply-extractions`, or inspect
   diffs yourself.
-- **Scoped re-runs**: after iteration 1, always pass `--attachment-id <affected_attachment_ids>`, never
-  re-run the whole period.
+- **Scoped re-runs via D1**: after iteration 1, re-queue only `affected_attachment_ids` with
+  `mark-pending`, then re-run the period; never widen the scope by re-classifying already-classified
+  attachments. The pending set in D1 is the scope.
 - **Findings preserved**: every `true` mismatch is reported each iteration and never fixed.
 - **Human-gated**: fixes may open PRs; you NEVER merge or push to `main`.
 - **Always terminates**: stop the instant `loop-state` reports `terminate`. Do not invent your own
   stop logic — obey the deterministic signal.
-- **Minimal state**: keep only `iteration` and `scope` in mind; re-read everything else from
-  `loop-state`.
+- **Minimal state**: keep only `iteration` in mind; re-read everything else from `loop-state` and D1.

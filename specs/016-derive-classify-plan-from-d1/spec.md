@@ -144,8 +144,18 @@ match the pre-change behavior.
   different attachment.
 - **FR-005**: The classification plan (the list of pending representative attachments and
   their page references for the classify step) MUST be produced from the database. "Pending"
-  MUST keep its current meaning — an attachment with no existing analysis is pending unless
-  re-analysis is explicitly requested.
+  MUST be a stored, SQL-queryable fact on the attachment (a `classified_at` timestamp, NULL =
+  pending): the apply step stamps it once an analysis is written, and the plan selects only
+  attachments where it is NULL.
+- **FR-013**: Re-classification scope MUST be controlled in the database, not by id arguments
+  threaded through the CLI, skills, or agents. A SQL update that clears `classified_at` for
+  chosen attachments (exposed as a `mark-pending` command) MUST re-queue exactly those for the
+  next plan/apply run. The classify-period skill, analyze-docs agent, and the docs-plan /
+  apply-extractions commands MUST NOT take attachment/entry id selection flags.
+- **FR-014**: The self-improving loop MUST re-queue work between iterations by marking the
+  affected attachments pending in the database (clearing `classified_at`) and re-running the
+  period, rather than passing affected ids as scope flags. It MUST still re-process only the
+  affected attachments (everything else stays classified and is skipped).
 - **FR-006**: The apply-extractions step MUST derive each group's representative, member
   list, per-member context (attachment id, entry id, entry amount, vendor name), sibling
   sum, and group size from the database, and produce `attachment_analyses` (and flattened
@@ -169,10 +179,12 @@ match the pre-change behavior.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Attachment**: the per-entry multi-page bundle downloaded from the portal. Gains a stored
-  **content fingerprint** attribute — a stable hash over its page-image bytes that identifies
-  which attachments carry byte-identical pages (the same Nota Fiscal). Nullable: empty when
-  pages are absent/unreadable or for data captured before this feature.
+- **Attachment**: the per-entry multi-page bundle downloaded from the portal. Gains two stored
+  attributes: (1) a **content fingerprint** — a stable hash over its page-image bytes that
+  identifies which attachments carry byte-identical pages (the same Nota Fiscal); nullable when
+  pages are absent/unreadable or for data captured before this feature; and (2) a **classified-at**
+  marker (timestamp, NULL = pending) — the work-selection key the plan filters on and the apply
+  step stamps. Re-classification = clearing this marker via SQL.
 - **Shared-NF group**: the set of attachments sharing one content fingerprint. Has a
   representative (highest-amount member), a member list with per-member ledger context, a
   sibling sum (sum of member entry amounts over the full group), and a size. Derived, not
@@ -196,15 +208,30 @@ match the pre-change behavior.
   documented fallback for not-yet-backfilled data.
 - **SC-005**: A schema migration adding the fingerprint column is present and applies cleanly
   locally.
+- **SC-006**: Work selection is a pure function of D1 state: after `apply-extractions`, the selected
+  attachments have a non-NULL `classified_at` and a re-run plans nothing; clearing `classified_at`
+  for a chosen set (via `mark-pending`) makes the next plan select exactly that set — with no
+  attachment/entry id flags on docs-plan, apply-extractions, the classify-period skill, or the
+  analyze-docs agent.
 
 ## Assumptions
 
-- **No new classification-status column.** The issue flags an optional
-  `classification_status` / `classified_at` column as a "decision point." This feature does
-  **not** add it: "pending = no `attachment_analyses` row" already works, and targeted
-  re-classification already works by threading `--attachment-id`/`--entry-id` through the
-  skills/agents. Adding a status column is out of scope here and can be revisited
-  independently.
+- **Classification state is a stored `classified_at` timestamp (the issue's decision point,
+  resolved to "add it").** The issue flagged an optional `classification_status` / `classified_at`
+  column. This feature **adds `attachments.classified_at`** (NULL = pending) so the work set is a
+  pure function of D1 state and re-classification is a deterministic SQL update — replacing the
+  previous "pending = no analysis row" heuristic and the id-list threading. (An earlier draft of
+  this spec deferred the column; that decision was reversed on request to make scope SQL-controlled
+  and deterministic.) A plain `classified_at` timestamp was chosen over a multi-value status enum
+  because only two states are needed (pending / classified) and the timestamp also records when.
+- **Re-scrape / image backfill resets `classified_at` to NULL (re-pull ⇒ re-classify).** The
+  upsert model is `INSERT OR REPLACE`, which rewrites the whole attachments row, so re-scraping a
+  period (or backfilling its images) leaves `classified_at` NULL — i.e. pending again. This is the
+  intended, deterministic semantic: refreshed source data is re-verified. (Image backfill only
+  touches attachments whose `file_path` was NULL, which were unclassified anyway.)
+- **`min_amount` / `limit` filters are retained** on docs-plan/apply as orthogonal convenience
+  filters over the pending set; they are not id-targeting and do not undermine the SQL-controlled
+  scope.
 - **Fingerprint algorithm reuses today's content hash.** To guarantee identical grouping,
   the persisted fingerprint uses the same algorithm the pipeline already uses
   (`nf_groups.content_hash`: a length-delimited per-page byte hash in page order). The pure

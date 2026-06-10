@@ -73,17 +73,17 @@ vision step and runs inside Claude Code via skills/agent — the old local VLM (
 
 ```bash
 cd scripts
-uv run python -m analysis docs-plan --periodo 2025-12 [--attachment-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis docs-plan --periodo 2025-12 [--min-amount N] [--limit N]
 ```
 
-Reads the period from D1, materializes its page images from R2 into the cache, selects the attachments
-to analyze (a whole period, or just the attachments/entries you name), and groups **byte-identical Nota
-Fiscal copies** so each unique invoice is read only once. Grouping reads the persisted
-`attachments.content_hash` (computed at scrape time); for rows captured before that column existed it
-falls back to hashing the materialized page files. **Prints the plan as JSON to stdout** — the
-representative page images to read (local cache `read_path`s) plus the ledger context for
-reconciliation — and writes **no manifest file**. Targeting specific ids re-plans those even if already
-analyzed.
+Reads the period from D1, materializes the **pending** attachments' page images from R2 into the cache,
+and groups **byte-identical Nota Fiscal copies** so each unique invoice is read only once. Grouping
+reads the persisted `attachments.content_hash` (computed at scrape time); for rows captured before that
+column existed it falls back to hashing the materialized page files. **Prints the plan as JSON to
+stdout** — the representative page images to read (local cache `read_path`s) plus the ledger context for
+reconciliation — and writes **no manifest file**. The work set is whatever is _pending_
+(`classified_at IS NULL`); there are no id flags — to (re)classify a subset, mark it pending in D1 with
+`mark-pending` (below).
 
 ### 2. `classify` — read each page image into structured fields (vision)
 
@@ -98,16 +98,28 @@ This is the only non-deterministic step.
 
 ```bash
 cd scripts
-uv run python -m analysis apply-extractions --periodo 2025-12 [--attachment-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis apply-extractions --periodo 2025-12 [--min-amount N] [--limit N]
 ```
 
-Re-derives the same plan from D1 (no manifest — same `content_hash` grouping `docs-plan` used; pass the
-same selection flags for a scoped re-run), reads each page's `.classify.json`, rolls each document up
-(heterogeneity-aware: a document bundling an invoice, a boleto, and a payment proof resolves to one
-amount by precedence), reconciles shared-NF groups (sum of sibling entries vs. the NF total), fans the
-result out to the sibling entries, validates amount / vendor / date against the ledger entry, and writes
-`attachment_analyses` (with per-page `analysis_records`) into D1. It also lazily backfills
-`attachments.content_hash` for any legacy rows it materializes.
+Re-derives the same pending-set plan from D1 (no manifest — same `content_hash` grouping `docs-plan`
+used), reads each page's `.classify.json`, rolls each document up (heterogeneity-aware: a document
+bundling an invoice, a boleto, and a payment proof resolves to one amount by precedence), reconciles
+shared-NF groups (sum of sibling entries vs. the NF total), fans the result out to the sibling entries,
+validates amount / vendor / date against the ledger entry, and writes `attachment_analyses` (with
+per-page `analysis_records`) into D1. It **stamps `attachments.classified_at`** on each processed
+attachment (so it leaves the pending set) and lazily backfills `attachments.content_hash` for any legacy
+rows it materializes.
+
+To re-classify specific attachments (e.g. after merging a classifier fix), mark them pending first:
+
+```bash
+cd scripts
+uv run python -m analysis mark-pending --periodo 2025-12 --attachment-id <ids…> [--entry-id <ids…>]
+```
+
+`mark-pending` clears `classified_at` (`UPDATE attachments SET classified_at = NULL …`) so the next
+`docs-plan`/`apply-extractions` re-processes exactly those. This is how scope is controlled — by D1
+state, deterministically — instead of passing id flags through the classify pipeline.
 
 ### 4. `analyze` — run the checks
 
@@ -155,7 +167,7 @@ cd scripts
 # 1. Plan + classify the attachments (steps 1-2). In Claude Code, invoke the
 #    classify-period skill for the period; it runs docs-plan (materializing images
 #    from R2, printing the plan to stdout) and writes the per-page <image>.classify.json
-#    files in the cache. (Or analyze a subset with --attachment-id.)
+#    files in the cache. (To analyze a subset, `mark-pending` those attachments first.)
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12

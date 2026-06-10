@@ -27,6 +27,7 @@ import json
 import logging
 from pathlib import Path
 
+from common import d1
 from common.d1 import Target
 
 from .attachments import (
@@ -100,29 +101,20 @@ def build_plan(
     cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
     limit: int | None = None,
-    reanalyze: bool = False,
-    attachment_ids: list[str] | None = None,
-    entry_ids: list[str] | None = None,
 ) -> list[dict]:
     """Derive the per-period extraction plan from loaded D1 data (no file).
 
     Pure function of the already-loaded ``periods`` + ``refs`` (and the materialized
-    page images they point at): selects + groups the attachments to analyze via
-    ``select_work`` and returns one plan envelope per period —
-    ``{period, cache_dir, generated_for, groups: [...]}`` — where each group lists its
-    representative attachment's pages and the full member list. This is the same
+    page images they point at): selects + groups the **pending** attachments (those with
+    ``classified_at IS NULL``) via ``select_work`` and returns one plan envelope per
+    period — ``{period, cache_dir, generated_for, groups: [...]}`` — where each group
+    lists its representative attachment's pages and the full member list. This is the same
     structure the old ``<period>.extract-todo.json`` manifest held, so both
     ``plan_extractions`` (prints it) and ``apply_extractions`` (applies it) build it the
-    same way and stay consistent without a shared file.
+    same way and stay consistent without a shared file. Which attachments are pending is
+    controlled in D1 (``mark-pending``), not by id arguments here.
     """
-    work = select_work(
-        periods,
-        min_amount=min_amount,
-        limit=limit,
-        reanalyze=reanalyze,
-        attachment_ids=attachment_ids,
-        entry_ids=entry_ids,
-    )
+    work = select_work(periods, min_amount=min_amount, limit=limit)
 
     # Group selected items by period then NF group, preserving the amount-desc
     # order from select_work so items[0] is the highest-amount representative.
@@ -130,13 +122,7 @@ def build_plan(
     for item in work:
         by_period.setdefault(item.period, {}).setdefault(item.group_key, []).append(item)
 
-    generated_for = {
-        "min_amount": min_amount,
-        "limit": limit,
-        "reanalyze": reanalyze,
-        "attachment_ids": attachment_ids,
-        "entry_ids": entry_ids,
-    }
+    generated_for = {"min_amount": min_amount, "limit": limit}
 
     envelopes: list[dict] = []
     for period, groups in by_period.items():
@@ -193,18 +179,15 @@ def plan_extractions(
     cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
     limit: int | None = None,
-    reanalyze: bool = False,
-    attachment_ids: list[str] | None = None,
-    entry_ids: list[str] | None = None,
 ) -> list[dict]:
     """Print the DB-derived work plan to stdout (no manifest file).
 
     Materializes the period's page images from R2 into the cache (so each page's
     ``read_path`` points at a local file the vision skill can read and grouping can hash
-    legacy rows), derives the plan via ``build_plan``, and prints it as a JSON list of
-    per-period envelopes to **stdout** — which the ``classify-period`` skill parses. All
-    human/progress text goes to the log (stderr), keeping stdout pure JSON. Returns the
-    envelopes too (for in-process callers/tests).
+    legacy rows), derives the plan of **pending** attachments via ``build_plan``, and
+    prints it as a JSON list of per-period envelopes to **stdout** — which the
+    ``classify-period`` skill parses. All human/progress text goes to the log (stderr),
+    keeping stdout pure JSON. Returns the envelopes too (for in-process callers/tests).
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
@@ -218,16 +201,7 @@ def plan_extractions(
     # happens in apply-extractions instead.
     materialize_period_images(periods, cache_dir, target, backfill_hash=False)
 
-    envelopes = build_plan(
-        periods,
-        refs,
-        cache_dir=cache_dir,
-        min_amount=min_amount,
-        limit=limit,
-        reanalyze=reanalyze,
-        attachment_ids=attachment_ids,
-        entry_ids=entry_ids,
-    )
+    envelopes = build_plan(periods, refs, cache_dir=cache_dir, min_amount=min_amount, limit=limit)
 
     total_groups = sum(len(env["groups"]) for env in envelopes)
     total_pages = sum(len(g["pages"]) for env in envelopes for g in env["groups"])
@@ -253,9 +227,6 @@ def apply_extractions(
     cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
     limit: int | None = None,
-    reanalyze: bool = False,
-    attachment_ids: list[str] | None = None,
-    entry_ids: list[str] | None = None,
 ) -> None:
     """Merge per-page classifications into ``attachment_analyses`` in D1.
 
@@ -264,13 +235,14 @@ def apply_extractions(
     analysis from each page's sibling ``<image-stem>.classify.json`` (via
     ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out to
     sibling members, and writes each result to D1 (delete-then-insert) — the same output
-    the old flow produced. A page whose ``.classify.json`` is missing is recorded as a
-    per-page error and does not abort the attachment.
+    the old flow produced, then stamps ``attachments.classified_at`` so each leaves the
+    pending set. A page whose ``.classify.json`` is missing is recorded as a per-page
+    error and does not abort the attachment.
 
-    The selection flags mirror ``docs-plan`` so a scoped run (e.g. the improve loop
-    re-analyzing specific ``--attachment-id``\\ s after a fix) re-applies exactly the
-    same attachments the scoped plan listed — the scope travels as arguments now that the
-    manifest is gone.
+    There are no id arguments: the set of attachments processed is exactly the **pending**
+    set (``classified_at IS NULL``), which is controlled in D1 via ``mark-pending``. So a
+    scoped re-run is "mark those attachments pending, then run this" — deterministic and
+    file-free.
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
@@ -281,16 +253,7 @@ def apply_extractions(
     # legacy rows get a content_hash for grouping/backfill.
     materialize_period_images(periods, cache_dir, target)
 
-    envelopes = build_plan(
-        periods,
-        refs,
-        cache_dir=cache_dir,
-        min_amount=min_amount,
-        limit=limit,
-        reanalyze=reanalyze,
-        attachment_ids=attachment_ids,
-        entry_ids=entry_ids,
-    )
+    envelopes = build_plan(periods, refs, cache_dir=cache_dir, min_amount=min_amount, limit=limit)
 
     provider = FileExtractionProvider()
     all_results: list[AttachmentAnalysisResult] = []
@@ -348,6 +311,39 @@ def apply_extractions(
         logger.info("No extractions applied")
         return
     summarize_results(all_results)
+
+
+def mark_pending(
+    target: Target,
+    period: str | None = None,
+    *,
+    attachment_ids: list[str] | None = None,
+    entry_ids: list[str] | None = None,
+) -> int:
+    """Clear ``attachments.classified_at`` for the given attachments/entries (re-queue them).
+
+    The deterministic, SQL-controlled way to request re-classification: a marked
+    attachment becomes **pending** again, so the next ``docs-plan``/``apply-extractions``
+    picks it up — without threading id lists through the classify pipeline. Scoping is by
+    attachment id and/or entry id (ids are globally unique deterministic UUIDs);
+    ``period`` is accepted for symmetry/logging and is not required for the match. Returns
+    the number of ids requested (0 when none are given).
+    """
+    clauses = []
+    if attachment_ids:
+        ids = ",".join("'" + str(i).replace("'", "''") + "'" for i in attachment_ids)
+        clauses.append(f"id IN ({ids})")
+    if entry_ids:
+        eids = ",".join("'" + str(i).replace("'", "''") + "'" for i in entry_ids)
+        clauses.append(f"entry_id IN ({eids})")
+    if not clauses:
+        logger.info("mark-pending: no attachment/entry ids given; nothing to do")
+        return 0
+    where = " OR ".join(clauses)
+    d1.execute_sql(f"UPDATE attachments SET classified_at = NULL WHERE {where};", target=target)
+    n = len(attachment_ids or []) + len(entry_ids or [])
+    logger.info("mark-pending: requested re-classification for %d id(s)%s", n, f" in {period}" if period else "")
+    return n
 
 
 def _page_refs_for_doc(doc: dict | None) -> list[dict]:

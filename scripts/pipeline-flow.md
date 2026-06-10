@@ -25,6 +25,7 @@ For command reference and usage, see [`scripts/README.md`](./README.md).
 - All Python ↔ Cloudflare access goes through **`scripts/common/d1.py`**, a thin wrapper around the `wrangler` CLI (`d1 execute`, `r2 object put/get`). The `--remote` flag selects **production** Cloudflare; default is **local Miniflare** (`.wrangler/state`).
 - D1 (`DATABASE` → `fiscal-db`) and R2 (`DOCUMENTS` → `fiscal-documents`) are the source of truth. There is **no** `data/scrape/*.json` anymore.
 - `.cache/analysis/<period>/` is **ephemeral, git-ignored scratch** (materialized images, per-page `*.classify.json`, and the loop's `*.verdicts.json`). Reproducible from R2; never a source of truth. The extraction plan is **derived from D1 each run** (`attachments.content_hash` is the shared-NF grouping key); there is **no manifest file**.
+- **Work selection is DB-controlled:** the plan is the _pending_ set — attachments with `classified_at IS NULL`. `apply-extractions` stamps `classified_at`; to (re)classify a subset, mark it pending via `analysis mark-pending --attachment-id <ids…>` (clears `classified_at`) rather than threading id flags through the classify pipeline.
 
 ## Architecture
 
@@ -154,7 +155,7 @@ flowchart LR
     R -->|false: system bug| F["fix-mismatch → PR (human-gated)"]
     R -->|transient| RE
     R -->|page-error| keep
-    F --> RE["re-run scoped to<br/>affected_attachment_ids"]
+    F --> RE["mark-pending affected_attachment_ids<br/>(classified_at=NULL) + re-run period"]
     RE --> S{"loop-state:<br/>terminate?"}
     S -->|converged / max-iterations / no-progress| done["stop"]
     S -->|no| A

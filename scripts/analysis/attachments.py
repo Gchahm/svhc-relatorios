@@ -641,20 +641,26 @@ def build_attachment_analysis(
 
 
 def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
-    """Write one attachment's analysis to D1 as delete-then-insert.
+    """Write one attachment's analysis to D1 as delete-then-insert, then mark it classified.
 
     Reproduces the old "drop existing for this attachment_id, append" semantics: a
     plain INSERT OR REPLACE alone would orphan stale per-page ``attachment_analysis_records``
     when a re-analysis yields fewer pages or a different NF grouping, so the prior
     analysis row and its records are deleted first. Called after each attachment so
     partial results land incrementally and an interruption is healed by a re-run.
+
+    Stamps ``attachments.classified_at`` so the attachment leaves the pending set (even
+    when the analysis is an error row — it has been attempted; a re-attempt is requested
+    deterministically via ``mark-pending``). This is the write that makes the work
+    selection a pure function of D1 state.
     """
     doc_analysis_id = det_id("attachment_analysis", result.attachment_id)
     did = result.attachment_id.replace("'", "''")
     aid = doc_analysis_id.replace("'", "''")
     d1.execute_sql(
         f"DELETE FROM attachment_analysis_records WHERE attachment_analysis_id = '{aid}';\n"
-        f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';",
+        f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';\n"
+        f"UPDATE attachments SET classified_at = {now_ms()} WHERE id = '{did}';",
         target=target,
     )
     d1.upsert_tables({"attachment_analyses": [result.to_dict()]}, target=target)
@@ -678,31 +684,22 @@ def select_work(
     *,
     min_amount: float | None = None,
     limit: int | None = None,
-    reanalyze: bool = False,
-    attachment_ids: list[str] | None = None,
-    entry_ids: list[str] | None = None,
 ) -> list[WorkItem]:
-    """Select attachments to analyze, grouped by byte-identical NF content.
+    """Select the PENDING attachments to analyze, grouped by byte-identical NF content.
 
-    The single source of truth for "what to analyze", shared by the legacy VLM
-    runner and the agent-flow planner. Applies the id/min-amount filters and
-    skip-already-analyzed (unless ``reanalyze`` or specific ids are targeted),
-    computes each group's FULL sibling sum + size (so a sibling dropped by a
-    filter still counts toward reconciliation), sorts by entry amount descending,
-    and truncates to ``limit``.
+    The single source of truth for "what to analyze". An attachment is **pending**
+    when its ``classified_at`` is unset (NULL); ``apply-extractions`` stamps
+    ``classified_at`` once it writes an analysis, so a classified attachment drops
+    out. Targeted re-classification is therefore controlled **in the database**
+    (``UPDATE attachments SET classified_at = NULL …`` via the ``mark-pending``
+    command) rather than by threading id lists through the CLI/skills. Applies the
+    optional ``min_amount`` filter, computes each group's FULL sibling sum + size (so a
+    sibling dropped by a filter still counts toward reconciliation), sorts by entry
+    amount descending, and truncates to ``limit``.
     """
-    attachment_id_filter = set(attachment_ids) if attachment_ids else None
-    entry_id_filter = set(entry_ids) if entry_ids else None
-    targeted = attachment_id_filter is not None or entry_id_filter is not None
-
     work: list[WorkItem] = []
     for period_key, period_data in periods.items():
         entry_map = {e["id"]: e for e in period_data.entries}
-        # Targeting specific ids implies reanalyze for them, so they are never
-        # skipped as "already analyzed".
-        existing = set()
-        if not reanalyze and not targeted:
-            existing = {a["attachment_id"] for a in period_data.raw.get("attachment_analyses", [])}
 
         with_path = [d for d in period_data.attachments if d.get("file_path")]
         groups = group_attachments(with_path)
@@ -722,11 +719,9 @@ def select_work(
         for doc in period_data.attachments:
             if not doc.get("file_path"):
                 continue
-            if attachment_id_filter is not None and doc["id"] not in attachment_id_filter:
-                continue
-            if entry_id_filter is not None and doc["entry_id"] not in entry_id_filter:
-                continue
-            if doc["id"] in existing:
+            # Pending = not yet classified. Re-classification is requested by clearing
+            # classified_at in D1 (mark-pending), so there is no id/reanalyze filter here.
+            if doc.get("classified_at") is not None:
                 continue
             entry = entry_map.get(doc["entry_id"])
             if not entry:
