@@ -6,21 +6,24 @@ per period by `.claude/skills/classify-period`):
 
 1. ``plan_extractions`` selects + groups the attachments to analyze (reusing
    ``select_work``) and **prints** the work plan as JSON to stdout — the
-   ``classify-period`` skill parses that, no file is written.
-2. The vision skill views each representative page image and writes, **next to the
-   image**, a per-page ``<image-stem>.classify.json`` holding that page's parsed
-   fields (or ``{"error": ...}``).
+   ``classify-period`` skill parses that, no file is written. Each plan page carries a
+   ``recorded`` flag (whether its extraction is already in D1) so the skill can
+   re-dispatch only the pages still missing one.
+2. The vision skill views each representative page image and **records** that page's
+   parsed fields (or ``{"error": ...}``) directly to the D1 ``page_classifications``
+   staging table, via the ``record-classification`` CLI (feature 017 — there is no
+   ``.classify.json`` file).
 3. ``apply_extractions`` re-derives the identical plan from D1 (the plan is a pure
-   function of D1 + materialized images via ``build_plan``), reads each page's sibling
-   ``.classify.json`` (via ``FileExtractionProvider``), and runs the existing
+   function of D1 + materialized images via ``build_plan``), reads each page's recorded
+   extraction from D1 (via ``D1ExtractionProvider``), and runs the existing
    deterministic roll-up / group reconciliation / sibling fan-out / entry
-   validation / write-back, producing ``attachment_analyses`` identical in shape to
-   the old flow.
+   validation / write-back, producing the authoritative ``attachment_analyses``.
 
 The plan is derived from the database (feature 016): the shared-NF grouping key lives
 in ``attachments.content_hash`` (written at scrape time), so there is no longer a
 ``<period>.extract-todo.json`` manifest. The per-page classification contract is
-``.claude/skills/classify-doc-page``.
+``.claude/skills/classify-doc-page``; the staging-table seam is
+``.page_classifications`` (``record_classification`` / ``D1ExtractionProvider``).
 """
 
 import json
@@ -36,62 +39,17 @@ from .attachments import (
     _fanout_result,
     _merge_and_write,
     _page_label_from_path,
-    _parse_json_blob,
     build_attachment_analysis,
     select_work,
     summarize_results,
 )
 from .images import materialize_period_images
 from .loader import load_all_periods
+from .page_classifications import D1ExtractionProvider
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_DIR = "../.cache/analysis"
-
-
-CLASSIFY_SUFFIX = ".classify.json"
-
-
-def classify_path_for(image_path: str | Path) -> Path:
-    """Sibling classification file for a page image.
-
-    `classify-doc-page` writes its result next to the image, replacing the image
-    extension with ``.classify.json`` (e.g. ``<id>_p1.png`` -> ``<id>_p1.classify.json``).
-    """
-    p = Path(image_path)
-    return p.with_name(p.stem + CLASSIFY_SUFFIX)
-
-
-class FileExtractionProvider:
-    """Extraction provider backed by per-image ``<image-stem>.classify.json`` files.
-
-    For a page image path it loads the sibling classification file written by the
-    `classify-doc-page` skill and returns ``(fields, None)`` for a fields object,
-    ``(None, reason)`` for an ``{"error": ...}`` object, and
-    ``(None, "no classification for page")`` when the file is absent — matching the
-    ``ExtractionProvider`` seam in ``attachments.build_attachment_analysis``. Stateless:
-    each lookup resolves the sibling file fresh, so a page classified after the run
-    started is still picked up.
-    """
-
-    def __call__(self, path: str) -> tuple[dict | None, str | None]:
-        cp = classify_path_for(path)
-        if not cp.exists():
-            return None, "no classification for page (run classify-doc-page)"
-        try:
-            val = json.loads(cp.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            return None, f"invalid classification json ({cp.name}): {e}"
-        # Tolerate a string-wrapped JSON object just in case.
-        if isinstance(val, str):
-            val = _parse_json_blob(val)
-            if val is None:
-                return None, f"unparseable classification json ({cp.name})"
-        if not isinstance(val, dict):
-            return None, f"invalid classification entry ({cp.name})"
-        if "error" in val:
-            return None, str(val.get("error") or "classification error")
-        return val, None
 
 
 def build_plan(
@@ -126,6 +84,12 @@ def build_plan(
 
     envelopes: list[dict] = []
     for period, groups in by_period.items():
+        # Pages already recorded in the staging table (so classify-period can re-dispatch
+        # only the ones still missing — the DB-derived completeness check). Keyed by
+        # (attachment_id, page_label), matching the record/lookup key.
+        recorded_keys = {
+            (r["attachment_id"], r["page_label"]) for r in periods[period].raw.get("page_classifications", [])
+        }
         out_groups = []
         for gkey, items in groups.items():
             rep = items[0]
@@ -136,6 +100,7 @@ def build_plan(
                     "page_label": _page_label_from_path(token, idx),
                     "path": token,
                     "read_path": str(Path(token).resolve()),
+                    "recorded": (rep.attachment["id"], _page_label_from_path(token, idx)) in recorded_keys,
                 }
                 for idx, token in enumerate(tokens)
             ]
@@ -212,7 +177,7 @@ def plan_extractions(
 
     logger.info(
         "Planned %d group(s), %d representative page(s) across %d period(s). "
-        "Next: classify each page (classify-doc-page writes <image>.classify.json), then apply-extractions.",
+        "Next: classify each page (classify-doc-page records each to D1), then apply-extractions.",
         total_groups, total_pages, len(envelopes),
     )
     # stdout is pure JSON so the classify-period skill can parse it directly.
@@ -232,33 +197,35 @@ def apply_extractions(
 
     Re-derives the same plan ``docs-plan`` produced (via ``build_plan`` from D1 +
     materialized images — no manifest file), rebuilds each representative attachment's
-    analysis from each page's sibling ``<image-stem>.classify.json`` (via
-    ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out to
-    sibling members, and writes each result to D1 (delete-then-insert) — the same output
-    the old flow produced, then stamps ``attachments.classified_at`` so each leaves the
-    pending set. A page whose ``.classify.json`` is missing is recorded as a per-page
-    error and does not abort the attachment.
+    analysis from each page's extraction recorded in the ``page_classifications`` staging
+    table (via ``D1ExtractionProvider``), reconciles shared-NF groups, fans the extraction
+    out to sibling members, and writes each result to D1 (delete-then-insert), then stamps
+    ``attachments.classified_at`` so each leaves the pending set. A page with no recorded
+    classification is recorded as a per-page error and does not abort the attachment.
 
-    There are no id arguments: the set of attachments processed is exactly the **pending**
-    set (``classified_at IS NULL``), which is controlled in D1 via ``mark-pending``. So a
-    scoped re-run is "mark those attachments pending, then run this" — deterministic and
-    file-free.
+    The per-page extractions come from D1, not a cache file, so a re-run depends only on
+    D1 state (clearing the cache cannot lose recorded vision work). There are no id
+    arguments: the set of attachments processed is exactly the **pending** set
+    (``classified_at IS NULL``), controlled in D1 via ``mark-pending``. So a scoped re-run
+    is "mark those attachments pending, then run this" — deterministic and file-free.
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
         logger.info("No periods to apply")
         return
 
-    # Bring images local (R2 -> cache) so the sibling .classify.json files resolve and
-    # legacy rows get a content_hash for grouping/backfill.
+    # Bring images local (R2 -> cache) so grouping works and legacy rows get a
+    # content_hash for grouping/backfill (per-page extractions come from D1, not files).
     materialize_period_images(periods, cache_dir, target)
 
     envelopes = build_plan(periods, refs, cache_dir=cache_dir, min_amount=min_amount, limit=limit)
 
-    provider = FileExtractionProvider()
     all_results: list[AttachmentAnalysisResult] = []
     for env in envelopes:
         period = env["period"]
+        # Per-page extractions for this period come from the D1 staging table (loaded into
+        # the period's raw dict), keyed by (attachment_id, page_label) — no cache file.
+        provider = D1ExtractionProvider(periods[period].raw.get("page_classifications", []))
         results: list[AttachmentAnalysisResult] = []
         for group in env["groups"]:
             gsize = group["group_size"]
@@ -268,8 +235,8 @@ def apply_extractions(
             if rep_member is None:
                 continue
 
-            # Use the absolute read_path so the sibling .classify.json resolves
-            # regardless of the current working directory; fall back to path.
+            # The page tokens only drive page count + page_label derivation here (the
+            # per-page extractions are looked up in D1 by (attachment_id, page_label)).
             rep_file_path = ";".join(p.get("read_path") or p["path"] for p in group["pages"])
             rep_result = build_attachment_analysis(
                 rep_file_path,

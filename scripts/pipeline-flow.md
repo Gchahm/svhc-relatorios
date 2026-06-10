@@ -10,7 +10,7 @@ For command reference and usage, see [`scripts/README.md`](./README.md).
 | Scrape ledger + download attachments                 | **Your machine** (Python + Playwright, run from `scripts/`) | `python -m scraper scrape --download-docs [--remote]`      |
 | Backfill missing attachment images                   | Your machine                                                | `python -m scraper download-docs [--remote]`               |
 | Plan extraction work (DB-derived, printed to stdout) | Your machine                                                | `python -m analysis docs-plan [--remote]`                  |
-| Read ONE page image → fields                         | **Claude Code** (vision skill, via the Read tool)           | `classify-doc-page` skill                                  |
+| Read ONE page image → fields, record to D1           | **Claude Code** (vision skill) + `record-classification` CLI | `classify-doc-page` skill                                  |
 | Orchestrate per-page classification                  | Claude Code                                                 | `classify-period` skill (runs `docs-plan`, fans out pages) |
 | Merge classifications → roll-up + reconcile          | Your machine                                                | `python -m analysis apply-extractions [--remote]`          |
 | Run checks → write alerts                            | Your machine                                                | `python -m analysis analyze [--remote]`                    |
@@ -24,7 +24,7 @@ For command reference and usage, see [`scripts/README.md`](./README.md).
 
 - All Python ↔ Cloudflare access goes through **`scripts/common/d1.py`**, a thin wrapper around the `wrangler` CLI (`d1 execute`, `r2 object put/get`). The `--remote` flag selects **production** Cloudflare; default is **local Miniflare** (`.wrangler/state`).
 - D1 (`DATABASE` → `fiscal-db`) and R2 (`DOCUMENTS` → `fiscal-documents`) are the source of truth. There is **no** `data/scrape/*.json` anymore.
-- `.cache/analysis/<period>/` is **ephemeral, git-ignored scratch** (materialized images, per-page `*.classify.json`, and the loop's `*.verdicts.json`). Reproducible from R2; never a source of truth. The extraction plan is **derived from D1 each run** (`attachments.content_hash` is the shared-NF grouping key); there is **no manifest file**.
+- `.cache/analysis/<period>/` is **ephemeral, git-ignored scratch** (materialized images and the loop's `*.verdicts.json`). Reproducible from R2; never a source of truth. Per-page classifications live in **D1** (`page_classifications`), not the cache, so clearing scratch never loses vision work. The extraction plan is **derived from D1 each run** (`attachments.content_hash` is the shared-NF grouping key); there is **no manifest file**.
 - **Work selection is DB-controlled:** the plan is the _pending_ set — attachments with `classified_at IS NULL`. `apply-extractions` stamps `classified_at`; to (re)classify a subset, mark it pending via `analysis mark-pending --attachment-id <ids…>` (clears `classified_at`) rather than threading id flags through the classify pipeline.
 
 ## Architecture
@@ -45,7 +45,7 @@ flowchart TD
 
     subgraph CLAUDE["Claude Code — vision skills + agents"]
         classifyP["classify-period skill"]
-        classifyD["classify-doc-page skill<br/>reads ONE page image"]
+        classifyD["classify-doc-page skill<br/>reads ONE page image,<br/>records it to D1"]
         adocs["analyze-docs agent"]
         improve["improve-classification skill (loop)"]
         review["review-mismatch agent"]
@@ -53,13 +53,12 @@ flowchart TD
     end
 
     subgraph CF["Cloudflare — local Miniflare OR --remote prod"]
-        d1[("D1 'fiscal-db'<br/>entries · attachments ·<br/>attachment_analyses ·<br/>attachment_analysis_records · alerts")]
+        d1[("D1 'fiscal-db'<br/>entries · attachments ·<br/>page_classifications ·<br/>attachment_analyses ·<br/>attachment_analysis_records · alerts")]
         r2[("R2 'fiscal-documents'<br/>page images (per-period keys)")]
     end
 
     subgraph CACHE["Ephemeral cache .cache/analysis/ (git-ignored)"]
         imgs["materialized page images"]
-        cj["image.classify.json (one per page)"]
         verdicts["period.verdicts.json"]
     end
 
@@ -79,9 +78,8 @@ flowchart TD
     classifyP -->|runs| plan
     classifyP --> classifyD
     imgs --> classifyD
-    classifyD --> cj
-    apply -->|build_plan from D1| d1wrap
-    cj --> apply
+    classifyD -->|record-classification| d1wrap
+    apply -->|build_plan + read page_classifications from D1| d1wrap
     apply --> d1wrap
     analyze --> d1wrap
     mismatch --> d1wrap
@@ -130,11 +128,12 @@ sequenceDiagram
     W-->>U: plan JSON on stdout (no manifest file)
 
     U->>V: classify-period parses plan, fans out each page
-    V->>C: read image, write image.classify.json
+    V->>C: read image
+    V->>W: record-classification (per page)
+    W->>D1: INSERT OR REPLACE page_classifications
 
     U->>W: analysis apply-extractions
-    W->>D1: build_plan from D1 (same grouping)
-    W->>C: read classify.json
+    W->>D1: build_plan + read page_classifications (same grouping)
     W->>D1: write attachment_analyses (+ records), delete-then-insert
     W->>D1: backfill content_hash for legacy rows
 

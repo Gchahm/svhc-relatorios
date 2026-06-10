@@ -1,10 +1,10 @@
-"""Attachment analysis using Vision Language Model.
+"""Attachment analysis from per-page (Claude vision) extractions.
 
-Extracts structured data from receipt/invoice images and validates
-against entry data to detect mismatches and potential fraud.
+Rolls up structured per-page extractions (supplied by an ``ExtractionProvider``) into a
+attachment-level analysis and validates it against the ledger entry to detect mismatches
+and potential fraud.
 """
 
-import json
 import logging
 import pathlib
 import re
@@ -32,7 +32,6 @@ class PageAnalysisRecord:
     page_label: str | None = None
     artifact_role: str | None = None
     response: dict | None = None  # parsed page values (stored JSON-serialized on import)
-    raw_text: str | None = None  # VLM raw text, kept when parsing failed
     parse_error: str | None = None  # set when image missing/unreadable or unparseable
 
     def to_dict(self) -> dict:
@@ -45,7 +44,6 @@ class PageAnalysisRecord:
             "page_label": self.page_label,
             "artifact_role": self.artifact_role,
             "response": self.response,
-            "raw_text": self.raw_text,
             "parse_error": self.parse_error,
             "analyzed_at": now_ms(),
         }
@@ -66,7 +64,6 @@ class AttachmentAnalysisResult:
     date_match: bool | None = None
     document_number: str | None = None
     service_description: str | None = None
-    raw_response: str | None = None  # legacy: no longer carries per-page detail (see records)
     error: str | None = None
     records: list[PageAnalysisRecord] = field(default_factory=list)
 
@@ -85,34 +82,9 @@ class AttachmentAnalysisResult:
             "date_match": 1 if self.date_match else 0 if self.date_match is not None else None,
             "document_number": self.document_number,
             "service_description": self.service_description,
-            "raw_response": self.raw_response,
             "error": self.error,
             "analysis_records": [r.to_dict() for r in self.records],
         }
-
-
-def _parse_json_blob(text: str) -> dict | None:
-    """Extract a JSON object from free text, handling markdown fences.
-
-    Tolerant parser shared by the (legacy) VLM path and any caller that needs to
-    recover a JSON object from a string-wrapped extraction.
-    """
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        lines = [line for line in lines if not line.strip().startswith("```")]
-        text = "\n".join(lines).strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-    return None
 
 
 def _parse_brl_value(text) -> float | None:
@@ -543,7 +515,6 @@ def _fanout_result(
                 page_label=r.page_label,
                 artifact_role=r.artifact_role,
                 response=r.response,
-                raw_text=r.raw_text,
                 parse_error=r.parse_error,
             )
         )
@@ -558,11 +529,14 @@ def _fanout_result(
     return new
 
 
-# An extraction provider maps a page image path to its parsed fields. It returns
-# (parsed_fields, None) on success or (None, error_reason) on failure. This is the
-# single seam that decouples the deterministic analysis from where the extraction
-# comes from (a Claude vision agent's extractions file today; the VLM previously).
-ExtractionProvider = "Callable[[str], tuple[dict | None, str | None]]"
+# An extraction provider maps a page's identity (attachment_id, page_label) to its
+# parsed fields. It returns (parsed_fields, None) on success or (None, error_reason) on
+# failure. This is the single seam that decouples the deterministic analysis from where
+# the extraction comes from (the D1 `page_classifications` staging table today, written
+# by the classify-doc-page flow; a per-image file previously, the VLM before that).
+# Keyed by identity, not path, because a page-image filename is named by entry, not
+# attachment, so the attachment id is supplied by the plan rather than parsed from the path.
+ExtractionProvider = "Callable[[str, str], tuple[dict | None, str | None]]"
 
 
 def build_attachment_analysis(
@@ -602,7 +576,7 @@ def build_attachment_analysis(
             page_label=page_label,
         )
 
-        parsed, error = provider(path)
+        parsed, error = provider(attachment_id, page_label)
         if parsed is None:
             record.parse_error = error or "no extraction for page"
         else:

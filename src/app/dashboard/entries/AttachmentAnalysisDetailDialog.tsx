@@ -13,7 +13,6 @@ interface AttachmentAnalysisRecord {
     pageLabel: string | null;
     artifactRole: string | null;
     response: string | null;
-    rawText: string | null;
     parseError: string | null;
 }
 
@@ -55,7 +54,7 @@ function formatValue(value: unknown, currency?: boolean) {
     return String(value);
 }
 
-/** Parse a record's stored `response` JSON, falling back to raw text / parse error. */
+/** Parse a record's stored `response` JSON, falling back to the parse error. */
 function parseResponse(record: AttachmentAnalysisRecord): {
     values: Record<string, unknown> | null;
     fallback: string | null;
@@ -67,10 +66,10 @@ function parseResponse(record: AttachmentAnalysisRecord): {
                 return { values: parsed as Record<string, unknown>, fallback: null };
             }
         } catch {
-            // fall through to raw text / parse error
+            // fall through to the parse error
         }
     }
-    return { values: null, fallback: record.parseError || record.rawText || null };
+    return { values: null, fallback: record.parseError || null };
 }
 
 function pageLabelDisplay(record: AttachmentAnalysisRecord) {
@@ -100,11 +99,6 @@ function RecordValues({ record }: { record: AttachmentAnalysisRecord }) {
             return (
                 <div className="space-y-1">
                     {record.parseError && <p className="text-xs text-red-600">Parse error: {record.parseError}</p>}
-                    {record.rawText && (
-                        <pre className="whitespace-pre-wrap break-words rounded bg-muted/50 p-2 text-xs text-muted-foreground">
-                            {record.rawText}
-                        </pre>
-                    )}
                 </div>
             );
         }

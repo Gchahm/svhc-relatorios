@@ -6,7 +6,8 @@ or `--remote` for production (mirrors the project's `wrangler --local/--remote` 
 access from Python goes through `scripts/common/d1.py` (a thin `wrangler`-CLI wrapper). All entities
 use deterministic UUIDs — the same data always produces the same IDs, so re-scraping a period safely
 upserts via `INSERT OR REPLACE`. An ephemeral, git-ignored cache (`.cache/analysis/`) holds
-materialized page images and the analysis working files (`.classify.json`, verdicts).
+materialized page images and the loop's verdicts working file — per-page classifications live in
+D1 (the `page_classifications` table), not in the cache.
 
 ## Scraper
 
@@ -89,10 +90,11 @@ reconciliation — and writes **no manifest file**. The work set is whatever is 
 
 Inside Claude Code, invoke the **`classify-period`** skill for a period (or subset). It runs
 `docs-plan` itself, then fans each representative page out to the **`classify-doc-page`** skill,
-which views one image and writes `<image>.classify.json` next to it (gross / net / paid amounts,
-CNPJ, issuer, date, document number, service, and the artifact role). The **`analyze-docs` agent**
-wraps this whole analysis in an isolated context and hands a caller back only the summary (step 5).
-This is the only non-deterministic step.
+which views one image and **records its fields directly to D1** via the `record-classification`
+CLI (one row per page in the `page_classifications` table — gross / net / paid amounts, CNPJ,
+issuer, date, document number, service, and the artifact role; no `.classify.json` file). The
+**`analyze-docs` agent** wraps this whole analysis in an isolated context and hands a caller back
+only the summary (step 5). This is the only non-deterministic step.
 
 ### 3. `apply-extractions` — merge classifications into the ledger data
 
@@ -102,7 +104,7 @@ uv run python -m analysis apply-extractions --periodo 2025-12 [--min-amount N] [
 ```
 
 Re-derives the same pending-set plan from D1 (no manifest — same `content_hash` grouping `docs-plan`
-used), reads each page's `.classify.json`, rolls each document up (heterogeneity-aware: a document
+used), reads each page's recorded extraction from D1 (`page_classifications`), rolls each document up (heterogeneity-aware: a document
 bundling an invoice, a boleto, and a payment proof resolves to one amount by precedence), reconciles
 shared-NF groups (sum of sibling entries vs. the NF total), fans the result out to the sibling entries,
 validates amount / vendor / date against the ledger entry, and writes `attachment_analyses` (with
@@ -143,8 +145,9 @@ Prints a compact JSON list of classification mismatches — `amount` / `vendor` 
 `page-error` / `duplicate_billing` — each joined with the ledger-vs-extracted values. Read-only (no
 writes). This is exactly what the `analyze-docs` agent returns to its caller.
 
-The `.classify.json` files are ephemeral working artifacts under `.cache/analysis/` (gitignored,
-reproducible from D1+R2); the extraction plan is derived from D1 each run (no manifest file).
+Per-page classifications are stored in D1 (`page_classifications`), not in the cache; the
+`.cache/analysis/` dir holds only materialized page images + the loop's verdicts file (gitignored,
+reproducible from D1+R2). The extraction plan is derived from D1 each run (no manifest file).
 **Cloudflare D1 is the source of truth** and the analysis commands write their results straight there.
 
 ## Typical workflow
@@ -166,8 +169,8 @@ cd scripts
 
 # 1. Plan + classify the attachments (steps 1-2). In Claude Code, invoke the
 #    classify-period skill for the period; it runs docs-plan (materializing images
-#    from R2, printing the plan to stdout) and writes the per-page <image>.classify.json
-#    files in the cache. (To analyze a subset, `mark-pending` those attachments first.)
+#    from R2, printing the plan to stdout) and records each page's extraction to D1
+#    (page_classifications). (To analyze a subset, `mark-pending` those attachments first.)
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12

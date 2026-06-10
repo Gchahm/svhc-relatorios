@@ -26,7 +26,6 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
             pageLabel: attachmentAnalysisRecords.pageLabel,
             artifactRole: attachmentAnalysisRecords.artifactRole,
             response: attachmentAnalysisRecords.response,
-            rawText: attachmentAnalysisRecords.rawText,
             parseError: attachmentAnalysisRecords.parseError,
         })
         .from(attachmentAnalysisRecords)
