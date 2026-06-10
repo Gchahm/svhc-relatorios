@@ -1,7 +1,7 @@
 ---
 model: inherit
 description: >-
-    Classify a scraped period's PENDING fiscal documents by deriving the work plan from the database and fanning each representative page out to the classify-doc-page skill in parallel, which records one per-page extraction to the database per page. It runs `docs-plan` itself (which prints the plan as JSON to stdout — no manifest file). The set of attachments to classify is the pending set in D1 (`classified_at IS NULL`); to (re)classify a subset, mark those attachments pending first (`mark-pending`). Use it for "classify the attachments for 2025-12".
+    Classify a scraped period's PENDING fiscal documents by deriving the work plan from the database and fanning each representative page out to the classify-doc-page skill in parallel, which records one per-page extraction to the database per page. It runs `docs-plan` itself (which prints the plan as JSON to stdout — no manifest file). The set of attachments to classify is the pending set in D1 (`classified_at IS NULL`); to (re)classify a subset, mark those attachments pending first (`mark-pending`). Use it for "classify the attachments for a given period (e.g. `<YYYY-MM>`)".
 argument-hint: "[period] [--remote]"
 allowed-tools: Bash, Read, Glob, Skill
 context: fork
@@ -15,11 +15,11 @@ Orchestrate per-page classification for a scraped period's **pending** attachmen
 
 # Input
 
-`$ARGUMENTS` is a period in `YYYY-MM` form (the first token), optionally followed by:
+**Classify the period given in `$ARGUMENTS`.** Use that exact period verbatim in every command below — do not substitute any other period (in particular, never use a period that appears only as an example in this document).
+
+`$ARGUMENTS` is a period in `YYYY-MM` form (the first token, e.g. `YYYY-MM`), optionally followed by:
 
 - `--remote` — read the production D1 + R2 (default local). Forward it to every command below.
-
-Example: `2025-12`.
 
 **Scope is controlled in the database, not by flags.** The plan is the period's *pending* set (`attachments.classified_at IS NULL`). To (re)classify only specific attachments, the caller marks them pending first with `python -m analysis mark-pending --attachment-id <ids…>` (which clears `classified_at`); you then just classify whatever `docs-plan` reports as pending.
 

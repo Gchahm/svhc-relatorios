@@ -1,7 +1,7 @@
 ---
 name: analyze-docs
 description: >-
-    The context-isolated VISION/ANALYSIS step. Runs document-classification analysis for a scraped period's PENDING attachments and returns ONLY a terse mismatch summary. It delegates classification (DB-derived plan + page reading) to the classify-period skill, then runs the deterministic merge + checks. Which attachments are analyzed is controlled in the database (the pending set, `classified_at IS NULL`) — to re-analyze a subset, the caller marks them pending first with `mark-pending`. Delegate to it (e.g. from an orchestrator) so the heavy vision work and its tool output stay out of your context. Invoke it for "analyze the attachments for 2025-12".
+    The context-isolated VISION/ANALYSIS step. Runs document-classification analysis for a scraped period's PENDING attachments and returns ONLY a terse mismatch summary. It delegates classification (DB-derived plan + page reading) to the classify-period skill, then runs the deterministic merge + checks. Which attachments are analyzed is controlled in the database (the pending set, `classified_at IS NULL`) — to re-analyze a subset, the caller marks them pending first with `mark-pending`. Delegate to it (e.g. from an orchestrator) so the heavy vision work and its tool output stay out of your context. Invoke it for "analyze the attachments for a given period (e.g. `<YYYY-MM>`)".
 tools: Bash, Skill, Read, Glob
 model: inherit
 color: blue
@@ -13,7 +13,7 @@ You do **not** read page images, run `docs-plan`, or classify yourself — the `
 
 ## Inputs
 
-- A **period** in `YYYY-MM` form (e.g. `2025-12`) — required.
+- A **period** in `YYYY-MM` form (e.g. `<YYYY-MM>`) — required. Use the period you are actually given; never fall back to a period that appears only as an example here.
 - Optionally a **target**: pass `--remote` to read/write the production D1 + R2 (default is local). Forward it to the skill and every command below.
 
 **Scope is controlled in D1, not by arguments.** You always run for the whole period; the work is whatever is *pending* (`attachments.classified_at IS NULL`). For a cheap re-run after a fix, the caller marks the affected attachments pending first (`python -m analysis mark-pending --attachment-id <ids…> [--remote]`) so only those get re-classified — you do not take id flags.
@@ -24,7 +24,7 @@ Pipeline commands run from the repo's `scripts/` directory. They read period row
 
 ### 1. Classify (delegate to the skill)
 
-Invoke the **`classify-period`** skill (via the Skill tool), passing the period (and `--remote` if applicable) as its arguments — e.g. `2025-12`. The skill runs `docs-plan` itself (the plan is the pending set, derived from D1 and printed to stdout — there is no manifest file), then fans each representative page out to `classify-doc-page`, which records each page's extraction to D1 (the `page_classifications` staging table — there is no `.classify.json` file). Wait for it to finish. If it reports "nothing to extract" (everything is already classified), continue to steps 3–4 to report current mismatches.
+Invoke the **`classify-period`** skill (via the Skill tool), passing the period (and `--remote` if applicable) as its arguments — i.e. the exact `YYYY-MM` you were given. The skill runs `docs-plan` itself (the plan is the pending set, derived from D1 and printed to stdout — there is no manifest file), then fans each representative page out to `classify-doc-page`, which records each page's extraction to D1 (the `page_classifications` staging table — there is no `.classify.json` file). Wait for it to finish. If it reports "nothing to extract" (everything is already classified), continue to steps 3–4 to report current mismatches.
 
 ### 2. Merge the classifications
 
