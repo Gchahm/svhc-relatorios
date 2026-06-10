@@ -60,3 +60,4 @@ scripts/data/
 .cache/
 
 .playwright-cli
+.claude/settings.local.json
