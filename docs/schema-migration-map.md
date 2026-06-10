@@ -17,8 +17,8 @@ This document maps every table and column from the old Python/SQLAlchemy schema
 | `lancamento`           | `entries`                | `entries`               |
 | `subtotal_categoria`   | `category_subtotals`     | `categorySubtotals`     |
 | `aprovador`            | `approvers`              | `approvers`             |
-| `documento`            | `documents`              | `documents`             |
-| `analise_documento`    | `document_analyses`      | `documentAnalyses`      |
+| `documento`            | `attachments`            | `attachments`           |
+| `analise_documento`    | `attachment_analyses`    | `attachmentAnalyses`    |
 | `alerta`               | `alerts`                 | `alerts`                |
 
 ## Column Mapping by Table
@@ -125,7 +125,7 @@ Old unique constraint `uq_subtotal_categoria_prestacao_subref` → new unique in
 | `nome`         | `name`      | String(200) → text | Renamed to English          |
 | `status`       | `status`    | String(50) → text  |                             |
 
-### documento → documents
+### documento → attachments
 
 | Old Column             | New Column             | Type Change       | Notes                       |
 | ---------------------- | ---------------------- | ----------------- | --------------------------- |
@@ -134,12 +134,12 @@ Old unique constraint `uq_subtotal_categoria_prestacao_subref` → new unique in
 | `brcondos_document_id` | `external_document_id` | Integer → integer | Generalized name            |
 | `caminho_arquivo`      | `file_path`            | Text → text       | Renamed to English          |
 
-### analise_documento → document_analyses
+### analise_documento → attachment_analyses
 
 | Old Column          | New Column            | Type Change             | Notes              |
 | ------------------- | --------------------- | ----------------------- | ------------------ |
 | `id`                | `id`                  | INTEGER → integer       |                    |
-| `documento_id`      | `document_id`         | FK (unique) → FK        |                    |
+| `documento_id`      | `attachment_id`       | FK (unique) → FK        |                    |
 | `data_analise`      | `analyzed_at`         | DateTime → timestamp_ms | Renamed to English |
 | `tipo_documento`    | `document_type`       | String(50) → text       | Renamed to English |
 | `valor_extraido`    | `extracted_amount`    | Numeric(14,2) → real    | Renamed to English |

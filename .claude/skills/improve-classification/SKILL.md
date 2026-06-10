@@ -1,7 +1,7 @@
 ---
 description: >-
-    The thin orchestrator for the self-improving document-classification loop. Runs analyze → review each mismatch (true/false/transient/page-error) → for each false, delegate a human-gated speckit fix that opens a PR → re-run scoped to the affected documents → repeat until convergence, a max-iteration cap, or a no-progress guard halts it. It coordinates only: every heavy step (vision, review, fix) is a separate context-isolated worker, and all loop bookkeeping lives in the deterministic `loop-state` CLI — so this skill never holds page images, diffs, or large state. Use it for "run the classification improvement loop for 2025-12" or to drive the loop over a subset of documents.
-argument-hint: "[period] [--document-id <ids…>] [--entry-id <ids…>] [--max-iterations N] [--remote]"
+    The thin orchestrator for the self-improving document-classification loop. Runs analyze → review each mismatch (true/false/transient/page-error) → for each false, delegate a human-gated speckit fix that opens a PR → re-run scoped to the affected documents → repeat until convergence, a max-iteration cap, or a no-progress guard halts it. It coordinates only: every heavy step (vision, review, fix) is a separate context-isolated worker, and all loop bookkeeping lives in the deterministic `loop-state` CLI — so this skill never holds page images, diffs, or large state. Use it for "run the classification improvement loop for 2025-12" or to drive the loop over a subset of attachments.
+argument-hint: "[period] [--attachment-id <ids…>] [--entry-id <ids…>] [--max-iterations N] [--remote]"
 allowed-tools: Task, Bash, Read, Glob, Skill
 ---
 
@@ -16,7 +16,7 @@ classification yourself, or merge a fix. Keeping your own context flat is a hard
 
 `$ARGUMENTS`: a period in `YYYY-MM` form (first token), optionally followed by:
 
-- `--document-id <id…>` / `--entry-id <id…>` — restrict the **initial** scope to a subset.
+- `--attachment-id <id…>` / `--entry-id <id…>` — restrict the **initial** scope to a subset.
 - `--max-iterations N` — override the iteration cap (default 3). `--no-progress-window` (default 2)
   may also be forwarded to `loop-state`.
 - `--remote` — run the whole loop against the production D1 + R2 (default local). Forward it to the
@@ -34,17 +34,17 @@ Track only two things across iterations: the current `iteration` (starts at 1) a
 ### 1. Analyze (delegate)
 
 Delegate to the **`analyze-docs`** agent (via the Task tool) for the current `scope` — pass the period
-and any `--document-id`/`--entry-id`. It classifies, merges, runs checks, and returns ONLY a terse
+and any `--attachment-id`/`--entry-id`. It classifies, merges, runs checks, and returns ONLY a terse
 mismatch summary. Keep that summary; do not expand it.
 
 ### 2. Loop state
 
 ```bash
 cd scripts && uv run python -m analysis loop-state --periodo <period> --iteration <iteration> \
-    [--max-iterations N] [--document-id <scope ids…>] [--entry-id <scope ids…>] [--remote]
+    [--max-iterations N] [--attachment-id <scope ids…>] [--entry-id <scope ids…>] [--remote]
 ```
 
-Read `open`, `findings`, `data_quality`, `affected_document_ids`, and `terminate`. **If `terminate`
+Read `open`, `findings`, `data_quality`, `affected_attachment_ids`, and `terminate`. **If `terminate`
 is non-null → go to Report.**
 
 ### 3. Review each open mismatch (delegate, in parallel)
@@ -77,7 +77,7 @@ cd scripts && uv run python -m analysis record-verdict --periodo <period> --iter
 cd scripts && uv run python -m analysis loop-state --periodo <period> [--remote]
 ```
 
-Set `scope ← --document-id <affected_document_ids>` (re-runs after the first iteration are scoped —
+Set `scope ← --attachment-id <affected_attachment_ids>` (re-runs after the first iteration are scoped —
 FR-009/SC-006). If `terminate` is now non-null → Report. Otherwise `iteration ← iteration + 1` and go
 back to step 1.
 
@@ -93,7 +93,7 @@ anything.
 - **Delegation only**: vision, review, and fix each run in their own worker (Task tool). You handle
   ids + terse JSON; you never read page images, run `classify-*`/`apply-extractions`, or inspect
   diffs yourself.
-- **Scoped re-runs**: after iteration 1, always pass `--document-id <affected_document_ids>`, never
+- **Scoped re-runs**: after iteration 1, always pass `--attachment-id <affected_attachment_ids>`, never
   re-run the whole period.
 - **Findings preserved**: every `true` mismatch is reported each iteration and never fixed.
 - **Human-gated**: fixes may open PRs; you NEVER merge or push to `main`.

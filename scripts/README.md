@@ -50,7 +50,7 @@ uv run python -m scraper scrape --download-docs
 # Write to the remote (production) D1 + R2 instead of local
 uv run python -m scraper scrape --periodo 2026-01 --download-docs --remote
 
-# Download images for documents missing them in R2 (updates documents.file_path in D1)
+# Download images for attachments missing them in R2 (updates attachments.file_path in D1)
 uv run python -m scraper download-docs
 uv run python -m scraper download-docs --periodo 2024-12 --remote
 ```
@@ -59,7 +59,7 @@ uv run python -m scraper download-docs --periodo 2024-12 --remote
 
 Turns the document page images (materialized from R2) into structured records, validates them
 against the ledger, and surfaces mismatches / fraud signals. It writes the results
-(`document_analyses`, `document_analysis_records`, `alerts`) back into D1. Every command takes
+(`attachment_analyses`, `attachment_analysis_records`, `alerts`) back into D1. Every command takes
 `--remote` (default local). The flow is five steps:
 
 ```
@@ -73,11 +73,11 @@ vision step and runs inside Claude Code via skills/agent — the old local VLM (
 
 ```bash
 cd scripts
-uv run python -m analysis docs-plan --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis docs-plan --periodo 2025-12 [--attachment-id <ids…>] [--entry-id <ids…>]
 ```
 
-Reads the period from D1, materializes its page images from R2 into the cache, selects the documents
-to analyze (a whole period, or just the documents/entries you name), and groups **byte-identical Nota
+Reads the period from D1, materializes its page images from R2 into the cache, selects the attachments
+to analyze (a whole period, or just the attachments/entries you name), and groups **byte-identical Nota
 Fiscal copies** so each unique invoice is read only once. Writes the work manifest
 `.cache/analysis/<period>.extract-todo.json` — the representative page images to read (local cache
 paths) plus the ledger context for reconciliation. Targeting specific ids re-plans those even if
@@ -102,7 +102,7 @@ uv run python -m analysis apply-extractions --periodo 2025-12
 Reads each page's `.classify.json`, rolls each document up (heterogeneity-aware: a document bundling
 an invoice, a boleto, and a payment proof resolves to one amount by precedence), reconciles shared-NF
 groups (sum of sibling entries vs. the NF total), fans the result out to the sibling entries,
-validates amount / vendor / date against the ledger entry, and writes `document_analyses` (with
+validates amount / vendor / date against the ledger entry, and writes `attachment_analyses` (with
 per-page `analysis_records`) into the period JSON.
 
 ### 4. `analyze` — run the checks
@@ -120,7 +120,7 @@ vendors, delinquency, etc.
 
 ```bash
 cd scripts
-uv run python -m analysis mismatches --periodo 2025-12 [--document-id <ids…>] [--entry-id <ids…>]
+uv run python -m analysis mismatches --periodo 2025-12 [--attachment-id <ids…>] [--entry-id <ids…>]
 ```
 
 Prints a compact JSON list of classification mismatches — `amount` / `vendor` / `date` /
@@ -148,10 +148,10 @@ uv run python -m scraper scrape --periodo 2025-12 --download-docs --remote
 ```bash
 cd scripts
 
-# 1. Plan + classify the documents (steps 1-2). In Claude Code, invoke the
+# 1. Plan + classify the attachments (steps 1-2). In Claude Code, invoke the
 #    classify-period skill for the period; it runs docs-plan (materializing images
 #    from R2) and writes the per-page <image>.classify.json files in the cache.
-#    (Or analyze a subset with --document-id.)
+#    (Or analyze a subset with --attachment-id.)
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12

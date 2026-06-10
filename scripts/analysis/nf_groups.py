@@ -1,13 +1,13 @@
-"""Group documents that share the same Nota Fiscal.
+"""Group attachments that share the same Nota Fiscal.
 
 The source system attaches one NF to several accountability entries (line-item
 splits, or principal vs. JUROS/MULTAS). Each entry stores its own copy of the
 NF, but the copies are byte-identical. The robust "same NF" key is therefore a
-content hash over the document's page image files — `file_path` (named per
+content hash over the attachment's page image files — `file_path` (named per
 entry) and `external_document_id` (per entry) both differ across siblings, and
 the extracted NF number is noisy, so neither is usable as the primary key.
 
-Used by both the document-analysis stage (dedup + group reconciliation) and the
+Used by both the attachment-analysis stage (dedup + group reconciliation) and the
 duplicate-billing check, so the definition of "same NF" lives in one place.
 """
 
@@ -17,7 +17,7 @@ import pathlib
 # Read files in chunks so a large multi-page PDF render doesn't load wholesale.
 _CHUNK = 1 << 20
 
-# Reconciliation tolerance, reused from the existing conventions: documentos.py
+# Reconciliation tolerance, reused from the existing conventions: attachments.py
 # uses a 5% relative band for amount-match and consistency.py uses R$ 0.05 for
 # rounding. A group reconciles if it falls within EITHER, which keeps small
 # totals (rounding-dominated) and large totals (percentage-dominated) both sane.
@@ -50,17 +50,17 @@ def reconcile_group(sibling_sum: float, nf_total: float | None) -> str | None:
 
 
 def _split_paths(file_path: str) -> list[str]:
-    """Page image paths from a document's ``;``-separated ``file_path``."""
+    """Page image paths from a attachment's ``;``-separated ``file_path``."""
     return [p.strip() for p in (file_path or "").split(";") if p.strip()]
 
 
 def content_hash(file_path: str) -> str | None:
-    """Joined md5 of a document's page image files.
+    """Joined md5 of a attachment's page image files.
 
     Paths are used as-is (resolved against the current working directory, the
-    same way ``documentos.py`` reads them). Returns ``None`` if there are no
+    same way ``attachments.py`` reads them). Returns ``None`` if there are no
     pages or any page file cannot be read — callers must treat ``None`` as
-    "ungroupable" and never merge such documents.
+    "ungroupable" and never merge such attachments.
     """
     paths = _split_paths(file_path)
     if not paths:
@@ -82,17 +82,17 @@ def content_hash(file_path: str) -> str | None:
     return digest.hexdigest()
 
 
-def group_documents(documents: list[dict]) -> dict[str, list[dict]]:
-    """Map a "same NF" key to the documents whose page bytes are identical.
+def group_attachments(attachments: list[dict]) -> dict[str, list[dict]]:
+    """Map a "same NF" key to the attachments whose page bytes are identical.
 
-    Documents that share byte-identical pages land under one content-hash key.
-    A document whose pages can't be hashed (missing/unreadable) gets its own
+    Attachments that share byte-identical pages land under one content-hash key.
+    A attachment whose pages can't be hashed (missing/unreadable) gets its own
     singleton group keyed by its id, so a read failure never merges distinct
-    documents. The common single-entry case yields singleton groups, letting
-    callers preserve their existing per-document behavior.
+    attachments. The common single-entry case yields singleton groups, letting
+    callers preserve their existing per-attachment behavior.
     """
     groups: dict[str, list[dict]] = {}
-    for doc in documents:
+    for doc in attachments:
         key = content_hash(doc.get("file_path"))
         if key is None:
             key = f"doc:{doc['id']}"

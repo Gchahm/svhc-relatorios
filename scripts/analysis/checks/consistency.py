@@ -200,14 +200,14 @@ def check_missing_periods(p: PeriodData, all_periods: dict[str, PeriodData]) -> 
     )]
 
 
-def check_large_expenses_no_document(p: PeriodData) -> list[Alert]:
-    entry_ids_with_docs = p.entry_ids_with_documents
+def check_large_expenses_no_attachment(p: PeriodData) -> list[Alert]:
+    entry_ids_with_docs = p.entry_ids_with_attachments
     no_doc = [e for e in p.debit_entries
               if e["amount"] >= 1000 and e["id"] not in entry_ids_with_docs]
     if not no_doc:
         return []
     total = sum(e["amount"] for e in no_doc)
-    return [_alert(p.period, "large_expense_no_document", "info",
+    return [_alert(p.period, "large_expense_no_attachment", "info",
         f"{len(no_doc)} despesa(s) ≥ R$1.000 sem comprovante em {p.period}",
         f"{len(no_doc)} lançamentos de despesa ≥ R$1.000 sem documento anexo, "
         f"totalizando R$ {total:.2f}.",
@@ -251,7 +251,7 @@ def run_consistency(
     alerts.extend(check_duplicates(period))
     alerts.extend(check_negative_credits(period))
     alerts.extend(check_missing_periods(period, all_periods))
-    alerts.extend(check_large_expenses_no_document(period))
+    alerts.extend(check_large_expenses_no_attachment(period))
     alerts.extend(check_new_vendors(period, refs))
 
     logger.info("Consistency %s: %d alerts", period.period, len(alerts))

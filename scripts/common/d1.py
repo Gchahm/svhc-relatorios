@@ -40,9 +40,9 @@ TABLE_ORDER = [
     "entries",
     "category_subtotals",
     "approvers",
-    "documents",
-    "document_analyses",
-    "document_analysis_records",
+    "attachments",
+    "attachment_analyses",
+    "attachment_analysis_records",
     "alerts",
 ]
 
@@ -105,14 +105,14 @@ def _merge_dataset(data: dict[str, list[dict]]) -> dict[str, list[dict]]:
             if rid is not None:
                 seen[table].add(rid)
 
-            if table == "document_analyses" and isinstance(row.get("analysis_records"), list):
+            if table == "attachment_analyses" and isinstance(row.get("analysis_records"), list):
                 for rec in row["analysis_records"]:
                     rec_id = rec.get("id")
-                    if rec_id is not None and rec_id in seen["document_analysis_records"]:
+                    if rec_id is not None and rec_id in seen["attachment_analysis_records"]:
                         continue
                     if rec_id is not None:
-                        seen["document_analysis_records"].add(rec_id)
-                    merged["document_analysis_records"].append(rec)
+                        seen["attachment_analysis_records"].add(rec_id)
+                    merged["attachment_analysis_records"].append(rec)
                 row = {k: v for k, v in row.items() if k != "analysis_records"}
 
             merged[table].append(row)
@@ -143,7 +143,7 @@ def execute_sql(sql: str, *, target: Target) -> None:
 
     Writes ``sql`` to a temp file and executes it in one call. Raises
     ``subprocess.CalledProcessError`` on a non-zero exit so callers report failure
-    (FR-007). This is the escape hatch for non-upsert SQL (e.g. the period-/document-
+    (FR-007). This is the escape hatch for non-upsert SQL (e.g. the period-/attachment-
     scoped DELETEs the analysis writebacks issue before upserting).
     """
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False, encoding="utf-8") as fh:
@@ -163,7 +163,7 @@ def upsert_tables(data: dict[str, list[dict]], *, target: Target) -> dict[str, i
     """Upsert a dataset's tables (INSERT OR REPLACE) in one batched execution.
 
     ``data`` maps table name -> list of row dicts (e.g. the period payload, or a single
-    document's ``{"document_analyses": [..]}``). Empty/missing tables are skipped, so
+    attachment's ``{"attachment_analyses": [..]}``). Empty/missing tables are skipped, so
     callers never clobber tables they don't supply. Returns ``{table: rows_written}``.
     """
     sql, counts = build_sql(data)
@@ -218,10 +218,14 @@ def query(sql: str, *, target: Target) -> list[dict]:
 
 def put_object(key: str, file_path: str, content_type: str, *, target: Target) -> None:
     """Upload a local file to R2 at ``fiscal-documents/<key>`` (idempotent overwrite)."""
+    # Resolve to absolute against the caller's CWD: wrangler runs with cwd=_REPO_ROOT,
+    # so a relative --file (e.g. the scraper's ``../.cache/...`` from scripts/) would be
+    # mis-resolved against the repo root and not found.
+    abs_path = str(Path(file_path).resolve())
     subprocess.run(
         [
             "npx", "wrangler", "r2", "object", "put", f"{_BUCKET}/{key}",
-            "--file", file_path, "--content-type", content_type, target_flag(target),
+            "--file", abs_path, "--content-type", content_type, target_flag(target),
         ],
         cwd=_REPO_ROOT,
         check=True,
@@ -230,13 +234,16 @@ def put_object(key: str, file_path: str, content_type: str, *, target: Target) -
 
 def get_object(key: str, dest_path: str, *, target: Target) -> bool:
     """Download an R2 object to ``dest_path``. Returns False if the key does not exist."""
-    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    # Resolve to absolute (see put_object): wrangler's cwd=_REPO_ROOT must not re-anchor
+    # a relative dest_path, or the bytes land somewhere the caller never looks.
+    abs_dest = str(Path(dest_path).resolve())
+    Path(abs_dest).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", dest_path, target_flag(target)],
+        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
         return False
-    return Path(dest_path).exists()
+    return Path(abs_dest).exists()

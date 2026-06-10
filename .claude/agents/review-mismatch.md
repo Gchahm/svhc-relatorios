@@ -20,10 +20,10 @@ One **mismatch** row, exactly as produced by `python -m analysis mismatches` (th
 it to you as your prompt). It carries:
 
 - `period`, `kind` (`amount` / `vendor` / `date` / `page-error` / `duplicate_billing`),
-- the document/entry identity (`document_id` + `entry_id`, or `document_ids`/`entry_ids` for
+- the document/entry identity (`attachment_id` + `entry_id`, or `attachment_ids`/`entry_ids` for
   `duplicate_billing`),
 - the ledger-vs-extracted values for its kind, and
-- **`page_refs`** — a list of `{document_id, page_label, read_path}` pointing at the page image(s).
+- **`page_refs`** — a list of `{attachment_id, page_label, read_path}` pointing at the page image(s).
 
 ## Procedure
 
@@ -31,9 +31,9 @@ it to you as your prompt). It carries:
 
 - **Page image(s):** open each `read_path` in the mismatch's `page_refs[]` with the **Read** tool
   (a materialized local cache image). (For `duplicate_billing`, `page_refs` covers every document in
-  `document_ids`.) You do not need the work manifest — the summary already carries the refs.
+  `attachment_ids`.) You do not need the work manifest — the summary already carries the refs.
 - **Ledger entry:** the period data lives in Cloudflare D1 (there is no `data/scrape` period JSON).
-  Use the read-only, D1-backed lookup `python -m analysis mismatches --periodo <period> --document-id
+  Use the read-only, D1-backed lookup `python -m analysis mismatches --periodo <period> --attachment-id
   <id> [--remote]` to see the entry-vs-extracted values for the document. Read-only — never write D1.
 
 ### 2. Judge
@@ -55,7 +55,7 @@ Compare what is **printed on the page** against the **ledger value(s)**:
 
 ```jsonc
 {
-  "mismatch_key": "2025-12|amount|<doc>|<entry>",   // period|kind|document_id|entry_id; for duplicate_billing: period|kind|sorted(document_ids)
+  "mismatch_key": "2025-12|amount|<doc>|<entry>",   // period|kind|attachment_id|entry_id; for duplicate_billing: period|kind|sorted(attachment_ids)
   "verdict": "false",                                // true | false | transient | page-error
   "root_cause": {                                     // REQUIRED iff verdict=false, else omit
     "area": "reading",                                // reading | rollup-precedence | grouping | reconciliation-tolerance | other

@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt } from "lucide-react";
-import DocumentAnalysisDetailDialog from "./DocumentAnalysisDetailDialog";
+import AttachmentAnalysisDetailDialog from "./AttachmentAnalysisDetailDialog";
 
 interface Entry {
     id: number;
@@ -26,11 +26,11 @@ interface Entry {
     unitCode: string | null;
 }
 
-// Shape returned by GET /api/document-analyses (one object per analysis). The detail dialog
+// Shape returned by GET /api/attachment-analyses (one object per analysis). The detail dialog
 // consumes this directly and self-fetches its per-page records/images by `id`.
-export interface DocAnalysisRow {
+export interface AttachmentAnalysisRow {
     id: string;
-    documentId: string;
+    attachmentId: string;
     analyzedAt: number;
     documentType: string | null;
     extractedAmount: number | null;
@@ -106,7 +106,7 @@ function MatchCell({ match }: { match: boolean | null | undefined }) {
 
 export default function EntriesClient() {
     const [entries, setEntries] = useState<Entry[]>([]);
-    const [docAnalyses, setDocAnalyses] = useState<DocAnalysisRow[]>([]);
+    const [attachmentAnalyses, setAttachmentAnalyses] = useState<AttachmentAnalysisRow[]>([]);
     const [periods, setPeriods] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -118,8 +118,8 @@ export default function EntriesClient() {
     const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
     const [selectedDocMatchStatus, setSelectedDocMatchStatus] = useState<string[]>([]);
 
-    // Document detail dialog
-    const [selectedAnalysis, setSelectedAnalysis] = useState<DocAnalysisRow | null>(null);
+    // Attachment detail dialog
+    const [selectedAnalysis, setSelectedAnalysis] = useState<AttachmentAnalysisRow | null>(null);
 
     // Fetch available periods
     useEffect(() => {
@@ -138,7 +138,7 @@ export default function EntriesClient() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fetch entries + their period-scoped document analyses when period changes
+    // Fetch entries + their period-scoped attachment analyses when period changes
     const fetchEntries = useCallback((period: string) => {
         setLoading(true);
         setError(null);
@@ -148,14 +148,14 @@ export default function EntriesClient() {
                 if (!res.ok) throw new Error("Failed to fetch entries");
                 return res.json() as Promise<Entry[]>;
             }),
-            // Document analyses follow the period's entries; a failure here must not blank the ledger.
-            fetch(`/api/document-analyses?period=${q}`)
-                .then(res => (res.ok ? (res.json() as Promise<DocAnalysisRow[]>) : []))
-                .catch(() => [] as DocAnalysisRow[]),
+            // Attachment analyses follow the period's entries; a failure here must not blank the ledger.
+            fetch(`/api/attachment-analyses?period=${q}`)
+                .then(res => (res.ok ? (res.json() as Promise<AttachmentAnalysisRow[]>) : []))
+                .catch(() => [] as AttachmentAnalysisRow[]),
         ])
             .then(([entryRows, analysisRows]) => {
                 setEntries(entryRows);
-                setDocAnalyses(Array.isArray(analysisRows) ? analysisRows : []);
+                setAttachmentAnalyses(Array.isArray(analysisRows) ? analysisRows : []);
             })
             .catch(e => setError(e.message))
             .finally(() => setLoading(false));
@@ -178,19 +178,19 @@ export default function EntriesClient() {
 
     // Latest analysis per entry (endpoint orders analyzedAt DESC, so first-seen wins).
     const analysisByEntry = useMemo(() => {
-        const map = new Map<string, DocAnalysisRow>();
-        for (const a of docAnalyses) {
+        const map = new Map<string, AttachmentAnalysisRow>();
+        for (const a of attachmentAnalyses) {
             if (!map.has(a.entryId)) map.set(a.entryId, a);
         }
         return map;
-    }, [docAnalyses]);
+    }, [attachmentAnalyses]);
 
     const docTypeOptions = useMemo(
         () =>
-            [...new Set(docAnalyses.map(a => a.documentType).filter(Boolean))]
+            [...new Set(attachmentAnalyses.map(a => a.documentType).filter(Boolean))]
                 .sort()
                 .map(v => ({ value: v!, label: v! })),
-        [docAnalyses]
+        [attachmentAnalyses]
     );
 
     const matchStatusOptions = [
@@ -249,17 +249,17 @@ export default function EntriesClient() {
         return { revenue, expenses, net: revenue - expenses, count: filtered.length };
     }, [filtered]);
 
-    // Period document-health summary (over the period-scoped analyses)
+    // Period attachment-health summary (over the period-scoped analyses)
     const docSummary = useMemo(() => {
-        const analyzed = docAnalyses.filter(a => !a.error);
+        const analyzed = attachmentAnalyses.filter(a => !a.error);
         return {
-            total: docAnalyses.length,
-            errors: docAnalyses.length - analyzed.length,
+            total: attachmentAnalyses.length,
+            errors: attachmentAnalyses.length - analyzed.length,
             amountBad: analyzed.filter(a => a.amountMatch === false).length,
             vendorBad: analyzed.filter(a => a.vendorMatch === false).length,
             dateBad: analyzed.filter(a => a.dateMatch === false).length,
         };
-    }, [docAnalyses]);
+    }, [attachmentAnalyses]);
 
     // Virtualizer
     const parentRef = useRef<HTMLDivElement>(null);
@@ -325,7 +325,7 @@ export default function EntriesClient() {
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <span className="block text-xs font-medium text-muted-foreground">Document status</span>
+                            <span className="block text-xs font-medium text-muted-foreground">Attachment status</span>
                             <MultiSelect
                                 options={matchStatusOptions}
                                 selected={selectedDocMatchStatus}
@@ -487,7 +487,7 @@ export default function EntriesClient() {
                                                 analysis
                                                     ? analysis.serviceDescription ||
                                                       analysis.error ||
-                                                      "Click for document detail"
+                                                      "Click for attachment detail"
                                                     : undefined
                                             }
                                             onClick={analysis ? () => setSelectedAnalysis(analysis) : undefined}
@@ -566,7 +566,7 @@ export default function EntriesClient() {
                 </CardContent>
             </Card>
 
-            <DocumentAnalysisDetailDialog
+            <AttachmentAnalysisDetailDialog
                 analysis={selectedAnalysis}
                 onOpenChange={open => {
                     if (!open) setSelectedAnalysis(null);

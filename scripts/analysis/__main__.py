@@ -40,19 +40,19 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python -m analysis",
-        description="SVHC fiscal document analysis (decoupled from the scraper).",
+        description="SVHC fiscal attachment analysis (decoupled from the scraper).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("docs-plan", help="Plan document extraction: write <period>.extract-todo.json (cache)")
+    p = sub.add_parser("docs-plan", help="Plan attachment extraction: write <period>.extract-todo.json (cache)")
     _add_common(p)
-    p.add_argument("--min-amount", type=float, help="Only plan documents for entries >= this amount.")
-    p.add_argument("--limit", type=int, help="Maximum number of documents to plan.")
-    p.add_argument("--reanalyze", action="store_true", help="Re-plan already analyzed documents.")
-    p.add_argument("--document-id", type=str, nargs="*", help="Only these document ids (implies re-analysis).")
-    p.add_argument("--entry-id", type=str, nargs="*", help="Only documents for these entry ids (implies re-analysis).")
+    p.add_argument("--min-amount", type=float, help="Only plan attachments for entries >= this amount.")
+    p.add_argument("--limit", type=int, help="Maximum number of attachments to plan.")
+    p.add_argument("--reanalyze", action="store_true", help="Re-plan already analyzed attachments.")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Only these attachment ids (implies re-analysis).")
+    p.add_argument("--entry-id", type=str, nargs="*", help="Only attachments for these entry ids (implies re-analysis).")
 
-    p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into document_analyses (D1)")
+    p = sub.add_parser("apply-extractions", help="Merge per-page <image>.classify.json into attachment_analyses (D1)")
     _add_common(p)
 
     p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
@@ -60,7 +60,7 @@ def main(argv=None):
 
     p = sub.add_parser("mismatches", help="Print a terse JSON summary of classification mismatches")
     _add_common(p)
-    p.add_argument("--document-id", type=str, nargs="*", help="Scope to these document ids.")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Scope to these attachment ids.")
     p.add_argument("--entry-id", type=str, nargs="*", help="Scope to these entry ids.")
 
     p = sub.add_parser("record-verdict", help="Record one review verdict into <period>.verdicts.json (cache)")
@@ -83,7 +83,7 @@ def main(argv=None):
         "--no-progress-window", type=int, default=DEFAULT_NO_PROGRESS_WINDOW,
         help="Consecutive-iteration window for the no-progress guard (default 2).",
     )
-    p.add_argument("--document-id", type=str, nargs="*", help="Scope the join to these document ids.")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Scope the join to these attachment ids.")
     p.add_argument("--entry-id", type=str, nargs="*", help="Scope the join to these entry ids.")
 
     args = parser.parse_args(argv)
@@ -97,7 +97,7 @@ def main(argv=None):
             min_amount=args.min_amount,
             limit=args.limit,
             reanalyze=args.reanalyze,
-            document_ids=args.document_id,
+            attachment_ids=args.attachment_id,
             entry_ids=args.entry_id,
         )
     elif args.command == "apply-extractions":
@@ -109,7 +109,7 @@ def main(argv=None):
             target=target,
             periods_filter=args.periodo,
             cache_dir=args.cache_dir,
-            document_ids=args.document_id,
+            attachment_ids=args.attachment_id,
             entry_ids=args.entry_id,
         )
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -147,7 +147,7 @@ def main(argv=None):
             iteration=args.iteration,
             max_iterations=args.max_iterations,
             no_progress_window=args.no_progress_window,
-            document_ids=args.document_id,
+            attachment_ids=args.attachment_id,
             entry_ids=args.entry_id,
         )
         print(json.dumps(state, ensure_ascii=False, indent=2))

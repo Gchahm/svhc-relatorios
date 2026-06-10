@@ -164,32 +164,35 @@ export const approvers = sqliteTable(
     table => [index("approvers_report_id_idx").on(table.reportId)]
 );
 
-// ─── Documents (documento) ───────────────────────────────────────────────────
+// ─── Attachments (documento) ─────────────────────────────────────────────────
+// The per-entry multi-page bundle downloaded from the portal. One per entry. Its
+// pages may each be a different real document (NF/receipt/boleto) — those "documents"
+// are a reserved, future N:N-with-entries concept, NOT modeled here.
 
-export const documents = sqliteTable(
-    "documents",
+export const attachments = sqliteTable(
+    "attachments",
     {
         id: uuid(),
         entryId: text("entry_id")
             .notNull()
             .unique()
             .references(() => entries.id),
-        externalDocumentId: integer("external_document_id").notNull(),
+        externalDocumentId: integer("external_document_id").notNull(), // portal ("documento") id — KEEP
         filePath: text("file_path"),
     },
-    table => [index("documents_entry_id_idx").on(table.entryId)]
+    table => [index("attachments_entry_id_idx").on(table.entryId)]
 );
 
-// ─── Document Analyses (analise_documento) ───────────────────────────────────
+// ─── Attachment Analyses (analise_documento) ─────────────────────────────────
 
-export const documentAnalyses = sqliteTable(
-    "document_analyses",
+export const attachmentAnalyses = sqliteTable(
+    "attachment_analyses",
     {
         id: uuid(),
-        documentId: text("document_id")
+        attachmentId: text("attachment_id")
             .notNull()
             .unique()
-            .references(() => documents.id),
+            .references(() => attachments.id),
         analyzedAt: integer("analyzed_at", { mode: "timestamp_ms" })
             .notNull()
             .$defaultFn(() => new Date()),
@@ -206,22 +209,22 @@ export const documentAnalyses = sqliteTable(
         rawResponse: text("raw_response"),
         error: text("error"),
     },
-    table => [index("document_analyses_document_id_idx").on(table.documentId)]
+    table => [index("attachment_analyses_attachment_id_idx").on(table.attachmentId)]
 );
 
-// ─── Document Analysis Records (registro_analise) ────────────────────────────
-// Normalized per-page (and per-analysis-kind) records for a document analysis.
-// One row per page per analysis_type; many per document, more than one per page
+// ─── Attachment Analysis Records (registro_analise) ──────────────────────────
+// Normalized per-page (and per-analysis-kind) records for an attachment analysis.
+// One row per page per analysis_type; many per attachment, more than one per page
 // allowed so future analysis kinds (e.g. forgery detection) attach without a
-// schema change. The roll-up lives on document_analyses; per-page detail here.
+// schema change. The roll-up lives on attachment_analyses; per-page detail here.
 
-export const documentAnalysisRecords = sqliteTable(
-    "document_analysis_records",
+export const attachmentAnalysisRecords = sqliteTable(
+    "attachment_analysis_records",
     {
         id: uuid(),
-        documentAnalysisId: text("document_analysis_id")
+        attachmentAnalysisId: text("attachment_analysis_id")
             .notNull()
-            .references(() => documentAnalyses.id),
+            .references(() => attachmentAnalyses.id),
         analysisType: text("analysis_type", { length: 50 }).notNull(), // e.g. page_extraction
         pageIndex: integer("page_index"), // 0-based index into the file_path page list
         pageLabel: text("page_label", { length: 20 }), // e.g. p3 (the _pN suffix) or pageN
@@ -233,7 +236,7 @@ export const documentAnalysisRecords = sqliteTable(
             .notNull()
             .$defaultFn(() => new Date()),
     },
-    table => [index("document_analysis_records_document_analysis_id_idx").on(table.documentAnalysisId)]
+    table => [index("attachment_analysis_records_attachment_analysis_id_idx").on(table.attachmentAnalysisId)]
 );
 
 // ─── Alerts (alerta) ─────────────────────────────────────────────────────────
@@ -314,7 +317,7 @@ export const entriesRelations = relations(entries, ({ one }) => ({
         fields: [entries.vendorId],
         references: [vendors.id],
     }),
-    document: one(documents),
+    attachment: one(attachments),
 }));
 
 export const categorySubtotalsRelations = relations(categorySubtotals, ({ one }) => ({
@@ -335,25 +338,25 @@ export const approversRelations = relations(approvers, ({ one }) => ({
     }),
 }));
 
-export const documentsRelations = relations(documents, ({ one }) => ({
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
     entry: one(entries, {
-        fields: [documents.entryId],
+        fields: [attachments.entryId],
         references: [entries.id],
     }),
-    analysis: one(documentAnalyses),
+    analysis: one(attachmentAnalyses),
 }));
 
-export const documentAnalysesRelations = relations(documentAnalyses, ({ one, many }) => ({
-    document: one(documents, {
-        fields: [documentAnalyses.documentId],
-        references: [documents.id],
+export const attachmentAnalysesRelations = relations(attachmentAnalyses, ({ one, many }) => ({
+    attachment: one(attachments, {
+        fields: [attachmentAnalyses.attachmentId],
+        references: [attachments.id],
     }),
-    records: many(documentAnalysisRecords),
+    records: many(attachmentAnalysisRecords),
 }));
 
-export const documentAnalysisRecordsRelations = relations(documentAnalysisRecords, ({ one }) => ({
-    documentAnalysis: one(documentAnalyses, {
-        fields: [documentAnalysisRecords.documentAnalysisId],
-        references: [documentAnalyses.id],
+export const attachmentAnalysisRecordsRelations = relations(attachmentAnalysisRecords, ({ one }) => ({
+    attachmentAnalysis: one(attachmentAnalyses, {
+        fields: [attachmentAnalysisRecords.attachmentAnalysisId],
+        references: [attachmentAnalyses.id],
     }),
 }));

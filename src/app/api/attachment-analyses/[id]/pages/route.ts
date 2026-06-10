@@ -1,6 +1,6 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
-import { documentAnalyses, documents } from "@/db/fiscal.schema";
+import { attachmentAnalyses, attachments } from "@/db/fiscal.schema";
 import { parsePage } from "@/lib/r2";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
@@ -9,10 +9,10 @@ import { type NextRequest, NextResponse } from "next/server";
 const ALLOWED_ROLES = ["admin", "member"];
 
 /**
- * GET /api/document-analyses/[id]/pages
+ * GET /api/attachment-analyses/[id]/pages
  *
- * Returns the ordered list of page images for one document analysis, derived from
- * `documents.file_path`. No R2 access — the image route resolves and streams the bytes.
+ * Returns the ordered list of page images for one attachment analysis, derived from
+ * `attachments.file_path`. No R2 access — the image route resolves and streams the bytes.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const authInstance = await initAuth();
@@ -26,10 +26,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const db = await getDb();
 
     const rows = await db
-        .select({ filePath: documents.filePath })
-        .from(documentAnalyses)
-        .innerJoin(documents, eq(documentAnalyses.documentId, documents.id))
-        .where(eq(documentAnalyses.id, id))
+        .select({ filePath: attachments.filePath })
+        .from(attachmentAnalyses)
+        .innerJoin(attachments, eq(attachmentAnalyses.attachmentId, attachments.id))
+        .where(eq(attachmentAnalyses.id, id))
         .limit(1);
 
     if (rows.length === 0) {
@@ -54,7 +54,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         .sort((a, b) => a.pageIndex - b.pageIndex)
         .map(p => ({
             ...p,
-            imageUrl: `/api/document-analyses/${id}/image/${p.pageLabel}`,
+            imageUrl: `/api/attachment-analyses/${id}/image/${p.pageLabel}`,
         }));
 
     return NextResponse.json(pages);

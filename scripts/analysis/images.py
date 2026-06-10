@@ -3,7 +3,7 @@
 Claude vision (`classify-doc-page`) Reads a local file path and NF grouping
 (`nf_groups.content_hash`) hashes raw page bytes — neither can operate on an R2
 key. This module downloads the in-scope page images from R2 to a git-ignored cache
-dir and **rewrites the in-memory ``documents[].file_path``** to the local cache
+dir and **rewrites the in-memory ``attachments[].file_path``** to the local cache
 paths, so ``content_hash``, the docs-plan manifest read_paths, the page-refs in the
 mismatch summary, and the extraction provider all transparently use local files —
 exactly as they did when the scraper wrote images to disk. The cache is scratch
@@ -28,26 +28,26 @@ def materialize_period_images(
     cache_dir: str,
     target: Target,
     *,
-    document_ids: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
 ) -> int:
-    """Ensure each document's page images are present in the cache; rewrite file_path.
+    """Ensure each attachment's page images are present in the cache; rewrite file_path.
 
-    For every document (optionally scoped to ``document_ids``) whose ``file_path``
+    For every attachment (optionally scoped to ``attachment_ids``) whose ``file_path``
     holds R2-key tokens (``<period>/<basename>``), download any missing page from R2
-    into ``<cache_dir>/<key>`` and rewrite the document's ``file_path`` to the
-    ``;``-joined local cache paths. Already-cached pages (and documents already
+    into ``<cache_dir>/<key>`` and rewrite the attachment's ``file_path`` to the
+    ``;``-joined local cache paths. Already-cached pages (and attachments already
     pointing at existing local files) are skipped, so repeated commands in a loop are
     cheap. Returns the number of pages downloaded this call.
 
-    Mutates the documents in place; since ``PeriodData.documents`` and
-    ``raw["documents"]`` are the same list, all readers see the cache paths.
+    Mutates the attachments in place; since ``PeriodData.attachments`` and
+    ``raw["attachments"]`` are the same list, all readers see the cache paths.
     """
     cache_root = Path(cache_dir)
-    scope = set(document_ids) if document_ids else None
+    scope = set(attachment_ids) if attachment_ids else None
     downloaded = 0
 
     for pd in periods.values():
-        for doc in pd.documents:
+        for doc in pd.attachments:
             if scope is not None and doc["id"] not in scope:
                 continue
             tokens = _split_tokens(doc.get("file_path"))
@@ -65,7 +65,7 @@ def materialize_period_images(
                     if d1.get_object(token, str(dest), target=target):
                         downloaded += 1
                     else:
-                        logger.warning("Missing R2 object for key %s (document %s)", token, doc["id"])
+                        logger.warning("Missing R2 object for key %s (attachment %s)", token, doc["id"])
                         # Keep the token so a downstream read records a clean page-error.
                         local_paths.append(token)
                         continue

@@ -1,10 +1,10 @@
-"""Agent-driven document extraction: plan -> (Claude vision) -> apply.
+"""Agent-driven attachment extraction: plan -> (Claude vision) -> apply.
 
 This module replaces the local-VLM extraction step. The flow is three touchpoints
 around a Claude vision skill (`.claude/skills/classify-doc-page`, usually driven
 per period by `.claude/skills/classify-period`):
 
-1. ``plan_extractions`` selects + groups the documents to analyze (reusing
+1. ``plan_extractions`` selects + groups the attachments to analyze (reusing
    ``select_work``) and writes a work manifest ``<period>.extract-todo.json``.
 2. The vision skill views each representative page image and writes, **next to the
    image**, a per-page ``<image-stem>.classify.json`` holding that page's parsed
@@ -12,7 +12,7 @@ per period by `.claude/skills/classify-period`):
 3. ``apply_extractions`` consumes the manifest, reads each page's sibling
    ``.classify.json`` (via ``FileExtractionProvider``), and runs the existing
    deterministic roll-up / group reconciliation / sibling fan-out / entry
-   validation / write-back, producing ``document_analyses`` identical in shape to
+   validation / write-back, producing ``attachment_analyses`` identical in shape to
    the old flow.
 
 The manifest contract lives under ``specs/006-analyze-docs-agent/contracts/``; the
@@ -25,14 +25,14 @@ from pathlib import Path
 
 from common.d1 import Target
 
-from .documentos import (
-    DocAnalysisResult,
+from .attachments import (
+    AttachmentAnalysisResult,
     _apply_group_amount_match,
     _fanout_result,
     _merge_and_write,
     _page_label_from_path,
     _parse_json_blob,
-    build_document_analysis,
+    build_attachment_analysis,
     select_work,
     summarize_results,
 )
@@ -77,7 +77,7 @@ class FileExtractionProvider:
     `classify-doc-page` skill and returns ``(fields, None)`` for a fields object,
     ``(None, reason)`` for an ``{"error": ...}`` object, and
     ``(None, "no classification for page")`` when the file is absent — matching the
-    ``ExtractionProvider`` seam in ``documentos.build_document_analysis``. Stateless:
+    ``ExtractionProvider`` seam in ``attachments.build_attachment_analysis``. Stateless:
     each lookup resolves the sibling file fresh, so a page classified after the run
     started is still picked up.
     """
@@ -110,15 +110,15 @@ def plan_extractions(
     min_amount: float | None = None,
     limit: int | None = None,
     reanalyze: bool = False,
-    document_ids: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> None:
     """Write the work manifest(s) the analyze-docs agent consumes.
 
-    One ``<period>.extract-todo.json`` (in the cache dir) per period with documents to
+    One ``<period>.extract-todo.json`` (in the cache dir) per period with attachments to
     analyze. Materializes the period's page images from R2 into the cache first, so NF
     grouping can hash them and each page's ``read_path`` points at a local cache file.
-    Each shared-NF group lists its representative document's pages plus the member list.
+    Each shared-NF group lists its representative attachment's pages plus the member list.
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
@@ -133,12 +133,12 @@ def plan_extractions(
         min_amount=min_amount,
         limit=limit,
         reanalyze=reanalyze,
-        document_ids=document_ids,
+        attachment_ids=attachment_ids,
         entry_ids=entry_ids,
     )
     if not work:
-        logger.info("No documents to plan")
-        print("\nNothing to extract (no matching documents).")
+        logger.info("No attachments to plan")
+        print("\nNothing to extract (no matching attachments).")
         return
 
     # Group selected items by period then NF group, preserving the amount-desc
@@ -153,7 +153,7 @@ def plan_extractions(
         out_groups = []
         for gkey, items in groups.items():
             rep = items[0]
-            tokens = [p.strip() for p in rep.document["file_path"].split(";") if p.strip()]
+            tokens = [p.strip() for p in rep.attachment["file_path"].split(";") if p.strip()]
             pages = [
                 {
                     "page_index": idx,
@@ -168,7 +168,7 @@ def plan_extractions(
                 vendor_name = refs.vendor_name(it.entry["vendor_id"]) if it.entry.get("vendor_id") else None
                 members.append(
                     {
-                        "document_id": it.document["id"],
+                        "attachment_id": it.attachment["id"],
                         "entry_id": it.entry["id"],
                         "entry_amount": it.entry["amount"],
                         "vendor_name": vendor_name,
@@ -178,7 +178,7 @@ def plan_extractions(
             out_groups.append(
                 {
                     "group_key": gkey,
-                    "representative_document_id": rep.document["id"],
+                    "representative_attachment_id": rep.attachment["id"],
                     "group_size": rep.group_size,
                     "sibling_sum": rep.sibling_sum,
                     "pages": pages,
@@ -195,7 +195,7 @@ def plan_extractions(
                 "min_amount": min_amount,
                 "limit": limit,
                 "reanalyze": reanalyze,
-                "document_ids": document_ids,
+                "attachment_ids": attachment_ids,
                 "entry_ids": entry_ids,
             },
             "groups": out_groups,
@@ -220,14 +220,14 @@ def apply_extractions(
     *,
     cache_dir: str = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Merge per-page classifications into ``document_analyses`` in D1.
+    """Merge per-page classifications into ``attachment_analyses`` in D1.
 
     For each period with a manifest (in the cache dir), rebuilds the representative
-    document's analysis from each page's sibling ``<image-stem>.classify.json`` (via
+    attachment's analysis from each page's sibling ``<image-stem>.classify.json`` (via
     ``FileExtractionProvider``), reconciles shared-NF groups, fans the extraction out
     to sibling members, and writes each result to D1 (delete-then-insert) — the same
     output the old flow produced. A page whose ``.classify.json`` is missing is
-    recorded as a per-page error and does not abort the document.
+    recorded as a per-page error and does not abort the attachment.
     """
     target_periods = periods_filter or _periods_with_manifests(cache_dir)
     if not target_periods:
@@ -235,7 +235,7 @@ def apply_extractions(
         return
 
     provider = FileExtractionProvider()
-    all_results: list[DocAnalysisResult] = []
+    all_results: list[AttachmentAnalysisResult] = []
     for period in target_periods:
         todo_path = extract_todo_path(cache_dir, period)
         if not todo_path.exists():
@@ -244,7 +244,7 @@ def apply_extractions(
 
         manifest = _read_json(todo_path)
 
-        results: list[DocAnalysisResult] = []
+        results: list[AttachmentAnalysisResult] = []
         for group in manifest.get("groups", []):
             gsize = group["group_size"]
             sibling_sum = group["sibling_sum"]
@@ -256,12 +256,12 @@ def apply_extractions(
             # Use the absolute read_path so the sibling .classify.json resolves
             # regardless of the current working directory; fall back to path.
             rep_file_path = ";".join(p.get("read_path") or p["path"] for p in group["pages"])
-            rep_result = build_document_analysis(
+            rep_result = build_attachment_analysis(
                 rep_file_path,
                 rep_member["entry_amount"],
                 rep_member.get("vendor_name"),
                 period,
-                rep_member["document_id"],
+                rep_member["attachment_id"],
                 rep_member["entry_id"],
                 provider,
             )
@@ -274,15 +274,15 @@ def apply_extractions(
                 if m.get("is_representative"):
                     continue
                 if rep_result.error:
-                    sib = DocAnalysisResult(
-                        document_id=m["document_id"],
+                    sib = AttachmentAnalysisResult(
+                        attachment_id=m["attachment_id"],
                         entry_id=m["entry_id"],
                         entry_amount=m["entry_amount"],
                     )
                     sib.error = rep_result.error
                 else:
                     sib = _fanout_result(
-                        rep_result, m["document_id"], m["entry_id"], m["entry_amount"], m.get("vendor_name"), period
+                        rep_result, m["attachment_id"], m["entry_id"], m["entry_amount"], m.get("vendor_name"), period
                     )
                     if gsize > 1:
                         _apply_group_amount_match(sib, sibling_sum)
@@ -299,9 +299,9 @@ def apply_extractions(
 
 
 def _page_refs_for_doc(doc: dict | None) -> list[dict]:
-    """Page references for a document's image(s): ``{document_id, page_label, read_path}``.
+    """Page references for a attachment's image(s): ``{attachment_id, page_label, read_path}``.
 
-    Derives from the document's ``file_path`` tokens (the same source ``docs-plan``
+    Derives from the attachment's ``file_path`` tokens (the same source ``docs-plan``
     uses), resolving each to an absolute ``read_path`` for the review worker's Read
     tool. Included in the mismatch summary so FR-004 (page reference(s) in the
     summary) holds literally.
@@ -311,7 +311,7 @@ def _page_refs_for_doc(doc: dict | None) -> list[dict]:
     tokens = [p.strip() for p in (doc.get("file_path") or "").split(";") if p.strip()]
     return [
         {
-            "document_id": doc["id"],
+            "attachment_id": doc["id"],
             "page_label": _page_label_from_path(token, idx),
             "read_path": str(Path(token).resolve()),
         }
@@ -324,42 +324,42 @@ def summarize_mismatches(
     periods_filter: list[str] | None = None,
     *,
     cache_dir: str = DEFAULT_CACHE_DIR,
-    document_ids: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> list[dict]:
     """Terse, machine-readable list of classification mismatches for a caller/loop.
 
-    Read-only (no model, no writes): joins the persisted ``document_analyses``
+    Read-only (no model, no writes): joins the persisted ``attachment_analyses``
     (amount / vendor / date / page-error) and ``duplicate_billing`` alerts with the
-    ledger entries, optionally scoped to specific document or entry ids. Each row
-    carries ``page_refs`` (the document's page image(s)) so the review worker can
+    ledger entries, optionally scoped to specific attachment or entry ids. Each row
+    carries ``page_refs`` (the attachment's page image(s)) so the review worker can
     open the evidence directly (FR-004). This is the concise hand-back the vision
     step returns instead of dumping page images or full artifacts. Run after
     ``apply_extractions`` (for the analyses) and ``analyze`` (for the alerts).
     """
     periods, refs = load_all_periods(target, periods_filter)
     # Bring images local so each page_ref's read_path points at a cache file the
-    # review worker can open (scoped to the documents under review when given).
-    materialize_period_images(periods, cache_dir, target, document_ids=document_ids)
-    doc_filter = set(document_ids) if document_ids else None
+    # review worker can open (scoped to the attachments under review when given).
+    materialize_period_images(periods, cache_dir, target, attachment_ids=attachment_ids)
+    doc_filter = set(attachment_ids) if attachment_ids else None
     entry_filter = set(entry_ids) if entry_ids else None
 
     out: list[dict] = []
     for period, pd in periods.items():
         entry_map = {e["id"]: e for e in pd.entries}
-        doc_map = {d["id"]: d for d in pd.documents}
+        doc_map = {d["id"]: d for d in pd.attachments}
 
-        for a in pd.raw.get("document_analyses", []):
-            doc = doc_map.get(a["document_id"])
+        for a in pd.raw.get("attachment_analyses", []):
+            doc = doc_map.get(a["attachment_id"])
             entry_id = doc.get("entry_id") if doc else None
-            if doc_filter is not None and a["document_id"] not in doc_filter:
+            if doc_filter is not None and a["attachment_id"] not in doc_filter:
                 continue
             if entry_filter is not None and entry_id not in entry_filter:
                 continue
             entry = entry_map.get(entry_id) if entry_id else None
             base = {
                 "period": period,
-                "document_id": a["document_id"],
+                "attachment_id": a["attachment_id"],
                 "entry_id": entry_id,
                 "page_refs": _page_refs_for_doc(doc),
             }
@@ -393,7 +393,7 @@ def summarize_mismatches(
                     meta = json.loads(al["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     meta = {}
-            docids = meta.get("document_ids", []) or []
+            docids = meta.get("attachment_ids", []) or []
             entids = meta.get("entry_ids", []) or []
             if doc_filter is not None and not (set(docids) & doc_filter):
                 continue
@@ -406,7 +406,7 @@ def summarize_mismatches(
                 {
                     "period": period,
                     "kind": "duplicate_billing",
-                    "document_ids": docids,
+                    "attachment_ids": docids,
                     "entry_ids": entids,
                     "nf_total": meta.get("nf_total"),
                     "sum_entries": meta.get("sum_entries"),

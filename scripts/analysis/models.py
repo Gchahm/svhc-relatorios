@@ -43,7 +43,7 @@ class PeriodData:
     report: dict
     entries: list[dict]
     category_subtotals: list[dict]
-    documents: list[dict]
+    attachments: list[dict]
 
     @property
     def debit_entries(self) -> list[dict]:
@@ -62,8 +62,8 @@ class PeriodData:
         return sum(e["amount"] for e in self.credit_entries)
 
     @property
-    def entry_ids_with_documents(self) -> set[str]:
-        return {d["entry_id"] for d in self.documents}
+    def entry_ids_with_attachments(self) -> set[str]:
+        return {d["entry_id"] for d in self.attachments}
 
 
 class RefIndex:
