@@ -46,7 +46,26 @@ GET /api/documents/{id}
       "attachmentId": "det_att_…",
       "analysisId": "det_an_…",
       "entryId": "det_entry_…",
-      "period": "2025-12"
+      "period": "2025-12",
+      "documentPageLabel": "p1",
+      "pages": [
+        {
+          "pageLabel": "p1",
+          "pageIndex": 0,
+          "imageUrl": "/api/attachment-analyses/det_an_…/image/p1",
+          "artifactRole": "invoice",
+          "roleLabel": "Invoice",
+          "isDocument": true
+        },
+        {
+          "pageLabel": "p2",
+          "pageIndex": 1,
+          "imageUrl": "/api/attachment-analyses/det_an_…/image/p2",
+          "artifactRole": "boleto",
+          "roleLabel": "Boleto",
+          "isDocument": false
+        }
+      ]
     }
   ],
   "relatedDocuments": [
@@ -66,7 +85,10 @@ GET /api/documents/{id}
 
 - `entries` ordered by `period`, then `date`.
 - `imageSources` — one per distinct provenance attachment that has an analysis (deduped by
-  `analysisId`); empty when none.
+  `analysisId`); empty when none. Each carries its `pages` (label/index/imageUrl + the artifact
+  `roleLabel` and an `isDocument` flag) and `documentPageLabel` — the page that IS this document
+  (the fiscal page, matched by issuer CNPJ / document number / fiscal role; falls back to the first
+  page). The page images are streamed by the existing `…/image/{pageLabel}` route.
 - `relatedDocuments` — other documents sharing ≥1 entry with the subject (subject excluded); empty
   when none; ordered by `issuerName`, then `documentNumber`.
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, ExternalLink, FileText, ImageOff } from "lucide-react";
 import { StatusBadge } from "../StatusBadge";
@@ -21,11 +22,22 @@ interface LinkedEntry {
     sourceAttachmentId: string | null;
 }
 
+interface SourcePage {
+    pageLabel: string;
+    pageIndex: number;
+    imageUrl: string;
+    artifactRole: string | null;
+    roleLabel: string | null;
+    isDocument: boolean;
+}
+
 interface ImageSource {
     attachmentId: string;
     analysisId: string;
     entryId: string;
     period: string;
+    documentPageLabel: string | null;
+    pages: SourcePage[];
 }
 
 interface RelatedDocument {
@@ -53,13 +65,6 @@ interface DocumentDetail {
     relatedDocuments: RelatedDocument[];
 }
 
-interface PageInfo {
-    pageIndex: number;
-    pageLabel: string;
-    ext: string;
-    imageUrl: string;
-}
-
 function formatCurrency(value: number | null): string {
     if (value === null) return "—";
     return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -70,49 +75,34 @@ function entryHref(period: string, entryId: string): string {
     return `/dashboard/entries?period=${encodeURIComponent(period)}&entry=${encodeURIComponent(entryId)}`;
 }
 
-/** Loads and renders the page images for one provenance attachment (by its analysis id). */
-function SourceImages({ source }: { source: ImageSource }) {
-    const [pages, setPages] = useState<PageInfo[]>([]);
-    const [done, setDone] = useState(false);
+/** The page within each provenance bundle that IS this document (flagged by the API). */
+function representativePage(sources: ImageSource[]): SourcePage | null {
+    for (const s of sources) {
+        const p = s.pages.find(pg => pg.isDocument);
+        if (p) return p;
+    }
+    for (const s of sources) {
+        if (s.pages.length > 0) return s.pages[0];
+    }
+    return null;
+}
 
-    useEffect(() => {
-        let cancelled = false;
-        setPages([]);
-        setDone(false);
-        // A pages-list failure is non-fatal: it simply yields no gallery (FR-009).
-        fetch(`/api/attachment-analyses/${source.analysisId}/pages`)
-            .then(res => (res.ok ? res.json() : []))
-            .then((data: PageInfo[]) => {
-                if (!cancelled) setPages(Array.isArray(data) ? data : []);
-            })
-            .catch(() => {
-                if (!cancelled) setPages([]);
-            })
-            .finally(() => {
-                if (!cancelled) setDone(true);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [source.analysisId]);
-
+/** One page thumbnail with its artifact-role label and a marker when it is the document itself. */
+function LabeledPage({ page }: { page: SourcePage }) {
     return (
-        <div className="space-y-2 rounded-md border p-3">
-            <div className="text-xs text-muted-foreground">
-                From entry <span className="tabular-nums">{source.period}</span>
+        <div className={`space-y-1 rounded-md border p-2 ${page.isDocument ? "ring-2 ring-blue-400" : ""}`}>
+            <div className="flex items-center gap-1.5">
+                {page.isDocument && (
+                    <Badge variant="outline" className="border-blue-400 text-[10px] text-blue-700">
+                        this document
+                    </Badge>
+                )}
+                <Badge variant="secondary" className="text-[10px]">
+                    {page.roleLabel ?? "Unlabeled"}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground">{page.pageLabel}</span>
             </div>
-            {done && pages.length === 0 ? (
-                <div className="flex h-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
-                    <ImageOff className="h-5 w-5" />
-                    <span className="text-xs">No image for this source</span>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {pages.map(page => (
-                        <PageImageViewer key={page.pageLabel} src={page.imageUrl} alt={`Page ${page.pageLabel}`} />
-                    ))}
-                </div>
-            )}
+            <PageImageViewer src={page.imageUrl} alt={`Page ${page.pageLabel} (${page.roleLabel ?? "unlabeled"})`} />
         </div>
     );
 }
@@ -220,26 +210,76 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
                 </CardContent>
             </Card>
 
-            {/* Document image(s) */}
+            {/* Document image — the representative page (the fiscal document itself, not its
+                boleto / payment proof), so it is clear which document this is. */}
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">Document image</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {detail.imageSources.length === 0 ? (
-                        <div className="flex h-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
-                            <ImageOff className="h-5 w-5" />
-                            <span className="text-xs">No image available</span>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {detail.imageSources.map(source => (
-                                <SourceImages key={source.analysisId} source={source} />
-                            ))}
-                        </div>
-                    )}
+                    {(() => {
+                        const hero = representativePage(detail.imageSources);
+                        if (!hero) {
+                            return (
+                                <div className="flex h-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
+                                    <ImageOff className="h-5 w-5" />
+                                    <span className="text-xs">No image available</span>
+                                </div>
+                            );
+                        }
+                        return (
+                            <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                    <Badge variant="outline">{detail.documentType ?? "Document"}</Badge>
+                                    <span className="text-muted-foreground">
+                                        {detail.issuerName ?? detail.issuerCnpj}
+                                    </span>
+                                    {hero.roleLabel && (
+                                        <span className="text-xs text-muted-foreground">· {hero.roleLabel}</span>
+                                    )}
+                                </div>
+                                <div className="max-w-xl">
+                                    <PageImageViewer
+                                        src={hero.imageUrl}
+                                        alt={`${detail.documentType ?? "Document"} image`}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </CardContent>
             </Card>
+
+            {/* Source attachments — the full provenance bundle(s), every page labeled by its artifact
+                role so the document page is distinguishable from its boleto / payment proof. */}
+            {detail.imageSources.length > 0 && (
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Source attachments ({detail.imageSources.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {detail.imageSources.map(source => (
+                            <div key={source.analysisId} className="space-y-2 rounded-md border p-3">
+                                <div className="text-xs text-muted-foreground">
+                                    From entry <span className="tabular-nums">{source.period}</span>
+                                </div>
+                                {source.pages.length === 0 ? (
+                                    <div className="flex h-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
+                                        <ImageOff className="h-5 w-5" />
+                                        <span className="text-xs">No image for this source</span>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                        {source.pages.map(page => (
+                                            <LabeledPage key={page.pageLabel} page={page} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Linked entries */}
             <Card>
