@@ -109,14 +109,40 @@ def _analysis_total(analysis: dict) -> float | None:
     return nf_total_for_reconciliation(responses, analysis.get("extracted_amount"))
 
 
+def _sql_id_list(ids) -> str:
+    """SQL single-quoted, escaped, comma-joined id list for an ``IN (...)`` clause."""
+    return ",".join("'" + str(i).replace("'", "''") + "'" for i in ids)
+
+
+def _prune_sql(table: str, desired_ids: set[str]) -> str:
+    """One authoritative DELETE for ``table``: remove every row not in ``desired_ids``.
+
+    When ``desired_ids`` is empty the desired state for the table is empty, so this becomes an
+    unconditional ``DELETE FROM <table>`` (``NOT IN ()`` is invalid SQLite). Otherwise it deletes
+    only the rows whose id is not in the desired set — the stale rows a re-classification orphaned.
+    """
+    if not desired_ids:
+        return f"DELETE FROM {table};"
+    return f"DELETE FROM {table} WHERE id NOT IN ({_sql_id_list(desired_ids)});"
+
+
 def build_documents(target: Target = "local") -> tuple[int, int]:
-    """Derive ``documents`` + ``document_entries`` from analyses, GLOBALLY and idempotently.
+    """Derive ``documents`` + ``document_entries`` from analyses, GLOBALLY and AUTHORITATIVELY.
 
     For every analysis confidently carrying (number, cnpj): upsert one ``documents`` row
     per unique key (deterministic id ``det_id("document", number, cnpj)``; ``total_value``
     = the MAX confident reconciliation total across the key's analyses — order-independent
     and conservative) and one ``document_entries`` link per analysis (deterministic id, with
     the source attachment for provenance). Analyses missing either field create nothing.
+
+    The write is AUTHORITATIVE (feature 025 / issue #36): these are pure derived tables with no
+    user-owned state, so any persisted document/link whose id the current analyses no longer
+    produce is PRUNED — otherwise a re-classification that changes an analysis's (number, cnpj)
+    leaves a zombie document + link that distorts the documents list and can fire a false
+    ``document_overpayment`` alert. The prune DELETEs and the upsert INSERTs are submitted as ONE
+    atomic D1 batch (single ``execute_sql`` — one implicit transaction), mirroring the alert
+    writeback (feature 024), so a partial failure can never remove stale rows without writing the
+    new ones (or vice versa). When the desired state is empty, all documents and links are removed.
 
     Returns ``(documents_upserted, links_upserted)``.
     """
@@ -167,14 +193,36 @@ def build_documents(target: Target = "local") -> tuple[int, int]:
             "created_at": ts,
         }
 
-    if docs or links:
-        d1.upsert_tables(
-            {"documents": list(docs.values()), "document_entries": list(links.values())},
-            target=target,
-        )
+    desired_doc_ids = {d["id"] for d in docs.values()}
+    desired_link_ids = set(links)
+
+    # Pre-read the persisted ids so we can report a real pruned count (FR-008). Id-only reads
+    # are cheap; the prune itself is driven by `NOT IN (<desired>)`, not by this read.
+    existing_doc_ids = {r["id"] for r in d1.query("SELECT id FROM documents", target=target)}
+    existing_link_ids = {r["id"] for r in d1.query("SELECT id FROM document_entries", target=target)}
+    pruned_docs = existing_doc_ids - desired_doc_ids
+    pruned_links = existing_link_ids - desired_link_ids
+
+    # Authoritative write in ONE atomic batch (feature 024 idiom): DELETE the stale rows (links
+    # before documents — FK-safe order), then INSERT OR REPLACE the desired rows. `upsert_sql`
+    # returns "" when there are no desired rows, so an empty desired state yields prune-only SQL
+    # (unconditional DELETE FROM both tables). Skip the call only when there is nothing to do.
+    prune_sql = ""
+    if pruned_links:
+        prune_sql += _prune_sql("document_entries", desired_link_ids) + "\n"
+    if pruned_docs:
+        prune_sql += _prune_sql("documents", desired_doc_ids) + "\n"
+    upsert_sql = d1.upsert_sql(
+        {"documents": list(docs.values()), "document_entries": list(links.values())}
+    )
+    batch = prune_sql + upsert_sql
+    if batch:
+        d1.execute_sql(batch, target=target)
+
     logger.info(
-        "build-documents (%s): %d document(s), %d link(s) upserted; %d analysis(es) skipped (no number/CNPJ)",
-        target, len(docs), len(links), skipped,
+        "build-documents (%s): %d document(s), %d link(s) upserted; pruned %d document(s), %d link(s); "
+        "%d analysis(es) skipped (no number/CNPJ)",
+        target, len(docs), len(links), len(pruned_docs), len(pruned_links), skipped,
     )
     return len(docs), len(links)
 
