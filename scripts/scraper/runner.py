@@ -14,6 +14,7 @@ from .extractors.demonstrativo import extract_demonstrativo
 from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
+from .preserve import preserve_existing_attachment_cols
 
 from common import det_id as _det_id, now_ms as _now_ms
 from common import d1
@@ -488,6 +489,23 @@ async def _scrape_periodo(
                     doc_record["content_hash"] = content_hash(";".join(local_paths))
                     downloaded += 1
         logger.info("  Attachments uploaded to R2 (%s): %d/%d", target, downloaded, total_docs)
+
+    # BUG-001 / issue #32: a re-scrape upserts attachment rows via INSERT OR REPLACE, which would
+    # reset the scraper-owned file_path/content_hash to NULL whenever this run did not (re)download
+    # the pages. Preserve any existing values for attachments we are about to rewrite — read the
+    # current column map for this period from D1 and carry non-NULL values into the rows whose fresh
+    # value is NULL (a successful in-run download still wins). attachment_state is untouched.
+    if attachments_out:
+        period_literal = periodo.replace("'", "''")
+        existing_rows = d1.query(
+            "SELECT d.id, d.file_path, d.content_hash FROM attachments d "
+            "JOIN entries e ON d.entry_id = e.id "
+            "JOIN accountability_reports r ON e.report_id = r.id "
+            f"WHERE r.period = '{period_literal}'",
+            target=target,
+        )
+        existing_by_id = {row["id"]: row for row in existing_rows}
+        preserve_existing_attachment_cols(attachments_out, existing_by_id)
 
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",
