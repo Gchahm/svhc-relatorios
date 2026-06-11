@@ -15,7 +15,7 @@ from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 from .preserve import preserve_existing_attachment_cols
-from .reconcile import ExistingRows, ScrapedIds, build_reconciliation
+from .reconcile import ALERT_TYPE as _VANISHED_ALERT_TYPE, ExistingRows, ScrapedIds, build_reconciliation
 
 from common import det_id as _det_id, now_ms as _now_ms
 from common import d1
@@ -370,7 +370,18 @@ def _reconcile_period(periodo: str, period_data: dict, target: Target) -> None:
         approver_ids={row["id"] for row in approver_rows},
     )
 
-    result = build_reconciliation(periodo, existing, scraped)
+    # Feature-023 invariant (issue #34): the portal_row_vanished alert uses a stable per-period id and
+    # re-fires on every re-scrape while rows stay vanished, so read the user's prior resolution/notes
+    # for that id and graft it onto the re-emitted alert — otherwise a re-scrape silently wipes a
+    # disposition the user set. The read is impure, so it lives here, not in pure build_reconciliation.
+    alert_id = _det_id("alert", periodo, _VANISHED_ALERT_TYPE)  # deterministic UUID — no quotes
+    prior_rows = d1.query(
+        f"SELECT resolved, resolved_at, notes FROM alerts WHERE id = '{alert_id}'",
+        target=target,
+    )
+    prior_resolution = prior_rows[0] if prior_rows else None
+
+    result = build_reconciliation(periodo, existing, scraped, prior_resolution)
     if not result.sql:
         return
     d1.execute_sql(result.sql, target=target)

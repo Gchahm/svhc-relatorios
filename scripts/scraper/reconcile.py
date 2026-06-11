@@ -87,7 +87,12 @@ def _in_list(ids) -> str | None:
 # ─── Reconciliation ──────────────────────────────────────────────────────────
 
 
-def build_reconciliation(period: str, existing: ExistingRows, scraped: ScrapedIds) -> ReconcileResult:
+def build_reconciliation(
+    period: str,
+    existing: ExistingRows,
+    scraped: ScrapedIds,
+    prior_resolution: dict | None = None,
+) -> ReconcileResult:
     """Build the reconciliation SQL batch + vanished-row alert for one period (pure).
 
     ``stale`` per table = ids in D1 for the period that the current scrape did NOT produce. An
@@ -101,6 +106,13 @@ def build_reconciliation(period: str, existing: ExistingRows, scraped: ScrapedId
     Every DELETE is scoped to the stale id sets or this period, so surviving rows and other periods
     are never matched. When nothing is stale the result still carries the clear-only alert DELETE so
     the alert is truly idempotent (a re-scrape that reverts a deletion clears the stale alert).
+
+    ``prior_resolution`` (read from D1 by the caller, since this module is pure) carries the user's
+    previously-set ``{resolved, resolved_at, notes}`` for this period's alert id. The
+    ``portal_row_vanished`` alert uses a stable deterministic id and re-fires on every re-scrape while
+    rows stay vanished, so — like the feature-023 analysis writebacks (issue #34) — that prior
+    disposition is grafted onto the re-emitted alert BEFORE the ``INSERT OR REPLACE`` is rendered,
+    instead of being silently reset to the unresolved default on each scrape.
     """
     existing_entry_ids = {e["id"] for e in existing.entries}
     existing_attachment_ids = {a["id"] for a in existing.attachments}
@@ -167,12 +179,34 @@ def build_reconciliation(period: str, existing: ExistingRows, scraped: ScrapedId
     if anything_stale:
         alert = _build_alert(period, existing, stale_entry_ids, stale_attachment_ids,
                              stale_subtotal_ids, stale_approver_ids, deleted_counts)
+        # Feature-023 invariant: graft the user's prior disposition onto the re-emitted alert so a
+        # re-scrape (same deterministic id) never wipes a resolution/notes the user set (issue #34).
+        _graft_resolution(alert, prior_resolution)
         cols = list(alert.keys())
         col_list = ", ".join(f'"{c}"' for c in cols)
         values = ", ".join(_sql_str(alert[c]) for c in cols)
         stmts.append(f'INSERT OR REPLACE INTO "alerts" ({col_list}) VALUES ({values});')
 
     return ReconcileResult(sql="\n".join(stmts), deleted_counts=deleted_counts, alert=alert)
+
+
+def _graft_resolution(alert: dict, prior_resolution: dict | None) -> None:
+    """Overwrite the re-emitted alert's resolution fields with the user's prior disposition.
+
+    Mirrors ``scripts/analysis/__init__.py:_graft_resolution`` (feature 023): only applied when the
+    caller found a prior row that actually carries disposition (``resolved`` truthy OR ``notes``
+    set); a first-time alert keeps the unresolved default from ``_build_alert`` (FR-005). The
+    ``resolved`` value is coerced to an int defensively — wrangler ``--json`` returns it as an int,
+    but a string ``"0"`` would be truthy and mis-store a default-state row as resolved.
+    """
+    if not prior_resolution:
+        return
+    resolved = int(prior_resolution.get("resolved") or 0)
+    notes = prior_resolution.get("notes")
+    if resolved or (notes not in (None, "")):
+        alert["resolved"] = resolved
+        alert["resolved_at"] = prior_resolution.get("resolved_at")
+        alert["notes"] = notes
 
 
 def _build_alert(

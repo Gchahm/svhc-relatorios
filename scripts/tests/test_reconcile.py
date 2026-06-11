@@ -165,5 +165,49 @@ class US3CascadeTest(unittest.TestCase):
         self.assertIsInstance(res, ReconcileResult)
 
 
+class ResolutionGraftTest(unittest.TestCase):
+    """Feature-023 invariant — a re-fire preserves the user's prior resolution/notes (issue #34)."""
+
+    def _vanished(self, prior_resolution=None):
+        existing = ExistingRows(entries=[_entry("E3")])
+        scraped = ScrapedIds(entry_ids=set())
+        return build_reconciliation(PERIOD, existing, scraped, prior_resolution)
+
+    def test_first_fire_defaults_unresolved(self):
+        # No prior row → unresolved default; the INSERT carries resolved=0 / NULL resolved_at+notes.
+        res = self._vanished(prior_resolution=None)
+        self.assertEqual(res.alert["resolved"], 0)
+        self.assertIsNone(res.alert["resolved_at"])
+        self.assertIsNone(res.alert["notes"])
+
+    def test_refire_preserves_resolved_and_notes(self):
+        # User had resolved + annotated the prior alert → grafted onto the re-emitted row.
+        res = self._vanished(
+            prior_resolution={"resolved": 1, "resolved_at": 1700000000000, "notes": "known cleanup"}
+        )
+        self.assertEqual(res.alert["resolved"], 1)
+        self.assertEqual(res.alert["resolved_at"], 1700000000000)
+        self.assertEqual(res.alert["notes"], "known cleanup")
+        # And the disposition survives into the rendered INSERT (not just the dict).
+        self.assertIn("known cleanup", res.sql)
+
+    def test_refire_preserves_notes_only(self):
+        # Annotated but not resolved → notes grafted, resolved stays the coerced 0.
+        res = self._vanished(prior_resolution={"resolved": 0, "resolved_at": None, "notes": "watching"})
+        self.assertEqual(res.alert["resolved"], 0)
+        self.assertEqual(res.alert["notes"], "watching")
+
+    def test_default_state_prior_row_does_not_graft(self):
+        # A prior row at the default (resolved=0, no notes) carries no disposition → no graft.
+        res = self._vanished(prior_resolution={"resolved": 0, "resolved_at": None, "notes": None})
+        self.assertEqual(res.alert["resolved"], 0)
+        self.assertIsNone(res.alert["notes"])
+
+    def test_resolved_string_zero_is_not_truthy(self):
+        # wrangler --json gives an int today, but a string "0" must not be mis-read as resolved.
+        res = self._vanished(prior_resolution={"resolved": "0", "resolved_at": None, "notes": None})
+        self.assertEqual(res.alert["resolved"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
