@@ -1,15 +1,17 @@
 ---
 name: speckit-issue-loop
 description: >-
-    Keep an automated implementation loop alive over the repo's open GitHub issues. Each pass picks up
-    unclaimed issues and spawns one long-lived worker per issue that runs the speckit full pipeline
-    (spec → plan → tasks → implement → PR) in its own git worktree; on later passes the loop relays PR
-    review events (changes requested, approval) into that same worker via SendMessage, so the worker
-    keeps its context from first spec to final merge while the loop itself stays thin. Designed to run
+    Keep an automated implementation loop alive over the repo's open GitHub issues, working strictly
+    ONE issue at a time. Each pass dispatches the next eligible issue (dependency-gated, priority,
+    oldest first) to a single long-lived worker that runs the speckit full pipeline (spec → plan →
+    tasks → implement → PR) in its own git worktree; on later passes the loop relays PR review events
+    (changes requested, approval) into that same worker via SendMessage, so the worker keeps its
+    context from first spec to final merge while the loop itself stays thin. The next issue starts
+    only after the current one's PR merges. Designed to run
     as the recurring prompt of /loop, and to pair with pr-review-loop as the reviewer. Use for "work
     through our issue list with speckit", "start the issue implementation loop", or "implement open
     issues automatically".
-argument-hint: "[--label <name>] [--max-workers N] [--once]"
+argument-hint: "[--label <name>] [--once]"
 allowed-tools: Bash, Agent, Read, Write
 model: haiku
 hooks:
@@ -59,9 +61,11 @@ session-scoped — after a session restart they are stale; clear them and use th
 ## 1. Reconcile state with GitHub
 
 ```bash
-gh issue list --state open --json number,title,labels
+gh issue list --state open --json number,title,labels,body
 gh pr list --state open --json number,headRefName,body,reviewDecision
 ```
+
+(`body` is needed for the dependency gate in step 2.)
 
 - If `--label <name>` was given, keep only issues with that label.
 - Load the state file. For every tracked issue: if its PR merged → mark `merged`, close out; if the
@@ -69,12 +73,29 @@ gh pr list --state open --json number,headRefName,body,reviewDecision
 - An untracked open issue whose number already appears in an open PR body (`Closes #N`) is adopted as
   `in-review` (PR recorded, `worker: null`).
 
-## 2. Dispatch new issues (bounded)
+## 2. Dispatch the next issue (in order, strictly serial)
 
-Concurrency cap: `--max-workers` (default **2**) issues in non-terminal state at once — workers share
-the repo's remote, and more parallel feature branches than that invites conflicts.
+**One issue at a time.** If any tracked issue is in a non-terminal state (`building`, `in-review`,
+`changes-requested`), dispatch **nothing** this pass — go to step 3 and service that issue. A new
+issue is dispatched only when the previous one reached `merged` (or `error`, after surfacing it).
+Sequential execution is the point: each feature lands on `main` before the next one builds on it, so
+there are no parallel feature branches and no merge races.
 
-For each unclaimed issue while under the cap, spawn ONE worker via the Agent tool with
+**Order.** When dispatching, pick the FIRST unclaimed issue by, in priority order:
+
+1. **Dependency gate** — an issue is *eligible* only when every issue it declares a dependency on is
+   **closed** (i.e. its PR merged). Dependencies are declared in the issue body or a comment, one per
+   line, case-insensitive: `Depends on #<n>` / `Blocked by #<n>` (also recognize a task-list line
+   `- [ ] #<n>` as a blocker until checked/closed). An ineligible issue is never dispatched — report
+   it as `waiting on #<n>` and re-check next pass; merging the blocker (which closes it via
+   `Closes #<n>`) unblocks it automatically.
+2. **Priority label** — `priority:1` before `priority:2`, etc.; unlabeled issues come after labeled
+   ones.
+3. **Ascending issue number** (oldest first) as the tiebreak — backlog order.
+
+The rest of the backlog simply queues; it is reconsidered on the pass after the current issue merges.
+
+For the dispatched issue, spawn ONE worker via the Agent tool with
 `model: opus`, `isolation: "worktree"`, `run_in_background: true`:
 
 > You own GitHub issue #<n> ("<title>") from spec to merged PR, in this dedicated worktree.
@@ -124,10 +145,11 @@ For each tracked PR in `in-review` or `changes-requested`, check the latest revi
 One header plus one line per tracked issue, e.g.:
 
 ```
-pass complete — 4 tracked: 1 building, 2 in-review, 1 merged
-#12 building   (worker w_abc, branch pending)
-#15 in-review  PR #41 — changes requested, relayed to worker
+pass complete — active: #15, queue: 2, done: 1
 #17 merged     PR #39 ✅
+#15 in-review  PR #41 — changes requested, relayed to worker
+#18 waiting    on #15 (depends-on, not yet merged)
+#19 queued     (next after #18 by issue order)
 ```
 
 If a worker errors, mark `error` with the reason and report it; do not silently respawn more than
@@ -141,5 +163,7 @@ once per issue without surfacing the failure to the user.
   that issue; spawn fresh only when the worker is unreachable.
 - **Merging is approval-gated**: a PR merges only after a reviewer's APPROVED verdict, and only by
   its own worker.
-- **Bounded concurrency**: respect `--max-workers`; queue the rest for future passes.
+- **Strictly serial**: at most ONE issue in flight, ever. The next issue dispatches only after the
+  current one's PR merges (or it is parked as `error`). Never spawn a second build worker because
+  the current issue is "just waiting on review" — relaying its review events IS the work.
 - Each pass terminates on its own; recurrence comes only from `/loop`.
