@@ -32,7 +32,8 @@ the navigation itself.
 2. **Given** an alert detail page, **When** it loads, **Then** it shows the title, severity, type,
    reference period, created time, active/resolved status, the full description, and any notes.
 3. **Given** an alert whose data identifies affected entries, **When** the detail page loads, **Then**
-   each affected entry is listed and links into the entries view focused on that entry and period.
+   each affected entry is listed with its full details inline, plus controls to open its attachment
+   (page images) and its attached documents in a modal.
 
 ---
 
@@ -117,8 +118,12 @@ detail page.
 - **FR-003**: The detail page MUST display the alert's core fields: title, severity, type, reference
   period, created time, active/resolved status, the full (untruncated) description, the resolved
   timestamp (when resolved), and any notes.
-- **FR-004**: The detail page MUST list the entries the alert concerns, and each MUST deep-link into
-  the entries view focused on that entry and period (preserving the existing affordance).
+- **FR-004**: The detail page MUST list the entries the alert concerns, showing each entry's full
+  details inline (date, description, period, signed amount, category, subcategory, vendor, unit).
+- **FR-004a**: For each affected entry, the auditor MUST be able to open — in a modal, without
+  leaving the page — (a) the entry's attachment analysis with its page image(s) (the same view used
+  in the entries screen) and (b) the list of real documents attached to that entry, each linking to
+  its document detail page. The controls are disabled when the entry has no attachment / no documents.
 - **FR-005**: The detail page MUST present the alert's type-specific structured evidence as labeled
   fields/values when present.
 - **FR-006**: When an alert references a specific document, the detail page MUST link to that
@@ -143,7 +148,8 @@ detail page.
   resolved flag + resolved timestamp, optional notes, and optional structured metadata (JSON). The
   subject of the detail page.
 - **Affected Entry**: a ledger entry the alert concerns, identified from the alert's metadata
-  (single entry id or an array of entry ids); the deep-link target in the entries view.
+  (single entry id or an array of entry ids); shown inline with its full details, its attachment
+  analysis (page images), and its attached documents.
 - **Referenced Document**: a real document an alert concerns (when its metadata carries a document
   identifier); the cross-link target on the document detail page.
 

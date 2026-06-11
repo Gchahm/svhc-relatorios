@@ -5,15 +5,34 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, ExternalLink, AlertTriangle, FileText } from "lucide-react";
-import {
-    affectedEntryIds,
-    entryHref,
-    evidenceFields,
-    referencedDocumentId,
-    SeverityBadge,
-    StatusBadge,
-} from "../alerts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
+import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
+import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
+import type { AttachmentAnalysisRow } from "../../entries/EntriesClient";
+
+interface AttachedDocument {
+    id: string;
+    documentNumber: string;
+    issuerName: string | null;
+    documentType: string | null;
+    totalValue: number | null;
+}
+
+interface AffectedEntry {
+    entryId: string;
+    period: string;
+    date: string;
+    description: string;
+    amount: number;
+    movementType: string;
+    category: string | null;
+    subcategory: string | null;
+    vendor: string | null;
+    unitCode: string | null;
+    analysis: AttachmentAnalysisRow | null;
+    documents: AttachedDocument[];
+}
 
 interface AlertDetail {
     id: string;
@@ -27,11 +46,16 @@ interface AlertDetail {
     resolvedAt: number | null;
     notes: string | null;
     metadata: string | null;
+    entries: AffectedEntry[];
 }
 
 function formatTimestamp(ms: number | null): string {
     if (!ms) return "—";
     return new Date(ms).toLocaleString("pt-BR");
+}
+
+function formatCurrency(value: number): string {
+    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -53,6 +77,10 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
     const [notesDraft, setNotesDraft] = useState("");
     const [saving, setSaving] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
+
+    // Per-entry modals: the entries-view attachment analysis dialog, and an attached-documents list.
+    const [selectedAnalysis, setSelectedAnalysis] = useState<AttachmentAnalysisRow | null>(null);
+    const [docsEntry, setDocsEntry] = useState<AffectedEntry | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -97,8 +125,9 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 body: JSON.stringify({ resolved, notes: resolved ? notesDraft.trim() || null : null }),
             });
             if (!res.ok) throw new Error("Failed to update alert");
-            const updated: AlertDetail = await res.json();
-            setAlert(updated);
+            // PATCH returns the alert core fields (no entries); preserve the entries we already have.
+            const updated: Omit<AlertDetail, "entries"> = await res.json();
+            setAlert(prev => (prev ? { ...prev, ...updated } : { ...updated, entries: [] }));
             setNotesDraft(updated.notes ?? "");
         } catch (e) {
             setActionError((e as Error).message);
@@ -151,7 +180,6 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
         );
     }
 
-    const entryIds = affectedEntryIds(alert.metadata);
     const docId = referencedDocumentId(alert.metadata);
     const evidence = evidenceFields(alert.metadata);
 
@@ -252,29 +280,110 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 </Card>
             )}
 
-            {/* Affected entries */}
+            {/* Affected entries — full detail per entry, not just a link */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Affected entries ({entryIds.length})</CardTitle>
+                    <CardTitle className="text-base">Affected entries ({alert.entries.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {entryIds.length === 0 ? (
+                    {alert.entries.length === 0 ? (
                         <p className="py-2 text-sm text-muted-foreground">No entries linked to this alert.</p>
                     ) : (
-                        <div className="flex flex-col divide-y">
-                            {entryIds.map((eid, i) => (
-                                <Link
-                                    key={eid}
-                                    href={entryHref(alert.referencePeriod, eid)}
-                                    className="inline-flex items-center justify-between gap-1 py-2 text-sm text-blue-600 hover:underline"
-                                >
-                                    Entry {i + 1} <ExternalLink className="h-3 w-3" />
-                                </Link>
+                        <div className="space-y-3">
+                            {alert.entries.map(e => (
+                                <div key={e.entryId} className="rounded-md border p-3 space-y-3">
+                                    <div className="flex items-center gap-2 text-sm font-medium">
+                                        <span className="tabular-nums">{e.date}</span>
+                                        <span className="text-muted-foreground">·</span>
+                                        <span className="truncate" title={e.description}>
+                                            {e.description}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                                        <Field label="Period" value={e.period} />
+                                        <Field
+                                            label="Amount"
+                                            value={`${e.movementType === "C" ? "+" : "-"}${formatCurrency(e.amount)}`}
+                                        />
+                                        <Field label="Category" value={e.category ?? "—"} />
+                                        <Field label="Subcategory" value={e.subcategory ?? "—"} />
+                                        <Field label="Vendor" value={e.vendor ?? "—"} />
+                                        <Field label="Unit" value={e.unitCode ?? "—"} />
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={!e.analysis}
+                                            onClick={() => e.analysis && setSelectedAnalysis(e.analysis)}
+                                            title={
+                                                e.analysis
+                                                    ? "View the attachment and its page images"
+                                                    : "No attachment analysis"
+                                            }
+                                        >
+                                            <Paperclip className="h-3.5 w-3.5" /> View attachment
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={e.documents.length === 0}
+                                            onClick={() => setDocsEntry(e)}
+                                        >
+                                            <Files className="h-3.5 w-3.5" /> Documents ({e.documents.length})
+                                        </Button>
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     )}
                 </CardContent>
             </Card>
+
+            {/* Entries-view attachment analysis modal (page images + extracted fields). */}
+            <AttachmentAnalysisDetailDialog
+                analysis={selectedAnalysis}
+                onOpenChange={open => !open && setSelectedAnalysis(null)}
+            />
+
+            {/* Per-entry attached-documents modal. */}
+            <Dialog open={docsEntry !== null} onOpenChange={open => !open && setDocsEntry(null)}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Files className="h-4 w-4" /> Attached documents
+                        </DialogTitle>
+                    </DialogHeader>
+                    {docsEntry && (
+                        <div className="space-y-1">
+                            {docsEntry.documents.length === 0 ? (
+                                <p className="py-2 text-sm text-muted-foreground">No documents linked to this entry.</p>
+                            ) : (
+                                docsEntry.documents.map(d => (
+                                    <Link
+                                        key={d.id}
+                                        href={`/dashboard/documents/${d.id}`}
+                                        className="flex items-center justify-between gap-2 rounded px-2 py-2 text-sm hover:bg-muted"
+                                    >
+                                        <span className="min-w-0 truncate">
+                                            <span className="font-medium tabular-nums">{d.documentNumber}</span>
+                                            <span className="text-muted-foreground">
+                                                {" "}
+                                                · {d.issuerName ?? "—"}
+                                                {d.documentType ? ` · ${d.documentType}` : ""}
+                                            </span>
+                                        </span>
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-blue-600">
+                                            <FileText className="h-3.5 w-3.5" />
+                                            <ExternalLink className="h-3 w-3" />
+                                        </span>
+                                    </Link>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

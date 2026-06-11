@@ -32,6 +32,30 @@ GET /api/alerts/{id}
 
 - `metadata` is the raw JSON text (parsed client-side); may be `null`.
 - `createdAt` / `resolvedAt` are epoch milliseconds (`resolvedAt` null when active).
+- `entries` — the affected entries (resolved from `metadata.entry_ids`/`entry_id`), each with full
+  detail and its attachment analysis + linked documents for the per-entry modals:
+
+```json
+{
+  "entries": [
+    {
+      "entryId": "…", "period": "2026-01", "date": "2026-01-20",
+      "description": "ENERGIA ELÉTRICA - ENERGIA ELÉTRICA",
+      "amount": 101.76, "movementType": "D",
+      "category": "Consumo", "subcategory": "ENERGIA ELETRICA",
+      "vendor": "CELESC DISTRIBUICAO S.A", "unitCode": null,
+      "analysis": { "id": "…", "attachmentId": "…", "documentType": "DANFE", "…": "… (AttachmentAnalysisRow shape, or null)" },
+      "documents": [
+        { "id": "…", "documentNumber": "4598567", "issuerName": "CELESC …", "documentType": "DANFE", "totalValue": 101.76 }
+      ]
+    }
+  ]
+}
+```
+
+- `analysis` is `null` when the entry has no attachment analysis; `documents` is `[]` when none.
+- `analysis` matches the shape of `GET /api/attachment-analyses` rows so the entries-view detail
+  modal consumes it directly and self-fetches its page images by `analysis.id`.
 
 ### 403 Forbidden
 

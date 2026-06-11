@@ -8,9 +8,12 @@ describes the view model the detail page consumes.
 - `alerts` — the subject: `id`, `type`, `severity`, `title`, `description`, `referencePeriod`,
   `createdAt`, `resolved`, `resolvedAt`, `notes`, `metadata` (JSON text). Written by the pipeline; the
   resolve/reopen update touches `resolved`/`resolvedAt`/`notes` only.
-- `entries` + `accountability_reports` — only as deep-link targets (entry id + period); not joined by
-  the alert API (entry ids come from `metadata`; the entries view resolves them).
-- `documents` — only as a cross-link target by id (`metadata.document_id`).
+- `entries` + `accountability_reports` + `subcategories`/`categories`/`vendors`/`units` — joined to
+  resolve the metadata entry ids into full affected-entry detail rows.
+- `attachment_analyses` (+ `attachments`) — each affected entry's attachment analysis (same shape as
+  `GET /api/attachment-analyses`) for the per-entry attachment modal (page images self-fetched by id).
+- `documents` (+ `document_entries`) — the real documents attached to each affected entry (per-entry
+  documents modal), and the `metadata.document_id` cross-link target.
 
 ## View model
 
@@ -29,6 +32,14 @@ AlertDetail {
   resolvedAt: number | null      // epoch ms
   notes: string | null
   metadata: string | null        // JSON text, parsed client-side
+  entries: AffectedEntry[]       // resolved from metadata entry ids (full detail + analysis + docs)
+}
+
+AffectedEntry {
+  entryId, period, date, description, amount, movementType,
+  category, subcategory, vendor, unitCode,
+  analysis: AttachmentAnalysisRow | null,   // GET /api/attachment-analyses row shape; null if none
+  documents: { id, documentNumber, issuerName, documentType, totalValue }[]
 }
 ```
 
