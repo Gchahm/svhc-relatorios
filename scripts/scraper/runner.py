@@ -15,6 +15,7 @@ from .extractors.documentos import download_entry_documents
 from .extractors.lancamentos import extract_all_lancamentos
 from .extractors.periodos import list_periodos
 from .preserve import preserve_existing_attachment_cols
+from .reconcile import ExistingRows, ScrapedIds, build_reconciliation
 
 from common import det_id as _det_id, now_ms as _now_ms
 from common import d1
@@ -268,6 +269,11 @@ async def run_scrape(
                     counts = d1.upsert_tables(period_data, target=target)
                     summary = ", ".join(f"{t}={n}" for t, n in counts.items())
 
+                    # Make the re-scrape AUTHORITATIVE (BUG-004 / issue #35): rows removed from the
+                    # portal since a prior scrape must leave the mirror. Runs ONLY here, on the
+                    # scrape-success path, so a failed/retried period never reconciles (FR-008).
+                    _reconcile_period(periodo, period_data, target)
+
                     scraped_count += 1
                     logger.info("[%d/%d] %s done -> D1 (%s): %s", i, len(periodos), label, target, summary)
                     last_error = None
@@ -309,6 +315,75 @@ async def run_scrape(
         "Scrape #%s finished: status=%s scraped=%d errors=%d duration=%.1fs",
         run_id[:8], scrape_run["status"], scraped_count, len(errors), scrape_run["duration_seconds"],
     )
+
+
+def _reconcile_period(periodo: str, period_data: dict, target: Target) -> None:
+    """Hard-delete mirror rows the portal no longer returns + record the loss (BUG-004 / issue #35).
+
+    Called after a period's upsert succeeds. Reads the period's current mirror id sets back from D1,
+    diffs them against what this scrape produced (``period_data``), and — if anything vanished —
+    cascade-deletes the stale mirror rows + their analysis-owned dependents and raises one idempotent
+    ``critical`` ``portal_row_vanished`` alert, all in ONE atomic D1 batch (the pure diff/SQL build
+    lives in ``reconcile.build_reconciliation``). The mirror tables stay an EXACT portal mirror; the
+    evidence lives in the analysis-owned ``alerts`` table.
+    """
+    scraped = ScrapedIds(
+        entry_ids={e["id"] for e in period_data.get("entries", [])},
+        attachment_ids={a["id"] for a in period_data.get("attachments", [])},
+        subtotal_ids={s["id"] for s in period_data.get("category_subtotals", [])},
+        approver_ids={p["id"] for p in period_data.get("approvers", [])},
+    )
+
+    period_literal = periodo.replace("'", "''")
+    # entries / category_subtotals / approvers hang off the period's report; attachments reach the
+    # period only via entries (mirrors the preserve-step join above).
+    entries = d1.query(
+        "SELECT e.id, e.date, e.description, e.amount FROM entries e "
+        "JOIN accountability_reports r ON e.report_id = r.id "
+        f"WHERE r.period = '{period_literal}'",
+        target=target,
+    )
+    attachments = d1.query(
+        "SELECT d.id, d.entry_id FROM attachments d "
+        "JOIN entries e ON d.entry_id = e.id "
+        "JOIN accountability_reports r ON e.report_id = r.id "
+        f"WHERE r.period = '{period_literal}'",
+        target=target,
+    )
+    subtotal_rows = d1.query(
+        "SELECT cs.id FROM category_subtotals cs "
+        "JOIN accountability_reports r ON cs.report_id = r.id "
+        f"WHERE r.period = '{period_literal}'",
+        target=target,
+    )
+    approver_rows = d1.query(
+        "SELECT a.id FROM approvers a "
+        "JOIN accountability_reports r ON a.report_id = r.id "
+        f"WHERE r.period = '{period_literal}'",
+        target=target,
+    )
+
+    existing = ExistingRows(
+        entries=entries,
+        attachments=attachments,
+        subtotal_ids={row["id"] for row in subtotal_rows},
+        approver_ids={row["id"] for row in approver_rows},
+    )
+
+    result = build_reconciliation(periodo, existing, scraped)
+    if not result.sql:
+        return
+    d1.execute_sql(result.sql, target=target)
+
+    if any(result.deleted_counts.values()):
+        c = result.deleted_counts
+        logger.info(
+            "  Reconciled %s: deleted entries=%d attachments=%d category_subtotals=%d approvers=%d; "
+            "portal_row_vanished alert raised",
+            periodo, c["entries"], c["attachments"], c["category_subtotals"], c["approvers"],
+        )
+    else:
+        logger.info("  Reconciled %s: nothing stale (mirror matches portal)", periodo)
 
 
 def _filter_periodos(
