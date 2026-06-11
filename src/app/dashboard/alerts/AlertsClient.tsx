@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertTriangle, ExternalLink } from "lucide-react";
+import { affectedEntryIds, entryHref, SeverityBadge, StatusBadge } from "./alerts";
 
 interface AlertRow {
     id: string;
@@ -20,32 +22,6 @@ interface AlertRow {
     resolvedAt: number | null;
     notes: string | null;
     metadata: string | null;
-}
-
-/**
- * Entry ids an alert concerns, parsed from its (untyped JSON) metadata. Covers both the
- * per-attachment mismatch alerts (single `entry_id`) and the entry-level alerts that store
- * an `entry_ids` array (duplicate_billing, duplicate_entry, negative_credit,
- * large_expense_no_attachment). Period/category-level alerts have neither → no links.
- * Parses defensively: any malformed/absent metadata yields no links rather than throwing.
- */
-function affectedEntryIds(metadata: string | null): string[] {
-    if (!metadata) return [];
-    try {
-        const meta = JSON.parse(metadata) as { entry_ids?: unknown; entry_id?: unknown };
-        if (Array.isArray(meta.entry_ids)) {
-            return meta.entry_ids.filter((v): v is string => typeof v === "string");
-        }
-        if (typeof meta.entry_id === "string") return [meta.entry_id];
-        return [];
-    } catch {
-        return [];
-    }
-}
-
-/** Deep link to the entries page focused on one entry, with the detail dialog auto-opened. */
-function entryHref(period: string, entryId: string): string {
-    return `/dashboard/entries?period=${encodeURIComponent(period)}&entry=${encodeURIComponent(entryId)}`;
 }
 
 /** Renders an alert's affected-entry links: nothing / one inline link / a popover list. */
@@ -87,32 +63,8 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
     );
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
-    if (severity === "critical") {
-        return <Badge variant="destructive">{severity}</Badge>;
-    }
-    if (severity === "warning") {
-        return (
-            <Badge variant="outline" className="border-yellow-400 text-yellow-700">
-                {severity}
-            </Badge>
-        );
-    }
-    return <Badge variant="secondary">{severity}</Badge>;
-}
-
-function StatusBadge({ resolved }: { resolved: boolean }) {
-    if (resolved) {
-        return (
-            <Badge variant="outline" className="border-green-400 text-green-700">
-                resolved
-            </Badge>
-        );
-    }
-    return <Badge variant="destructive">active</Badge>;
-}
-
 export default function AlertsClient() {
+    const router = useRouter();
     const [data, setData] = useState<AlertRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -136,6 +88,11 @@ export default function AlertsClient() {
 
     useEffect(() => {
         fetchData();
+        // Re-fetch when returning to this tab (e.g. after resolving on the detail page) so the
+        // list reflects the latest status without a manual refresh (FR-009).
+        const onFocus = () => fetchData();
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
     }, []);
 
     const severityOptions = [
@@ -184,30 +141,6 @@ export default function AlertsClient() {
             info: active.filter(r => r.severity === "info").length,
         };
     }, [data]);
-
-    const handleRowClick = async (row: AlertRow) => {
-        const newResolved = !row.resolved;
-        let notes: string | null = row.notes;
-
-        if (newResolved) {
-            const input = window.prompt(`Resolving alert: "${row.title}"\n\nAdd optional notes:`, row.notes ?? "");
-            if (input === null) return; // cancelled
-            notes = input.trim() || null;
-        }
-
-        try {
-            const res = await fetch(`/api/alerts/${row.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ resolved: newResolved, notes }),
-            });
-            if (!res.ok) throw new Error("Failed to update alert");
-            const updated: AlertRow = await res.json();
-            setData(prev => prev.map(r => (r.id === updated.id ? updated : r)));
-        } catch (e) {
-            alert((e as Error).message);
-        }
-    };
 
     const parentRef = useRef<HTMLDivElement>(null);
     const virtualizer = useVirtualizer({
@@ -332,8 +265,8 @@ export default function AlertsClient() {
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
-                                                onClick={() => handleRowClick(row)}
-                                                title="Click to toggle resolved status"
+                                                onClick={() => router.push(`/dashboard/alerts/${row.id}`)}
+                                                title="Click to open the alert detail page"
                                             >
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.referencePeriod}
