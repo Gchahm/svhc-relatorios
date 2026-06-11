@@ -115,9 +115,12 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
   `record-verdict` CLI.
 
 ## Active Technologies
+
 - TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (Cloudflare D1), better-auth, shadcn/ui (card, badge, button, (021-document-detail-page)
 - Cloudflare D1 (SQLite). Tables read: `documents`, `document_entries`, `entries`, (021-document-detail-page)
 - Cloudflare D1 (SQLite). Tables read: `alerts`, plus `entries` + `accountability_reports` (022-alert-detail-page)
+- Python 3.12 (analysis CLI under `scripts/`, stdlib only, run via `uv`) + `scripts/common/d1.py` (wrangler-CLI wrapper: `query`, `execute_sql`, (023-preserve-alert-resolution)
+- Cloudflare D1 (SQLite), table `alerts` — columns `resolved` (int 0/1), `resolved_at` (023-preserve-alert-resolution)
 
 - Python 3.12 (analysis CLI, stdlib only, run via `uv`); TypeScript 5 / React 19 / Next.js 15 (App Router) + Drizzle ORM (D1), better-auth, shadcn/ui (`select`, `input`, `badge`, `popover`, `dialog`, `card`, `table`), lucide-react, `@tanstack/react-virtual`. D1/R2 access from Python via `scripts/common/d1.py` (wrangler-CLI wrapper). **No new npm or pip dependencies.** (020-documents-entity)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). New tables `documents`, `document_entries`. Existing tables `attachment_analyses`, `attachments`, `entries`, `accountability_reports`, `alerts` read-only here (alerts written via existing path). (020-documents-entity)
