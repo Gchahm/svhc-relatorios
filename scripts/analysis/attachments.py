@@ -615,7 +615,7 @@ def build_attachment_analysis(
 
 
 def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
-    """Write one attachment's analysis to D1 as delete-then-insert, then mark it classified.
+    """Write one attachment's analysis to D1 atomically (delete + insert + classified stamp).
 
     Reproduces the old "drop existing for this attachment_id, append" semantics: a
     plain INSERT OR REPLACE alone would orphan stale per-page ``attachment_analysis_records``
@@ -623,21 +623,24 @@ def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
     analysis row and its records are deleted first. Called after each attachment so
     partial results land incrementally and an interruption is healed by a re-run.
 
-    Stamps ``attachments.classified_at`` so the attachment leaves the pending set (even
-    when the analysis is an error row — it has been attempted; a re-attempt is requested
-    deterministically via ``mark-pending``). This is the write that makes the work
-    selection a pure function of D1 state.
+    Atomicity (feature 024 / issue #37): the two DELETEs, the analysis INSERT, and the
+    ``UPDATE attachments SET classified_at`` are folded into a SINGLE ``execute_sql`` batch (one
+    D1 implicit transaction). A failure rolls back the whole batch, so the attachment is never
+    left stamped-classified-but-empty — it stays pending and the next run heals it. The
+    ``classified_at`` stamp therefore commits WITH the insert, never alone with the delete.
+    (It is set even for an error row — the attachment has been attempted; a re-attempt is
+    requested deterministically via ``mark-pending``.)
     """
     doc_analysis_id = det_id("attachment_analysis", result.attachment_id)
     did = result.attachment_id.replace("'", "''")
     aid = doc_analysis_id.replace("'", "''")
-    d1.execute_sql(
+    sql = (
         f"DELETE FROM attachment_analysis_records WHERE attachment_analysis_id = '{aid}';\n"
         f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';\n"
-        f"UPDATE attachments SET classified_at = {now_ms()} WHERE id = '{did}';",
-        target=target,
+        + d1.upsert_sql({"attachment_analyses": [result.to_dict()]})
+        + f"\nUPDATE attachments SET classified_at = {now_ms()} WHERE id = '{did}';"
     )
-    d1.upsert_tables({"attachment_analyses": [result.to_dict()]}, target=target)
+    d1.execute_sql(sql, target=target)
 
 
 @dataclass

@@ -162,6 +162,20 @@ def execute_sql(sql: str, *, target: Target) -> None:
         Path(sql_path).unlink(missing_ok=True)
 
 
+def upsert_sql(data: dict[str, list[dict]]) -> str:
+    """Build the batched INSERT OR REPLACE SQL for a dataset **without executing it**.
+
+    Returns the SQL ``build_sql`` produces (PRAGMA header + per-table INSERTs) when ``data``
+    carries any rows, else ``""``. This lets callers fold a clear + insert into a SINGLE
+    ``execute_sql`` call (one D1 batch / implicit transaction) so a partial failure can never
+    commit the delete without the insert — the atomicity guarantee in feature 024 / issue #37.
+    Empty/missing tables are skipped (same as ``upsert_tables``), so callers never clobber tables
+    they don't supply.
+    """
+    sql, counts = build_sql(data)
+    return sql if counts else ""
+
+
 def upsert_tables(data: dict[str, list[dict]], *, target: Target) -> dict[str, int]:
     """Upsert a dataset's tables (INSERT OR REPLACE) in one batched execution.
 
@@ -169,10 +183,10 @@ def upsert_tables(data: dict[str, list[dict]], *, target: Target) -> dict[str, i
     attachment's ``{"attachment_analyses": [..]}``). Empty/missing tables are skipped, so
     callers never clobber tables they don't supply. Returns ``{table: rows_written}``.
     """
-    sql, counts = build_sql(data)
+    _, counts = build_sql(data)
     if not counts:
         return {}
-    execute_sql(sql, target=target)
+    execute_sql(upsert_sql(data), target=target)
     return counts
 
 
