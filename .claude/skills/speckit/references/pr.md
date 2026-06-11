@@ -96,6 +96,40 @@ Add user preference endpoints for theme and notification settings.
 - PR URL
 - Spec URL (for reference)
 
+### Step 6: Own the PR until merge (review follow-up protocol)
+
+The agent context that opened the PR **owns it through merge**. Opening the PR is not the end of the
+feature — reviews come back, and you are the one with the spec, plan, and implementation in context,
+so you handle them here rather than letting a fresh agent rediscover everything.
+
+After reporting the PR URL, end your turn. Review events arrive as follow-up messages in this same
+context (from the user, or from an orchestrator such as `speckit-issue-loop`). Handle each:
+
+**Changes requested** — a review with blocking inline comments:
+
+1. Fetch the review and its inline comments:
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/<pr>/reviews
+   gh api repos/{owner}/{repo}/pulls/<pr>/comments
+   ```
+2. Address **every** blocking comment with commits on the same feature branch — fix it, or if you
+   believe the reviewer is wrong, don't change the code silently: reply on the comment thread with
+   your reasoning and let the next review round decide.
+3. Keep the spec in sync: if a fix changes behavior described in `specs/<branch>/spec.md`, update the
+   spec in the same push.
+4. Run the project's checks (`pnpm lint`, `pnpm format`, tests where they exist) before pushing.
+5. Push, reply to each inline comment with a one-liner on what changed, and report tersely
+   (commits pushed, comments addressed/contested). Do not echo diffs.
+
+**Approved (the go-ahead)** — squash-merge and clean up:
+
+```bash
+gh pr merge <pr> --squash --delete-branch
+```
+
+Verify any `Closes #<issue>` issue actually closed, then report `merged`. Never merge before an
+explicit approval, and never dismiss or wait out a requested-changes review.
+
 ### Error handling
 
 - **Not on a feature branch**: guide the user to create one matching `SPECIFY_BRANCH_PATTERN` (e.g. `001-short-name`)

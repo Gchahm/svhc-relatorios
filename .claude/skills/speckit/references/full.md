@@ -44,6 +44,9 @@ Execute these phases in sequence:
 - Push specs to specs repo main
 - Create PR in service repo with spec link
 - Report final PR URL
+- The PR phase's lifecycle does not end here: per its review follow-up protocol (`pr.md` Step 6),
+  this same context owns the PR until merge — review feedback arrives as follow-up messages, and the
+  approval go-ahead triggers the squash-merge. Report the PR URL and end the turn; do not poll.
 
 ## Rules
 
