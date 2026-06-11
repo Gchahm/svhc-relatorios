@@ -30,6 +30,10 @@ class Alert:
             "description": self.description,
             "reference_period": self.reference_period,
             "metadata": json.dumps(self.metadata, ensure_ascii=False) if self.metadata else None,
+            # A freshly-detected alert is unresolved with no notes — this is the DEFAULT for a
+            # brand-new finding only. It is NOT a reset: when a finding re-fires with the same
+            # deterministic id, run_analysis grafts the user's prior resolution/notes back onto
+            # the row at write time (the authority for re-emitted rows). See FR-004 / feature 023.
             "resolved": 0,
             "resolved_at": None,
             "notes": None,
