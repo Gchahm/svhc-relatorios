@@ -105,10 +105,11 @@ def run_analysis(
         # Carry user-set resolution/notes onto alerts that re-fire with the same id, BEFORE the
         # delete wipes the existing rows (feature 023 / issue #34).
         _graft_resolution(rows, _read_existing_resolution(where, target))
-        # Recomputed each run: clear this period's alerts first so none go stale.
-        d1.execute_sql(f"DELETE FROM alerts WHERE {where}", target=target)
-        if rows:
-            d1.upsert_tables({"alerts": rows}, target=target)
+        # Recomputed each run: clear this period's alerts and reinsert the new set in ONE batch
+        # (one D1 implicit transaction) so a partial failure can't leave the period falsely empty
+        # (feature 024 / issue #37). DELETE-only when there are no new rows (clears to empty; the
+        # empty `upsert_sql` contributes nothing).
+        d1.execute_sql(f"DELETE FROM alerts WHERE {where};\n" + d1.upsert_sql({"alerts": rows}), target=target)
         logger.info("%s: %d alerts written to D1 (%s)", period_key, len(alerts), target)
 
     # Document overpayment is GLOBAL (cross-period): recompute it once over the whole
@@ -118,9 +119,12 @@ def run_analysis(
     overpayment_rows = [a.to_dict() for a in overpayment_alerts]
     # Graft the state captured before the per-period loop (which may have deleted the row).
     _graft_resolution(overpayment_rows, overpayment_prior)
-    d1.execute_sql("DELETE FROM alerts WHERE type = 'document_overpayment'", target=target)
-    if overpayment_rows:
-        d1.upsert_tables({"alerts": overpayment_rows}, target=target)
+    # Clear + reinsert the global overpayment alerts in ONE batch (one D1 implicit transaction) so a
+    # partial failure can't wipe every overpayment alert without reinserting (feature 024 / issue #37).
+    d1.execute_sql(
+        "DELETE FROM alerts WHERE type = 'document_overpayment';\n" + d1.upsert_sql({"alerts": overpayment_rows}),
+        target=target,
+    )
     logger.info("document_overpayment: %d alert(s) written to D1 (%s)", len(overpayment_alerts), target)
 
     print_summary(alerts_by_period)
