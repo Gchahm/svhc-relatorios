@@ -48,8 +48,14 @@ def _load_period_raw(period: str, target: Target) -> dict | None:
     entries = d1.query(f"SELECT * FROM entries WHERE report_id = {_sql_str(rid)}", target=target)
     subtotals = d1.query(f"SELECT * FROM category_subtotals WHERE report_id = {_sql_str(rid)}", target=target)
     approvers = d1.query(f"SELECT * FROM approvers WHERE report_id = {_sql_str(rid)}", target=target)
+    # `classified_at` lives in the analysis-owned `attachment_state` table, NOT on the
+    # `attachments` mirror (BUG-002 / issue #33). LEFT JOIN it so each attachment dict still
+    # carries `classified_at` (NULL = pending) for select_work / loop-state / mismatches.
     attachments = d1.query(
-        f"SELECT d.* FROM attachments d JOIN entries e ON d.entry_id = e.id WHERE e.report_id = {_sql_str(rid)}",
+        "SELECT d.*, s.classified_at AS classified_at "
+        "FROM attachments d JOIN entries e ON d.entry_id = e.id "
+        "LEFT JOIN attachment_state s ON s.attachment_id = d.id "
+        f"WHERE e.report_id = {_sql_str(rid)}",
         target=target,
     )
     runs = (

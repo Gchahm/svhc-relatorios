@@ -180,17 +180,33 @@ export const attachments = sqliteTable(
         externalDocumentId: integer("external_document_id").notNull(), // portal ("documento") id — KEEP
         filePath: text("file_path"),
         // Shared-NF grouping key: a stable content hash over the attachment's page-image
-        // bytes, written at scrape time. Byte-identical page sets (the same NF copied per
-        // entry) share it; NULL when pages are absent/unreadable or captured pre-016.
+        // bytes, written at scrape time (and by the scraper's image-download backfill). The
+        // ONLY writer is the scraper — analysis no longer backfills it (BUG-002 / issue #33).
+        // Byte-identical page sets (the same NF copied per entry) share it; NULL when pages
+        // are absent/unreadable or captured pre-016 (grouping falls back to an in-memory hash).
         contentHash: text("content_hash"),
-        // Classification state (the work-selection key): NULL = pending (needs
-        // classification), set = classified. apply-extractions stamps it; the plan selects
-        // WHERE classified_at IS NULL. Re-classify deterministically via SQL
-        // (UPDATE attachments SET classified_at = NULL WHERE id IN (...)), not CLI id flags.
-        classifiedAt: integer("classified_at", { mode: "timestamp_ms" }),
+        // NOTE: classification state (`classified_at`) lived here historically but was an
+        // analysis-owned write to a mirror table (BUG-002). It now lives in `attachmentState`
+        // below. `attachments` is once again an EXACT mirror of brcondos — only the scraper
+        // writes it.
     },
     table => [index("attachments_entry_id_idx").on(table.entryId)]
 );
+
+// ─── Attachment State (analysis-owned classification state) ──────────────────
+// Per-attachment classification state, kept OFF the mirror table `attachments`
+// (BUG-002 / issue #33). The analysis pipeline writes here; the scraper never does, so
+// `attachments` can be diffed against a fresh scrape to detect portal-side changes/forgery.
+// Pending = no row OR `classified_at IS NULL`. apply-extractions stamps `classified_at`
+// (atomically with the analysis rows); mark-pending clears it (NULL) to re-queue. The plan
+// selects pending via `attachments LEFT JOIN attachment_state … WHERE classified_at IS NULL`.
+
+export const attachmentState = sqliteTable("attachment_state", {
+    attachmentId: text("attachment_id")
+        .primaryKey()
+        .references(() => attachments.id),
+    classifiedAt: integer("classified_at", { mode: "timestamp_ms" }),
+});
 
 // ─── Attachment Analyses (analise_documento) ─────────────────────────────────
 

@@ -623,12 +623,16 @@ def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
     analysis row and its records are deleted first. Called after each attachment so
     partial results land incrementally and an interruption is healed by a re-run.
 
+    The classification stamp is written to the analysis-owned ``attachment_state`` table, NOT
+    to the mirror table ``attachments`` (BUG-002 / issue #33): the pipeline must issue zero
+    writes to ``attachments`` so it stays an exact mirror of brcondos.
+
     Atomicity (feature 024 / issue #37): the two DELETEs, the analysis INSERT, and the
-    ``UPDATE attachments SET classified_at`` are folded into a SINGLE ``execute_sql`` batch (one
-    D1 implicit transaction). A failure rolls back the whole batch, so the attachment is never
-    left stamped-classified-but-empty — it stays pending and the next run heals it. The
-    ``classified_at`` stamp therefore commits WITH the insert, never alone with the delete.
-    (It is set even for an error row — the attachment has been attempted; a re-attempt is
+    ``attachment_state`` upsert are folded into a SINGLE ``execute_sql`` batch (one D1 implicit
+    transaction). A failure rolls back the whole batch, so the attachment is never left
+    stamped-classified-but-empty — it stays pending (no ``attachment_state`` row / NULL stamp)
+    and the next run heals it. The stamp therefore commits WITH the insert, never alone with the
+    delete. (It is set even for an error row — the attachment has been attempted; a re-attempt is
     requested deterministically via ``mark-pending``.)
     """
     doc_analysis_id = det_id("attachment_analysis", result.attachment_id)
@@ -638,7 +642,8 @@ def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
         f"DELETE FROM attachment_analysis_records WHERE attachment_analysis_id = '{aid}';\n"
         f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';\n"
         + d1.upsert_sql({"attachment_analyses": [result.to_dict()]})
-        + f"\nUPDATE attachments SET classified_at = {now_ms()} WHERE id = '{did}';"
+        + f"\nINSERT INTO attachment_state (attachment_id, classified_at) VALUES ('{did}', {now_ms()})"
+        + " ON CONFLICT(attachment_id) DO UPDATE SET classified_at = excluded.classified_at;"
     )
     d1.execute_sql(sql, target=target)
 
@@ -665,11 +670,13 @@ def select_work(
     """Select the PENDING attachments to analyze, grouped by byte-identical NF content.
 
     The single source of truth for "what to analyze". An attachment is **pending**
-    when its ``classified_at`` is unset (NULL); ``apply-extractions`` stamps
-    ``classified_at`` once it writes an analysis, so a classified attachment drops
-    out. Targeted re-classification is therefore controlled **in the database**
-    (``UPDATE attachments SET classified_at = NULL …`` via the ``mark-pending``
-    command) rather than by threading id lists through the CLI/skills. Applies the
+    when it has no ``attachment_state`` row, or its row's ``classified_at`` is NULL
+    (the loader LEFT JOINs ``attachment_state`` so each attachment dict carries
+    ``classified_at``). ``apply-extractions`` upserts the stamp into ``attachment_state``
+    once it writes an analysis, so a classified attachment drops out. Targeted
+    re-classification is controlled **in the database** (``UPDATE attachment_state SET
+    classified_at = NULL …`` via the ``mark-pending`` command) rather than by threading id
+    lists through the CLI/skills. Applies the
     optional ``min_amount`` filter, computes each group's FULL sibling sum + size (so a
     sibling dropped by a filter still counts toward reconciliation), sorts by entry
     amount descending, and truncates to ``limit``.
@@ -697,7 +704,8 @@ def select_work(
             if not doc.get("file_path"):
                 continue
             # Pending = not yet classified. Re-classification is requested by clearing
-            # classified_at in D1 (mark-pending), so there is no id/reanalyze filter here.
+            # classified_at in attachment_state (mark-pending); the loader supplies this
+            # value via a LEFT JOIN, so there is no id/reanalyze filter here.
             if doc.get("classified_at") is not None:
                 continue
             entry = entry_map.get(doc["entry_id"])

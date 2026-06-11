@@ -1,8 +1,10 @@
 """Tests for the atomic attachment-analysis writeback (feature 024 / issue #37).
 
 Asserts ``attachments._merge_and_write`` submits ONE batch containing the two DELETEs, the analysis
-INSERT, and the ``classified_at`` UPDATE — and that a simulated failure propagates without ever
-committing the stamp/delete in a separate batch (so the attachment stays pending and self-heals).
+INSERT, and the ``attachment_state`` classified-stamp upsert — and that a simulated failure
+propagates without ever committing the stamp/delete in a separate batch (so the attachment stays
+pending and self-heals). The stamp moved off the mirror table ``attachments`` into the
+analysis-owned ``attachment_state`` table (BUG-002 / issue #33).
 
 Run: ``python -m unittest discover -s scripts/tests -t scripts``
 """
@@ -46,7 +48,9 @@ class AttachmentWritebackAtomicTest(unittest.TestCase):
         self.assertIn("DELETE FROM attachment_analysis_records WHERE attachment_analysis_id =", sql)
         self.assertIn("DELETE FROM attachment_analyses WHERE attachment_id =", sql)
         self.assertIn('INSERT OR REPLACE INTO "attachment_analyses"', sql)
-        self.assertIn("UPDATE attachments SET classified_at =", sql)
+        self.assertIn("INSERT INTO attachment_state (attachment_id, classified_at)", sql)
+        # The mirror table is never written by the pipeline (issue #33).
+        self.assertNotIn("UPDATE attachments SET", sql)
 
     def test_stamp_is_in_same_batch_as_insert(self):
         captured = []
@@ -60,12 +64,12 @@ class AttachmentWritebackAtomicTest(unittest.TestCase):
 
         sql = captured[0]
         # The classified_at stamp MUST NOT appear in any batch that lacks the analysis insert.
-        self.assertIn("UPDATE attachments SET classified_at =", sql)
+        self.assertIn("INSERT INTO attachment_state (attachment_id, classified_at)", sql)
         self.assertIn('INSERT OR REPLACE INTO "attachment_analyses"', sql)
         # Order within the batch: insert precedes the stamp.
         self.assertLess(
             sql.index('INSERT OR REPLACE INTO "attachment_analyses"'),
-            sql.index("UPDATE attachments SET classified_at ="),
+            sql.index("INSERT INTO attachment_state (attachment_id, classified_at)"),
         )
 
     def test_failure_propagates_with_no_separate_committed_delete(self):

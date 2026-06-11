@@ -301,27 +301,34 @@ def mark_pending(
     attachment_ids: list[str] | None = None,
     entry_ids: list[str] | None = None,
 ) -> int:
-    """Clear ``attachments.classified_at`` for the given attachments/entries (re-queue them).
+    """Clear ``attachment_state.classified_at`` for the given attachments/entries (re-queue them).
 
     The deterministic, SQL-controlled way to request re-classification: a marked
     attachment becomes **pending** again, so the next ``docs-plan``/``apply-extractions``
-    picks it up — without threading id lists through the classify pipeline. Scoping is by
-    attachment id and/or entry id (ids are globally unique deterministic UUIDs);
-    ``period`` is accepted for symmetry/logging and is not required for the match. Returns
-    the number of ids requested (0 when none are given).
+    picks it up — without threading id lists through the classify pipeline. The state lives
+    in the analysis-owned ``attachment_state`` table; this never writes the mirror table
+    ``attachments`` (BUG-002 / issue #33). Scoping is by attachment id and/or entry id (ids
+    are globally unique deterministic UUIDs); an entry-id scope is resolved to attachment ids
+    via ``attachments`` (read-only). ``period`` is accepted for symmetry/logging and is not
+    required for the match. Returns the number of ids requested (0 when none are given).
+
+    An attachment with no ``attachment_state`` row is already pending (no row ⇒ pending), so
+    the UPDATE only needs to clear rows that exist; nothing is created to "mark pending".
     """
     clauses = []
     if attachment_ids:
         ids = ",".join("'" + str(i).replace("'", "''") + "'" for i in attachment_ids)
-        clauses.append(f"id IN ({ids})")
+        clauses.append(f"attachment_id IN ({ids})")
     if entry_ids:
         eids = ",".join("'" + str(i).replace("'", "''") + "'" for i in entry_ids)
-        clauses.append(f"entry_id IN ({eids})")
+        # Resolve entry ids to attachment ids without touching the mirror table for writes:
+        # the SELECT against `attachments` is read-only; only `attachment_state` is updated.
+        clauses.append(f"attachment_id IN (SELECT id FROM attachments WHERE entry_id IN ({eids}))")
     if not clauses:
         logger.info("mark-pending: no attachment/entry ids given; nothing to do")
         return 0
     where = " OR ".join(clauses)
-    d1.execute_sql(f"UPDATE attachments SET classified_at = NULL WHERE {where};", target=target)
+    d1.execute_sql(f"UPDATE attachment_state SET classified_at = NULL WHERE {where};", target=target)
     n = len(attachment_ids or []) + len(entry_ids or [])
     logger.info("mark-pending: requested re-classification for %d id(s)%s", n, f" in {period}" if period else "")
     return n
