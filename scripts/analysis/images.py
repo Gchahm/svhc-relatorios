@@ -8,9 +8,11 @@ the page-refs in the mismatch summary, the content-hash fallback/backfill, and t
 extraction provider all transparently use local files — exactly as they did when the
 scraper wrote images to disk. The image cache is scratch (reproducible from R2).
 
-The only write-back to D1 is the best-effort ``content_hash`` backfill for attachments
-captured before that column existed (feature 016); page images themselves are never
-written back.
+This module performs **no write-back to D1** (BUG-002 / issue #33): the ``content_hash``
+column is scraper-owned, so the analysis pipeline never persists it. For a row whose
+``content_hash`` is still NULL (captured pre-016, never re-downloaded by the scraper) the
+hash is computed **in memory** for the current run's grouping only — never written to
+``attachments``. The scraper's image-download path owns the durable backfill.
 """
 
 import logging
@@ -27,40 +29,20 @@ def _split_tokens(file_path: str | None) -> list[str]:
     return [t.strip() for t in (file_path or "").split(";") if t.strip()]
 
 
-def _backfill_content_hashes(updates: list[tuple[str, str]], target: Target) -> None:
-    """Best-effort UPDATE of ``attachments.content_hash`` for rows captured pre-016.
-
-    Writes only the ``content_hash`` column, only where it is still NULL (so a value
-    written by a concurrent scrape is never clobbered), and never touches any other
-    column. A failure is logged and swallowed — grouping already used the in-memory hash
-    this run, so the backfill is a convergence optimization, not a correctness dependency.
-    """
-    if not updates:
-        return
-    stmts = []
-    for doc_id, h in updates:
-        did = doc_id.replace("'", "''")
-        hh = h.replace("'", "''")
-        stmts.append(f"UPDATE attachments SET content_hash = '{hh}' WHERE id = '{did}' AND content_hash IS NULL;")
-    try:
-        d1.execute_sql("\n".join(stmts), target=target)
-        logger.info("Backfilled content_hash for %d attachment(s)", len(updates))
-    except Exception as e:  # noqa: BLE001 — best-effort; never abort analysis on backfill failure
-        logger.warning("content_hash backfill failed (%d row(s)); continuing: %s", len(updates), e)
-
-
 def attachments_needing_hash_backfill(
     periods: dict,
     attachment_ids: list[str] | None = None,
 ) -> list[str]:
-    """Return the in-scope attachment ids that genuinely need an image fetch for a backfill.
+    """Return the in-scope attachment ids that need an image fetch to compute their hash.
 
     The only reason ``apply-extractions`` still touches R2 is to hash the attachments whose
     ``content_hash`` column is empty (legacy rows, or a future page-bearing row that ever
-    lands without a hash) — grouping reads the stored column for everything else. An
-    attachment qualifies iff it is **page-bearing** (non-empty ``file_path``) **and** has a
-    falsy ``content_hash``. A page-less attachment (empty ``file_path``) is never returned:
-    it has no hash by nature, groups as a singleton, and has nothing to materialize.
+    lands without a hash) — grouping reads the stored column for everything else. The hash is
+    used **in memory** for this run's grouping only; it is NOT persisted (``content_hash`` is
+    scraper-owned — BUG-002 / issue #33). An attachment qualifies iff it is **page-bearing**
+    (non-empty ``file_path``) **and** has a falsy ``content_hash``. A page-less attachment
+    (empty ``file_path``) is never returned: it has no hash by nature, groups as a singleton,
+    and has nothing to materialize.
 
     Pure read of the in-memory ``periods`` (no D1/R2, no mutation). When ``attachment_ids``
     is given, only those ids are considered. Returns ids in deterministic iteration order.
@@ -100,13 +82,13 @@ def materialize_period_images(
 
     When ``backfill_hash`` is set (default), any attachment whose ``content_hash`` column
     is empty (data captured before feature 016) gets the hash computed from its now-local
-    pages, mutated in memory (so grouping this run reads it) and written back to D1
-    best-effort, so subsequent runs group purely from the stored column.
+    pages and mutated **in memory only** (so grouping this run reads it). It is NOT written
+    back to ``attachments`` — that column is scraper-owned (BUG-002 / issue #33); the
+    durable backfill belongs to the scraper's image-download path.
     """
     cache_root = Path(cache_dir)
     scope = set(attachment_ids) if attachment_ids else None
     downloaded = 0
-    hash_updates: list[tuple[str, str]] = []
 
     for pd in periods.values():
         for doc in pd.attachments:
@@ -134,15 +116,13 @@ def materialize_period_images(
                 local_paths.append(str(dest))
             doc["file_path"] = ";".join(local_paths)
 
-            # Lazily fill the grouping key for rows captured before the column existed.
+            # Lazily fill the grouping key (in memory only) for rows captured before the
+            # column existed. Never persisted — content_hash is scraper-owned (issue #33).
             if backfill_hash and not doc.get("content_hash"):
                 h = content_hash(doc["file_path"])
                 if h:
                     doc["content_hash"] = h
-                    hash_updates.append((doc["id"], h))
 
     if downloaded:
         logger.info("Materialized %d page image(s) from R2 into %s", downloaded, cache_dir)
-    if backfill_hash:
-        _backfill_content_hashes(hash_updates, target)
     return downloaded
