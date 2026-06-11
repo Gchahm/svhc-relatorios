@@ -46,8 +46,14 @@ npx wrangler d1 execute fiscal-db --local \
 
 ## Test 2 — Global document_overpayment: resolution survives (FR-002)
 
-Repeat Test 1 against a `document_overpayment` alert (global writeback path). Re-run `analyze`
-for any period (the global writeback runs regardless of `--periodo`) and confirm preservation.
+Repeat Test 1 against a `document_overpayment` alert (global writeback path). **Re-run a FULL
+`analyze` (no `--periodo`), or `--periodo` = that alert's own `reference_period`**, then confirm
+preservation.
+
+> ⚠️ Do NOT re-run with `--periodo` set to some *other* period: an overpayment alert carries a
+> real `reference_period` (max of its linked periods), and the per-period delete is keyed on
+> `reference_period`. Picking an unrelated period means the row is never deleted, so it survives
+> regardless of the fix — a false positive that hides the global-path bug (issue #34 review).
 
 ## Test 3 — Obsolete finding still clears (FR-003, SC-003)
 

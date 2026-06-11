@@ -34,11 +34,13 @@ def _read_existing_resolution(where_clause: str, target: Target) -> dict[str, di
     )
     state: dict[str, dict] = {}
     for r in rows:
-        resolved = r.get("resolved")
+        # Coerce defensively: wrangler --json returns `resolved` as an int today, but a string
+        # "0" would be truthy and mis-store a default-state row as resolved.
+        resolved = int(r.get("resolved") or 0)
         notes = r.get("notes")
         if resolved or (notes not in (None, "")):
             state[r["id"]] = {
-                "resolved": resolved or 0,
+                "resolved": resolved,
                 "resolved_at": r.get("resolved_at"),
                 "notes": notes,
             }
@@ -89,6 +91,13 @@ def run_analysis(
 
     alerts_by_period = run_all_checks(periods, refs)
 
+    # Capture document_overpayment resolution state BEFORE the per-period loop. The per-period
+    # DELETE is keyed only on reference_period, and an overpayment alert carries a real
+    # reference_period (max of its linked periods) that is loaded in a full run — so the loop's
+    # type-agnostic delete would wipe the overpayment row before the global read below could see
+    # it. Reading here keeps the global path's resolution preservation correct (issue #34 review).
+    overpayment_prior = _read_existing_resolution("type = 'document_overpayment'", target)
+
     for period_key, alerts in alerts_by_period.items():
         period = period_key.replace("'", "''")
         where = f"reference_period = '{period}'"
@@ -104,12 +113,11 @@ def run_analysis(
 
     # Document overpayment is GLOBAL (cross-period): recompute it once over the whole
     # documents graph and write via a delete-by-type so it stays idempotent regardless
-    # of which periods were filtered (the per-period delete above can't clear a
-    # cross-period alert). Supersedes the retired duplicate_billing over-claim check.
+    # of which periods were filtered. Supersedes the retired duplicate_billing over-claim check.
     overpayment_alerts = check_document_overpayment(target=target)
     overpayment_rows = [a.to_dict() for a in overpayment_alerts]
-    # Same resolution-preservation as the per-period path, scoped to the global delete's WHERE.
-    _graft_resolution(overpayment_rows, _read_existing_resolution("type = 'document_overpayment'", target))
+    # Graft the state captured before the per-period loop (which may have deleted the row).
+    _graft_resolution(overpayment_rows, overpayment_prior)
     d1.execute_sql("DELETE FROM alerts WHERE type = 'document_overpayment'", target=target)
     if overpayment_rows:
         d1.upsert_tables({"alerts": overpayment_rows}, target=target)
