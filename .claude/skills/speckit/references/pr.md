@@ -62,7 +62,21 @@ repo root, i.e. `<branch-name>/spec.md`).
 
 Example: `https://github.com/<org>/<repo>/tree/main/specs/001-short-name/spec.md`
 
-### Step 4: Create the PR
+### Step 4: Verify in the running app (local data)
+
+Before opening the PR, verify the change where it actually runs. The dev checkout carries prod-like
+local data (Miniflare D1/R2 under `.wrangler/`), so the feature can be exercised against real data
+shapes, not an empty database:
+
+- Start the app (`pnpm dev`) and drive the affected surface — the `verify` and `ui-login` skills
+  cover the auth-gated dashboard via the Playwright browser.
+- Exercise the feature with the local data (real entries/attachments/alerts), not synthetic input;
+  watch for errors in the dev server output while doing so.
+- Keep 1-3 bullets of *what you exercised and observed* — they go in the PR body (next step).
+- Only changes with no runtime surface (docs, CI, comments) may skip this; the PR body must then say
+  `Verification: none — no runtime surface`.
+
+### Step 5: Create the PR
 
 ```bash
 gh pr create \
@@ -81,22 +95,28 @@ Add any labels your project requires with `--label <label>`.
 ### PR description format
 
 - Brief and concise (1-3 sentences); no test plans
+- A `**Verification**` section: the 1-3 bullets from Step 4 (what was exercised in the running app
+  against local data), or `none — no runtime surface`
 - End with the spec link: `**Spec**: <url>`
 
 Example:
 ```markdown
 Add user preference endpoints for theme and notification settings.
 
+**Verification**:
+- GET/PUT /api/preferences round-trip via the running dev server (real user row)
+- /dashboard/settings renders saved theme after reload
+
 **Spec**: https://github.com/<org>/<repo>/tree/main/specs/001-short-name/spec.md
 ```
 
-### Step 5: Report results
+### Step 6: Report results
 
 - Spec push status (pushed / no changes)
 - PR URL
 - Spec URL (for reference)
 
-### Step 6: Own the PR until merge (review follow-up protocol)
+### Step 7: Own the PR until merge (review follow-up protocol)
 
 The agent context that opened the PR **owns it through merge**. Opening the PR is not the end of the
 feature — reviews come back, and you are the one with the spec, plan, and implementation in context,

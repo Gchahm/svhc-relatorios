@@ -4,7 +4,8 @@ description: >-
     Keep an automated implementation loop alive over the repo's open GitHub issues, working strictly
     ONE issue at a time. Each pass dispatches the next eligible issue (dependency-gated, priority,
     oldest first) to a single long-lived worker that runs the speckit full pipeline (spec → plan →
-    tasks → implement → PR) in its own git worktree; on later passes the loop relays PR review events
+    tasks → implement → verify → PR) directly in the repo checkout — the full dev environment, local
+    data included; on later passes the loop relays PR review events
     (changes requested, approval) into that same worker via SendMessage, so the worker keeps its
     context from first spec to final merge while the loop itself stays thin. The next issue starts
     only after the current one's PR merges. Designed to run
@@ -95,20 +96,27 @@ there are no parallel feature branches and no merge races.
 
 The rest of the backlog simply queues; it is reconsidered on the pass after the current issue merges.
 
-For the dispatched issue, spawn ONE worker via the Agent tool with
-`model: opus`, `isolation: "worktree"`, `run_in_background: true`:
+For the dispatched issue, spawn ONE worker via the Agent tool with `model: opus`,
+`run_in_background: true` — **no worktree isolation**: the loop is strictly serial and runs in a
+dedicated container, so the worker owns the repo checkout directly and inherits the full dev
+environment (local D1/R2 data in `.wrangler/`, `node_modules`, `.dev.vars`) for running and
+verifying the app:
 
-> You own GitHub issue #<n> ("<title>") from spec to merged PR, in this dedicated worktree.
+> You own GitHub issue #<n> ("<title>") from spec to merged PR, working directly in the repo
+> checkout — it is yours alone for this issue's lifetime.
 > 1. Read the issue: `gh issue view <n> --comments`.
 > 2. Invoke the `speckit` skill with `full <one-line feature description derived from the issue>`
 >    and follow it end-to-end (specify → clarify → plan → tasks → implement → pr). You are running
 >    unattended: make reasonable assumptions instead of asking clarifying questions, and record them
 >    in the spec. Include `Closes #<n>` in the PR body.
-> 3. After the PR is open, follow the speckit pr phase's **review follow-up protocol**: you will
+> 3. Before opening the PR, **verify the change in the running app against the local data** (the
+>    `verify` / `ui-login` skills; the local D1 has prod-like data) and record what you verified in
+>    the PR body, per the speckit pr phase.
+> 4. After the PR is open, follow the speckit pr phase's **review follow-up protocol**: you will
 >    receive follow-up messages in this same context when reviews arrive — address requested changes
->    here, and merge on approval. Keep all heavy context (spec, diffs, review threads) in this
->    context; never echo it back.
-> 4. Your final message now must be ONLY: `{"issue": <n>, "branch": "...", "pr": <num>, "status": "in-review"}`.
+>    here, and merge on approval (then return the checkout to `main` and pull). Keep all heavy
+>    context (spec, diffs, review threads) in this context; never echo it back.
+> 5. Your final message now must be ONLY: `{"issue": <n>, "branch": "...", "pr": <num>, "status": "in-review"}`.
 
 Record `status: building` + the worker id. When a worker's background result arrives, record its
 `pr`/`branch` and move it to `in-review`.
@@ -130,15 +138,16 @@ For each tracked PR in `in-review` or `changes-requested`, check the latest revi
 - **APPROVED** (the go-ahead) → `SendMessage` to the worker:
 
   > Your PR #<pr> was approved. Squash-merge it (`gh pr merge <pr> --squash --delete-branch`),
-  > verify issue #<n> closed, and return ONLY `{"pr": <pr>, "status": "merged"}`.
+  > verify issue #<n> closed, return the checkout to main (`git checkout main && git pull`) so the
+  > next issue builds on the merged state, and return ONLY `{"pr": <pr>, "status": "merged"}`.
 
   Mark `merged` on confirmation. The merge happens only after the reviewer's explicit approval —
   never merge an unapproved PR yourself, and never merge from the loop.
 
 - **Worker gone** (`SendMessage` fails — e.g. new session): spawn a replacement worker
-  (`model: opus`, `isolation: "worktree"`) with a catch-up prompt — check out the existing branch,
-  read the issue, the spec under `specs/<branch>/`, and the full PR review thread, then handle the
-  pending event as above. Update the worker id.
+  (`model: opus`, no isolation) with a catch-up prompt — check out the existing branch, read the
+  issue, the spec under `specs/<branch>/`, and the full PR review thread, then handle the pending
+  event as above. Update the worker id.
 
 ## 4. Report the pass
 
