@@ -96,3 +96,45 @@ def check_attachment_mismatches(period: PeriodData, refs: RefIndex) -> list[Aler
 
     logger.info("Attachment mismatches %s: %d alerts", period.period, len(alerts))
     return alerts
+
+
+def check_attachment_not_downloaded(period: PeriodData) -> list[Alert]:
+    """Emit one ``attachment_not_downloaded`` (``warning``) alert per attachment missing its pages.
+
+    IMP-004 / issue #41: a portal attachment the scraper could not fetch is persisted with no stored
+    page linkage (falsy ``file_path``) — un-groupable and unviewable. "We have a receipt the books
+    reference but could not obtain" is a missing-evidence finding (the ``large_expense_no_attachment``
+    precedent). The single source of truth is the mirror's ``file_path`` state, which the analysis
+    pass already loads, so the alert is emitted here (the scraper does not write the analysis-owned
+    ``alerts`` table — mirror invariant, feature 026) and rides the existing per-period
+    delete-then-insert writeback in ``run_analysis``: a deterministic per-attachment id makes re-runs
+    idempotent (FR-007), and an attachment that later gains pages drops out of the recomputed set so
+    its alert self-clears. Correct regardless of which run last touched the attachment (FR-008).
+    """
+    alerts: list[Alert] = []
+    for att in period.attachments:
+        if att.get("file_path"):
+            continue
+        attachment_id = att["id"]
+        entry_id = att.get("entry_id")
+        alerts.append(
+            Alert(
+                id=det_id("alert", period.period, "attachment_not_downloaded", attachment_id),
+                type="attachment_not_downloaded",
+                severity="warning",
+                title=f"Comprovante não baixado em {period.period}",
+                description=(
+                    "O lançamento referencia um comprovante do portal que não foi possível baixar "
+                    "(sem páginas armazenadas)."
+                ),
+                reference_period=period.period,
+                metadata={
+                    "attachment_id": attachment_id,
+                    "entry_id": entry_id,
+                    "external_document_id": att.get("external_document_id"),
+                },
+            )
+        )
+
+    logger.info("Attachment not-downloaded %s: %d alerts", period.period, len(alerts))
+    return alerts
