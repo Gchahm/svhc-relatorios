@@ -3,6 +3,8 @@
     "cases": [
         { "name": "exact_match", "sum": 100.0, "total": 100.0, "status": "within" },
         { "name": "abs_band_inclusive", "sum": 100.05, "total": 100.0, "status": "within" },
+        { "name": "abs_only_small_total", "sum": 0.54, "total": 0.50, "status": "within" },
+        { "name": "abs_only_small_total_under", "sum": 0.46, "total": 0.50, "status": "within" },
         { "name": "rel_band_inside", "sum": 10400.0, "total": 10000.0, "status": "within" },
         { "name": "rel_band_exact_excluded", "sum": 10500.0, "total": 10000.0, "status": "over" },
         { "name": "clear_over", "sum": 200.0, "total": 100.0, "status": "over" },

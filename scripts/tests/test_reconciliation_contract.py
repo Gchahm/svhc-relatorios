@@ -61,6 +61,8 @@ class ReconciliationContractTest(unittest.TestCase):
         required = {
             "exact_match",
             "abs_band_inclusive",
+            "abs_only_small_total",
+            "abs_only_small_total_under",
             "rel_band_inside",
             "rel_band_exact_excluded",
             "clear_over",

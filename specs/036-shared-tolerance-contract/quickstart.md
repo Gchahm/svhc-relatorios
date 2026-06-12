@@ -17,14 +17,26 @@ Both must report all-pass against current code.
 
 ## Prove the drift guard works (manual)
 
+Each edit below changes the decision for at least one fixture case, so the contract test
+on that side fails. (Note: *raising* the absolute tolerance — e.g. `AMOUNT_ABS_TOL` 0.05
+→ 0.50 — does **not** fail, because for most totals the relative band already covers a
+0.05 diff; the fixture's `abs_only_small_total*` cases are decided **solely** by the abs
+band, so *lowering* the abs tolerance or deleting the abs branch is what the guard now
+catches.)
+
 ```bash
-# 1. Break the Python side only:
-sed -i 's/AMOUNT_ABS_TOL = 0.05/AMOUNT_ABS_TOL = 0.50/' scripts/analysis/nf_groups.py
+# 1. Break the Python side only — lower the absolute tolerance (flips the abs_only_small_total* cases):
+sed -i 's/AMOUNT_ABS_TOL = 0.05/AMOUNT_ABS_TOL = 0.001/' scripts/analysis/nf_groups.py
 python -m unittest scripts.tests.test_reconciliation_contract   # FAILS
 git checkout scripts/analysis/nf_groups.py
 
-# 2. Break the TS side only:
-sed -i 's/const ABS_TOL = 0.05/const ABS_TOL = 0.50/' src/lib/documents.ts
+#    …or change the relative tolerance (flips rel_band_inside / rel_band_exact_excluded):
+sed -i 's/AMOUNT_REL_TOL = 0.05/AMOUNT_REL_TOL = 0.10/' scripts/analysis/nf_groups.py
+python -m unittest scripts.tests.test_reconciliation_contract   # FAILS
+git checkout scripts/analysis/nf_groups.py
+
+# 2. Break the TS side only — lower the absolute tolerance:
+sed -i 's/const ABS_TOL = 0.05/const ABS_TOL = 0.001/' src/lib/documents.ts
 node --test "src/**/*.test.mjs"                                 # FAILS
 git checkout src/lib/documents.ts
 ```
