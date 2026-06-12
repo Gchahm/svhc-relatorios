@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { initAuth } from "@/auth";
+import { t } from "@/lib/i18n";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -32,10 +33,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (!userRole || !allowedRoles.includes(userRole)) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen font-[family-name:var(--font-geist-sans)] p-8 text-center">
-                <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
-                <p className="text-muted-foreground mb-6">
-                    Your account is pending approval. Contact an administrator to get access.
-                </p>
+                <h1 className="text-2xl font-bold mb-2">{t("access.denied_title")}</h1>
+                <p className="text-muted-foreground mb-6">{t("access.denied_message")}</p>
                 <SignOutButton />
             </div>
         );
@@ -52,46 +51,46 @@ export default async function DashboardLayout({ children }: { children: React.Re
                     <nav className="flex items-center gap-1 mx-4">
                         {/* Financial */}
                         <NavLink href="/dashboard/reports" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>
-                            Reports
+                            {t("nav.reports")}
                         </NavLink>
                         <NavLink href="/dashboard/entries" icon={<Receipt className="h-3.5 w-3.5" />}>
-                            Entries
+                            {t("nav.entries")}
                         </NavLink>
                         <NavLink href="/dashboard/summary" icon={<BarChart3 className="h-3.5 w-3.5" />}>
-                            Summary
+                            {t("nav.summary")}
                         </NavLink>
                         <NavLink href="/dashboard/comparison" icon={<ArrowLeftRight className="h-3.5 w-3.5" />}>
-                            Comparison
+                            {t("nav.comparison")}
                         </NavLink>
 
                         <div className="w-px h-4 bg-gray-200 mx-1" />
 
                         {/* Entities */}
                         <NavLink href="/dashboard/vendors" icon={<Store className="h-3.5 w-3.5" />}>
-                            Vendors
+                            {t("nav.vendors")}
                         </NavLink>
                         <NavLink href="/dashboard/documents" icon={<FileText className="h-3.5 w-3.5" />}>
-                            Documents
+                            {t("nav.documents")}
                         </NavLink>
                         <NavLink href="/dashboard/units" icon={<Building2 className="h-3.5 w-3.5" />}>
-                            Units
+                            {t("nav.units")}
                         </NavLink>
                         <NavLink href="/dashboard/fines" icon={<Gavel className="h-3.5 w-3.5" />}>
-                            Fines
+                            {t("nav.fines")}
                         </NavLink>
 
                         <div className="w-px h-4 bg-gray-200 mx-1" />
 
                         {/* Analysis */}
                         <NavLink href="/dashboard/alerts" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
-                            Alerts
+                            {t("nav.alerts")}
                         </NavLink>
 
                         <div className="w-px h-4 bg-gray-200 mx-1" />
 
                         {/* System */}
                         <NavLink href="/dashboard/scrape-runs" icon={<RefreshCw className="h-3.5 w-3.5" />}>
-                            Runs
+                            {t("nav.runs")}
                         </NavLink>
                     </nav>
 

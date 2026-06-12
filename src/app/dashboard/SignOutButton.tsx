@@ -2,10 +2,12 @@
 
 import authClient from "@/auth/authClient"; // Assuming default export from your authClient setup
 import { Button } from "@/components/ui/button"; // Import the shadcn/ui Button
+import { useTranslation } from "@/lib/i18n/client";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react"; // Added useState and useTransition
 
 export default function SignOutButton() {
+    const t = useTranslation();
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function SignOutButton() {
                     },
                     onError: (err: { error: { message: string } }) => {
                         console.error("Sign out error:", err);
-                        setError(err.error.message || "Sign out failed. Please try again.");
+                        setError(err.error.message || t("auth.sign_out_error"));
                         // Optionally, still attempt to redirect or handle UI differently
                         // router.replace("/");
                     },
@@ -50,7 +52,7 @@ export default function SignOutButton() {
             });
         } catch (e) {
             console.error("Unexpected sign out error:", e);
-            setError(e instanceof Error ? e.message : "An unexpected error occurred. Please try again.");
+            setError(e instanceof Error ? e.message : t("auth.unexpected_error"));
             // router.replace("/"); // Fallback redirect
         } finally {
             setIsLoading(false);
@@ -66,7 +68,7 @@ export default function SignOutButton() {
                 variant="destructive" // Use destructive variant for sign out
                 className="w-full max-w-xs"
             >
-                {isLoading || isPending ? "Signing Out..." : "Sign Out"}
+                {isLoading || isPending ? t("auth.signing_out") : t("auth.sign_out")}
             </Button>
             {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
         </div>

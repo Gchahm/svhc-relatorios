@@ -18,6 +18,20 @@ export type CatalogShape = {
         alerts: string;
         dashboard: string;
         settings: string;
+        reports: string;
+        summary: string;
+        comparison: string;
+        vendors: string;
+        units: string;
+        fines: string;
+        runs: string;
+    };
+    app: {
+        title: string;
+    };
+    access: {
+        denied_title: string;
+        denied_message: string;
     };
     button: {
         submit: string;
@@ -111,6 +125,25 @@ export type CatalogShape = {
         invalid_credentials: string;
         session_expired: string;
         sign_out: string;
+        sign_in_email_placeholder: string;
+        signing_in: string;
+        unexpected_error: string;
+        no_account_prompt: string;
+        create_account_link: string;
+        sign_up_title: string;
+        sign_up_description: string;
+        name_label: string;
+        name_placeholder: string;
+        confirm_password_label: string;
+        sign_up_button: string;
+        signing_up: string;
+        sign_up_error: string;
+        email_in_use: string;
+        passwords_no_match: string;
+        have_account_prompt: string;
+        sign_in_link: string;
+        signing_out: string;
+        sign_out_error: string;
     };
     formatting: {
         currency: string;
@@ -133,6 +166,21 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             alerts: "Alertas",
             dashboard: "Dashboard",
             settings: "Configurações",
+            reports: "Prestação de contas",
+            summary: "Resumo",
+            comparison: "Comparação",
+            vendors: "Fornecedores",
+            units: "Unidades",
+            fines: "Multas",
+            runs: "Execuções",
+        },
+        app: {
+            title: "SVHC Fiscal",
+        },
+        access: {
+            denied_title: "Acesso negado",
+            denied_message:
+                "Sua conta está aguardando aprovação. Entre em contato com um administrador para obter acesso.",
         },
         button: {
             submit: "Enviar",
@@ -222,10 +270,29 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             email_label: "Email",
             password_label: "Senha",
             sign_in_button: "Entrar",
-            sign_in_error: "Falha ao entrar",
+            sign_in_error: "Falha ao entrar.",
             invalid_credentials: "Email ou senha inválidos",
             session_expired: "Sua sessão expirou",
             sign_out: "Sair",
+            sign_in_email_placeholder: "seu@email.com",
+            signing_in: "Entrando...",
+            unexpected_error: "Erro inesperado. Tente novamente.",
+            no_account_prompt: "Não tem conta?",
+            create_account_link: "Criar conta",
+            sign_up_title: "Criar conta",
+            sign_up_description: "Preencha os dados abaixo para se registrar.",
+            name_label: "Nome",
+            name_placeholder: "Seu nome",
+            confirm_password_label: "Confirmar senha",
+            sign_up_button: "Criar conta",
+            signing_up: "Criando conta...",
+            sign_up_error: "Falha ao criar conta.",
+            email_in_use: "Este email já está em uso. Use outro email.",
+            passwords_no_match: "As senhas não coincidem.",
+            have_account_prompt: "Já tem conta?",
+            sign_in_link: "Entrar",
+            signing_out: "Saindo...",
+            sign_out_error: "Falha ao sair. Tente novamente.",
         },
         formatting: {
             currency: "R$",
@@ -241,6 +308,20 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             alerts: "Alerts",
             dashboard: "Dashboard",
             settings: "Settings",
+            reports: "Reports",
+            summary: "Summary",
+            comparison: "Comparison",
+            vendors: "Vendors",
+            units: "Units",
+            fines: "Fines",
+            runs: "Runs",
+        },
+        app: {
+            title: "SVHC Fiscal",
+        },
+        access: {
+            denied_title: "Access Denied",
+            denied_message: "Your account is pending approval. Contact an administrator to get access.",
         },
         button: {
             submit: "Submit",
@@ -330,10 +411,29 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             email_label: "Email",
             password_label: "Password",
             sign_in_button: "Sign In",
-            sign_in_error: "Failed to sign in",
+            sign_in_error: "Failed to sign in.",
             invalid_credentials: "Invalid email or password",
             session_expired: "Your session has expired",
             sign_out: "Sign Out",
+            sign_in_email_placeholder: "you@email.com",
+            signing_in: "Signing in...",
+            unexpected_error: "Unexpected error. Please try again.",
+            no_account_prompt: "Don't have an account?",
+            create_account_link: "Create account",
+            sign_up_title: "Create account",
+            sign_up_description: "Fill in the details below to register.",
+            name_label: "Name",
+            name_placeholder: "Your name",
+            confirm_password_label: "Confirm password",
+            sign_up_button: "Create account",
+            signing_up: "Creating account...",
+            sign_up_error: "Failed to create account.",
+            email_in_use: "This email is already in use. Use another email.",
+            passwords_no_match: "Passwords do not match.",
+            have_account_prompt: "Already have an account?",
+            sign_in_link: "Sign in",
+            signing_out: "Signing out...",
+            sign_out_error: "Sign out failed. Please try again.",
         },
         formatting: {
             currency: "USD",
