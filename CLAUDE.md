@@ -125,6 +125,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes the analysis-owned `alerts` table (existing) and the `scrape_runs.errors` field (existing). Reads nothing new — the entries/subtotals/demonstrativo are already in the in-memory period payload; the only D1 read is the existing per-period prior-alert resolution read (mirrors `reconcile.py`). (029-scrape-consistency-validation)
 - Python 3.12 (scraper under `scripts/scraper/`, run via `uv`); TypeScript 5 / + scraper — `playwright`, `python-dotenv`; D1/R2 access via the (030-preserve-raw-portal-values)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`), mirror table `entries` (two new nullable (030-preserve-raw-portal-values)
+- TypeScript 5 / React 19 / Next.js 15 (App Router) + @tanstack/react-virtual, shadcn/ui, lucide-react (all existing — none added) (031-entry-id-string-type)
+- Cloudflare D1 (read-only here; `entries.id` is `text` UUID — no schema change) (031-entry-id-string-type)
 
 - Python 3.12 (analysis/scraper CLIs under `scripts/`, run via `uv`) + Python **stdlib only** for the reconciliation logic; D1 access via the (028-reconcile-portal-deletions)
 - Cloudflare D1 (SQLite). Tables written: `entries`, `attachments`, (028-reconcile-portal-deletions)

@@ -12,47 +12,7 @@ import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt } from "lucide-react";
 import AttachmentAnalysisDetailDialog from "./AttachmentAnalysisDetailDialog";
-
-interface Entry {
-    id: number;
-    date: string;
-    description: string;
-    amount: number;
-    movementType: string;
-    sourceUrl: string;
-    period: string;
-    category: string;
-    subcategory: string;
-    vendor: string | null;
-    unitCode: string | null;
-}
-
-// Shape returned by GET /api/attachment-analyses (one object per analysis). The detail dialog
-// consumes this directly and self-fetches its per-page records/images by `id`.
-export interface AttachmentAnalysisRow {
-    id: string;
-    attachmentId: string;
-    analyzedAt: number;
-    documentType: string | null;
-    extractedAmount: number | null;
-    amountMatch: boolean | null;
-    extractedCnpj: string | null;
-    issuerName: string | null;
-    vendorMatch: boolean | null;
-    extractedDate: string | null;
-    dateMatch: boolean | null;
-    documentNumber: string | null;
-    serviceDescription: string | null;
-    error: string | null;
-    entryId: string;
-    entryDate: string;
-    entryDescription: string;
-    entryAmount: number;
-    entryMovementType: string;
-    vendorName: string | null;
-    subcategoryName: string | null;
-    categoryName: string | null;
-}
+import type { Entry, AttachmentAnalysisRow } from "./types";
 
 function getCurrentPeriod(): string {
     const now = new Date();
@@ -220,7 +180,7 @@ export default function EntriesClient() {
             if (selectedSubcategories.length > 0 && !selectedSubcategories.includes(e.subcategory)) return false;
             if (searchLower && !e.description.toLowerCase().includes(searchLower)) return false;
 
-            const a = analysisByEntry.get(String(e.id));
+            const a = analysisByEntry.get(e.id);
             if (selectedDocTypes.length > 0 && (!a || !selectedDocTypes.includes(a.documentType || ""))) {
                 return false;
             }
@@ -291,7 +251,7 @@ export default function EntriesClient() {
         if (deepLinkHandledRef.current === key) return;
         deepLinkHandledRef.current = key;
 
-        const idx = filtered.findIndex(e => String(e.id) === deepLinkEntry);
+        const idx = filtered.findIndex(e => e.id === deepLinkEntry);
         if (idx >= 0) {
             virtualizer.scrollToIndex(idx, { align: "center" });
             setHighlightedEntryId(deepLinkEntry);
@@ -499,13 +459,13 @@ export default function EntriesClient() {
                             >
                                 {virtualizer.getVirtualItems().map(virtualRow => {
                                     const entry = filtered[virtualRow.index];
-                                    const analysis = analysisByEntry.get(String(entry.id));
+                                    const analysis = analysisByEntry.get(entry.id);
                                     const docLabel = analysis
                                         ? analysis.error
                                             ? "error"
                                             : analysis.documentType || "doc"
                                         : null;
-                                    const isHighlighted = highlightedEntryId === String(entry.id);
+                                    const isHighlighted = highlightedEntryId === entry.id;
                                     return (
                                         <div
                                             key={entry.id}

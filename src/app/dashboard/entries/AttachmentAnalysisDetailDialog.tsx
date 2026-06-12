@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PageImageViewer from "./PageImageViewer";
-import type { AttachmentAnalysisRow } from "./EntriesClient";
+import type { AttachmentAnalysisRow } from "./types";
 
 interface AttachmentAnalysisRecord {
     id: string;

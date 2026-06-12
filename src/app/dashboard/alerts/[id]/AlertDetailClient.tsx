@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
 import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
 import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
-import type { AttachmentAnalysisRow } from "../../entries/EntriesClient";
+import type { AttachmentAnalysisRow } from "../../entries/types";
 
 interface AttachedDocument {
     id: string;
