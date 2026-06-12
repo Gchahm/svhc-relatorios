@@ -5,10 +5,10 @@ description: >-
     ONE issue at a time. Each pass dispatches the next eligible issue (dependency-gated, priority,
     oldest first) to a single long-lived worker that runs the speckit full pipeline (spec → plan →
     tasks → implement → verify → PR) directly in the repo checkout — the full dev environment, local
-    data included; on later passes the loop relays PR review events
-    (changes requested, approval) into that same worker via SendMessage, so the worker keeps its
-    context from first spec to final merge while the loop itself stays thin. The next issue starts
-    only after the current one's PR merges. Designed to run
+    data included — and watches its own PR via a background watcher, addressing reviews and merging
+    on approval in its own context. The loop never relays review events: each pass it only checks
+    that a worker is alive on the active issue (respawning a catch-up worker if not) and dispatches
+    the next issue once the current one merges. Designed to run
     as the recurring prompt of /loop, and to pair with pr-review-loop as the reviewer. Use for "work
     through our issue list with speckit", "start the issue implementation loop", or "implement open
     issues automatically".
@@ -29,10 +29,12 @@ hooks:
 
 # Purpose
 
-Be the thin, always-cheap dispatcher between GitHub state and per-issue workers. You never write a
-spec, read a diff, or touch code — every issue is owned end-to-end (speckit full → PR → review
-fixes → merge) by ONE context-isolated worker agent, and you only relay terse events to it. Your
-context must stay flat enough to run for days.
+Be the thin, always-cheap dispatcher and babysitter. You never write a spec, read a diff, touch
+code, or track review state — every issue is owned end-to-end (speckit full → PR → review fixes →
+merge) by ONE context-isolated worker agent that **watches its own PR** (the speckit pr phase's
+background watcher). Your whole job per pass: reconcile with GitHub, make sure a worker is alive on
+the active issue, dispatch the next issue when the previous one merged. Your context must stay flat
+enough to run for days.
 
 # Keeping the loop alive
 
@@ -49,7 +51,7 @@ One pass per invocation; recurrence comes from `/loop`:
 Keep a small state file at `.cache/speckit-issue-loop/state.json` (create the directory if needed):
 
 ```json
-{ "<issue-number>": { "status": "building|in-review|changes-requested|merged|error",
+{ "<issue-number>": { "status": "building|in-review|merged|error",
                       "pr": <pr-number|null>, "branch": "<branch|null>", "worker": "<agent-id|null>" } }
 ```
 
@@ -76,8 +78,8 @@ gh pr list --state open --json number,headRefName,body,reviewDecision
 
 ## 2. Dispatch the next issue (in order, strictly serial)
 
-**One issue at a time.** If any tracked issue is in a non-terminal state (`building`, `in-review`,
-`changes-requested`), dispatch **nothing** this pass — go to step 3 and service that issue. A new
+**One issue at a time.** If any tracked issue is in a non-terminal state (`building`, `in-review`),
+dispatch **nothing** this pass — go to step 3 and check on that issue's worker. A new
 issue is dispatched only when the previous one reached `merged` (or `error`, after surfacing it).
 Sequential execution is the point: each feature lands on `main` before the next one builds on it, so
 there are no parallel feature branches and no merge races.
@@ -112,42 +114,34 @@ verifying the app:
 > 3. Before opening the PR, **verify the change in the running app against the local data** (the
 >    `verify` / `ui-login` skills; the local D1 has prod-like data) and record what you verified in
 >    the PR body, per the speckit pr phase.
-> 4. After the PR is open, follow the speckit pr phase's **review follow-up protocol**: you will
->    receive follow-up messages in this same context when reviews arrive — address requested changes
->    here, and merge on approval (then return the checkout to `main` and pull). Keep all heavy
->    context (spec, diffs, review threads) in this context; never echo it back.
-> 5. Your final message now must be ONLY: `{"issue": <n>, "branch": "...", "pr": <num>, "status": "in-review"}`.
+> 4. After the PR is open, follow the speckit pr phase's **Step 7 watcher protocol**: arm the
+>    background PR watcher and service it yourself — address requested changes, push, re-arm; on
+>    approval squash-merge, return the checkout to `main` and pull. Nobody relays review events to
+>    you; the watcher is how you wait. Keep all heavy context (spec, diffs, review threads) in this
+>    context; never echo it back.
+> 5. Your final message — sent only when the PR merged or you are unrecoverably stuck — must be
+>    ONLY: `{"issue": <n>, "pr": <num>, "status": "merged"}` (or `"status": "error", "reason": "..."`).
 
-Record `status: building` + the worker id. When a worker's background result arrives, record its
-`pr`/`branch` and move it to `in-review`.
+Record `status: building` + the worker id. The PR number is learned from GitHub on a later pass
+(step 1 adopts the open PR carrying `Closes #<n>`); the worker stays silent until merge.
 
-## 3. Relay review events to existing workers
+## 3. Babysit the active worker (liveness only — never review state)
 
-For each tracked PR in `in-review` or `changes-requested`, check the latest review state
-(`gh pr view <pr> --json reviewDecision,reviews`). Then:
+The worker watches its own PR (speckit pr Step 7 watcher) — the loop does NOT read reviews, relay
+events, or chase `reviewDecision`. Its only concern: **is a worker alive on the active issue?**
 
-- **CHANGES_REQUESTED** (new since last pass) → `SendMessage` to the issue's worker:
-
-  > Your PR #<pr> received a review requesting changes. Fetch the review body and inline comments
-  > (`gh api repos/{owner}/{repo}/pulls/<pr>/reviews` and `/comments`), address every blocking
-  > comment with commits on your branch, push, reply to each comment with what you changed, and
-  > return ONLY `{"pr": <pr>, "status": "changes-pushed"}`.
-
-  Mark `changes-requested` → back to `in-review` once it reports.
-
-- **APPROVED** (the go-ahead) → `SendMessage` to the worker:
-
-  > Your PR #<pr> was approved. Squash-merge it (`gh pr merge <pr> --squash --delete-branch`),
-  > verify issue #<n> closed, return the checkout to main (`git checkout main && git pull`) so the
-  > next issue builds on the merged state, and return ONLY `{"pr": <pr>, "status": "merged"}`.
-
-  Mark `merged` on confirmation. The merge happens only after the reviewer's explicit approval —
-  never merge an unapproved PR yourself, and never merge from the loop.
-
-- **Worker gone** (`SendMessage` fails — e.g. new session): spawn a replacement worker
-  (`model: opus`, no isolation) with a catch-up prompt — check out the existing branch, read the
-  issue, the spec under `specs/<branch>/`, and the full PR review thread, then handle the pending
-  event as above. Update the worker id.
+- **Worker reported in** (its background completion arrived since last pass): `status: merged` →
+  close out, the next pass dispatches the next issue. `status: error` → mark `error`, surface it in
+  the pass report, do not auto-respawn more than once.
+- **Worker finished WITHOUT a merged/error report** (died, crashed, ended prematurely), or the
+  session restarted (worker id stale): spawn a replacement worker (`model: opus`, no isolation,
+  `run_in_background: true`) with a catch-up prompt — check out the existing feature branch, read
+  the issue, the spec under `specs/<branch>/`, and the full PR review thread, then **resume the
+  speckit pr Step 7 watcher protocol** until merged. Update the worker id.
+- **Stall guard** (cheap, GitHub-only): if the PR has been open with no new commits and no new
+  reviews across ~8 consecutive passes (~2h), `SendMessage` the worker a nudge ("status?"). No
+  answer / unreachable → treat as dead and respawn the catch-up worker. Otherwise leave it alone —
+  a quiet worker whose watcher is armed is the normal state.
 
 ## 4. Report the pass
 
@@ -156,7 +150,7 @@ One header plus one line per tracked issue, e.g.:
 ```
 pass complete — active: #15, queue: 2, done: 1
 #17 merged     PR #39 ✅
-#15 in-review  PR #41 — changes requested, relayed to worker
+#15 in-review  PR #41 — worker alive, watching its PR
 #18 waiting    on #15 (depends-on, not yet merged)
 #19 queued     (next after #18 by issue order)
 ```
@@ -166,10 +160,10 @@ once per issue without surfacing the failure to the user.
 
 # Boundaries
 
-- **Dispatch and relay only**: never run speckit phases, read diffs, edit code, or post PR comments
-  yourself — that is worker context.
-- **One worker per issue, for life**: re-use the same worker via `SendMessage` for every event on
-  that issue; spawn fresh only when the worker is unreachable.
+- **Dispatch and babysit only**: never run speckit phases, read diffs, read review state, edit code,
+  or post PR comments yourself — the worker watches and services its own PR.
+- **One worker per issue, for life**: the worker runs from spec to merge in one context. SendMessage
+  is for liveness nudges only; spawn a catch-up replacement only when the worker is dead.
 - **Merging is approval-gated**: a PR merges only after a reviewer's APPROVED verdict, and only by
   its own worker.
 - **Strictly serial**: at most ONE issue in flight, ever. The next issue dispatches only after the

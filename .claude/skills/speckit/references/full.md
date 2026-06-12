@@ -45,8 +45,9 @@ Execute these phases in sequence:
 - Create PR in service repo with spec link
 - Report final PR URL
 - The PR phase's lifecycle does not end here: per its review follow-up protocol (`pr.md` Step 7),
-  this same context owns the PR until merge — review feedback arrives as follow-up messages, and the
-  approval go-ahead triggers the squash-merge. Report the PR URL and end the turn; do not poll.
+  this same context owns the PR until merge — arm the background PR watcher after reporting the PR
+  URL; it re-invokes you when a review lands, you address it or (on approval) squash-merge. Never
+  poll in the foreground; the background watcher is the wait.
 
 ## Rules
 

@@ -122,10 +122,31 @@ The agent context that opened the PR **owns it through merge**. Opening the PR i
 feature — reviews come back, and you are the one with the spec, plan, and implementation in context,
 so you handle them here rather than letting a fresh agent rediscover everything.
 
-After reporting the PR URL, end your turn. Review events arrive as follow-up messages in this same
-context (from the user, or from an orchestrator such as `speckit-issue-loop`). Handle each:
+**You watch the PR yourself.** After reporting the PR URL, arm a background watcher (Bash with
+`run_in_background: true`) that polls the PR and exits when something needs you — when it exits you
+are re-invoked with its output in this same context. Do NOT rely on anyone relaying review events to
+you, and do not poll in the foreground:
 
-**Changes requested** — a review with blocking inline comments:
+```bash
+# arm with run_in_background: true; LAST_REVIEW_ID = highest review id you have already handled (0 at start)
+PR=<n>; LAST_REVIEW_ID=<id>
+while true; do
+    STATE=$(gh pr view "$PR" --json state -q .state)
+    if [ "$STATE" != "OPEN" ]; then echo "EVENT: pr-state $STATE"; exit 0; fi
+    REVIEW=$(gh api "repos/{owner}/{repo}/pulls/$PR/reviews" --paginate \
+        --jq "[.[] | select(.id > $LAST_REVIEW_ID)] | last | select(. != null) | {id, state}")
+    if [ -n "$REVIEW" ]; then echo "EVENT: new-review $REVIEW"; exit 0; fi
+    sleep 90
+done
+```
+
+On each wake-up, handle the event and then **re-arm the watcher** (with the updated
+`LAST_REVIEW_ID`) unless the PR reached a terminal state — merged by you, or closed externally
+(`EVENT: pr-state MERGED|CLOSED`: stop, report, done). A direct follow-up message (from a human or
+an orchestrator) is handled exactly the same way as a watcher event. The event types:
+
+**Changes requested** (`new-review` with state `CHANGES_REQUESTED`, or a `COMMENTED` review whose
+body starts `VERDICT: request-changes`) — blocking inline comments:
 
 1. Fetch the review and its inline comments:
    ```bash
@@ -138,17 +159,22 @@ context (from the user, or from an orchestrator such as `speckit-issue-loop`). H
 3. Keep the spec in sync: if a fix changes behavior described in `specs/<branch>/spec.md`, update the
    spec in the same push.
 4. Run the project's checks (`pnpm lint`, `pnpm format`, tests where they exist) before pushing.
-5. Push, reply to each inline comment with a one-liner on what changed, and report tersely
-   (commits pushed, comments addressed/contested). Do not echo diffs.
+5. Push, reply to each inline comment with a one-liner on what changed, then **re-arm the watcher**
+   — the reviewer will re-review the new head and the watcher wakes you for the next verdict. Do not
+   echo diffs.
 
-**Approved (the go-ahead)** — squash-merge and clean up:
+**Approved (the go-ahead)** (`new-review` with state `APPROVED`, or a `COMMENTED` review whose body
+starts `VERDICT: approve`) — squash-merge and clean up:
 
 ```bash
 gh pr merge <pr> --squash --delete-branch
+git checkout main && git pull
 ```
 
-Verify any `Closes #<issue>` issue actually closed, then report `merged`. Never merge before an
-explicit approval, and never dismiss or wait out a requested-changes review.
+Verify any `Closes #<issue>` issue actually closed, then report `merged` — this is your terminal
+state; do not re-arm the watcher. Never merge before an explicit approval at the current head, and
+never dismiss or wait out a requested-changes review. (A `COMMENTED` review that carries no
+`VERDICT:` prefix is informational — note it and re-arm the watcher.)
 
 ### Error handling
 
