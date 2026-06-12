@@ -127,6 +127,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - Cloudflare D1 (`DATABASE` → `fiscal-db`), mirror table `entries` (two new nullable (030-preserve-raw-portal-values)
 - TypeScript 5 / React 19 / Next.js 15 (App Router) + @tanstack/react-virtual, shadcn/ui, lucide-react (all existing — none added) (031-entry-id-string-type)
 - Cloudflare D1 (read-only here; `entries.id` is `text` UUID — no schema change) (031-entry-id-string-type)
+- TypeScript 5 / React 19 (Next.js 15 App Router, client component) + Existing only — React (`useEffect`/`useRef`), the browser `document` (032-refetch-alerts-on-return)
+- N/A (read-only `GET /api/alerts`; no schema/migration change) (032-refetch-alerts-on-return)
 
 - Python 3.12 (analysis/scraper CLIs under `scripts/`, run via `uv`) + Python **stdlib only** for the reconciliation logic; D1 access via the (028-reconcile-portal-deletions)
 - Cloudflare D1 (SQLite). Tables written: `entries`, `attachments`, (028-reconcile-portal-deletions)
