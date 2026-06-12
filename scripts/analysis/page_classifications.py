@@ -98,6 +98,26 @@ def validate_page_fields(obj) -> str | None:
     return None
 
 
+def _prune_page_classifications_sql(attachment_ids: list[str]) -> str:
+    """Build a DELETE that removes the staging rows of the given attachments — without executing.
+
+    Returns ``DELETE FROM page_classifications WHERE attachment_id IN ('a','b',…);`` for a
+    non-empty id list (each id single-quote-escaped, ``'`` → ``''``), or ``""`` for an empty list.
+    Mirrors the ``upsert_sql`` / ``documents._prune_sql`` seam ("return SQL, the caller folds it
+    into its own ``execute_sql`` batch"), so both cleanup hooks compose this into the single atomic
+    batch they already issue (feature 024 convention). Pure — no I/O.
+
+    Used by ``apply-extractions`` (``_merge_and_write`` consumes an attachment's staging rows once
+    its authoritative ``attachment_analyses`` write lands) and ``mark-pending`` (clears a re-queued
+    attachment's staging rows so reclassification starts clean) — feature 035 / issue #42.
+    """
+    ids = [i for i in attachment_ids if i]
+    if not ids:
+        return ""
+    quoted = ",".join("'" + str(i).replace("'", "''") + "'" for i in ids)
+    return f"DELETE FROM {TABLE} WHERE attachment_id IN ({quoted});"
+
+
 def page_classification_id(attachment_id: str, page_label: str) -> str:
     """Deterministic row id for one page's classification.
 
