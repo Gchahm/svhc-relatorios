@@ -5,6 +5,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RefreshCw, AlertTriangle } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatDateTime } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface ScrapeRun {
     id: string;
@@ -19,35 +22,26 @@ interface ApiResponse {
     missingPeriods: string[];
 }
 
-function formatDateTime(ts: number): string {
-    const d = new Date(ts);
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const yyyy = d.getFullYear();
-    const hh = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
-    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
-}
-
 function StatusBadge({ status }: { status: string }) {
+    const t = useTranslation();
     if (status === "success") {
         return (
             <Badge className="bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
-                success
+                {t("runs.status_success")}
             </Badge>
         );
     }
     if (status === "error") {
         return (
             <Badge className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100" variant="outline">
-                error
+                {t("runs.status_error")}
             </Badge>
         );
     }
     if (status === "running") {
         return (
             <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-100" variant="outline">
-                running
+                {t("runs.status_running")}
             </Badge>
         );
     }
@@ -55,6 +49,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function ScrapeRunsClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [runs, setRuns] = useState<ScrapeRun[]>([]);
     const [missingPeriods, setMissingPeriods] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
@@ -85,7 +81,9 @@ export default function ScrapeRunsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -97,13 +95,11 @@ export default function ScrapeRunsClient() {
                     <CardHeader className="pb-2">
                         <CardTitle className="flex items-center gap-2 text-base text-yellow-800">
                             <AlertTriangle className="h-4 w-4" />
-                            Períodos Faltando
+                            {t("runs.missing_title")}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-yellow-700 mb-2">
-                            Os seguintes períodos não possuem prestações de contas:
-                        </p>
+                        <p className="text-sm text-yellow-700 mb-2">{t("runs.missing_message")}</p>
                         <div className="flex flex-wrap gap-2">
                             {missingPeriods.map(period => (
                                 <Badge
@@ -123,21 +119,21 @@ export default function ScrapeRunsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <RefreshCw className="h-5 w-5" />
-                        Scrape Runs
+                        {t("page.runs_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0">
                     <div className="text-sm text-muted-foreground mb-3">
-                        {loading ? "Carregando..." : `${runs.length} coletas`}
+                        {loading ? t("form.loading") : `${runs.length} ${plural(t, "count.runs", runs.length)}`}
                     </div>
 
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[160px] px-3 py-2 shrink-0">Data</div>
-                            <div className="w-[100px] px-3 py-2 shrink-0">Status</div>
-                            <div className="w-[100px] px-3 py-2 shrink-0 text-right">Duração (s)</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Erros</div>
+                            <div className="w-[160px] px-3 py-2 shrink-0">{t("table.date")}</div>
+                            <div className="w-[100px] px-3 py-2 shrink-0">{t("table.status")}</div>
+                            <div className="w-[100px] px-3 py-2 shrink-0 text-right">{t("table.duration_s")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.errors")}</div>
                         </div>
 
                         {/* Virtualized body */}
@@ -161,7 +157,7 @@ export default function ScrapeRunsClient() {
                                             }}
                                         >
                                             <div className="w-[160px] px-3 shrink-0 whitespace-nowrap tabular-nums">
-                                                {formatDateTime(run.executedAt)}
+                                                {formatDateTime(run.executedAt, locale)}
                                             </div>
                                             <div className="w-[100px] px-3 shrink-0">
                                                 <StatusBadge status={run.status} />

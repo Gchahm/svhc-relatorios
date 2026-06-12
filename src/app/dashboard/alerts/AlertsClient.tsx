@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { affectedEntryIds, entryHref, SeverityBadge, StatusBadge } from "./alerts";
-import { alertTypeLabel } from "@/lib/alerts";
+import { useTranslation, useAlertTypeLabel } from "@/lib/i18n/client";
+import { plural } from "@/lib/i18n/plural";
 
 interface AlertRow {
     id: string;
@@ -27,6 +28,7 @@ interface AlertRow {
 
 /** Renders an alert's affected-entry links: nothing / one inline link / a popover list. */
 function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }) {
+    const t = useTranslation();
     if (entryIds.length === 0) {
         return <span className="text-muted-foreground text-xs">—</span>;
     }
@@ -37,14 +39,14 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
                 onClick={e => e.stopPropagation()}
                 className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
             >
-                Open <ExternalLink className="h-3 w-3" />
+                {t("action.open")} <ExternalLink className="h-3 w-3" />
             </Link>
         );
     }
     return (
         <Popover>
             <PopoverTrigger onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline">
-                {entryIds.length} entries ▾
+                {entryIds.length} {plural(t, "count.entries", entryIds.length)} ▾
             </PopoverTrigger>
             <PopoverContent className="w-44 p-1" onClick={e => e.stopPropagation()}>
                 <div className="flex flex-col">
@@ -55,7 +57,7 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
                             onClick={e => e.stopPropagation()}
                             className="inline-flex items-center justify-between gap-1 rounded px-2 py-1 text-xs text-blue-600 hover:bg-muted hover:underline"
                         >
-                            Entry {i + 1} <ExternalLink className="h-3 w-3" />
+                            {t("list.entry_n")} {i + 1} <ExternalLink className="h-3 w-3" />
                         </Link>
                     ))}
                 </div>
@@ -65,6 +67,8 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
 }
 
 export default function AlertsClient() {
+    const t = useTranslation();
+    const alertTypeLabel = useAlertTypeLabel();
     const router = useRouter();
     const [data, setData] = useState<AlertRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -118,9 +122,9 @@ export default function AlertsClient() {
     }, []);
 
     const severityOptions = [
-        { value: "critical", label: "Critical" },
-        { value: "warning", label: "Warning" },
-        { value: "info", label: "Info" },
+        { value: "critical", label: t("severity.critical") },
+        { value: "warning", label: t("severity.warning") },
+        { value: "info", label: t("severity.info") },
     ];
 
     const periodOptions = useMemo(
@@ -134,12 +138,12 @@ export default function AlertsClient() {
 
     const typeOptions = useMemo(
         () => [...new Set(data.map(r => r.type))].sort().map(v => ({ value: v, label: alertTypeLabel(v) })),
-        [data]
+        [data, alertTypeLabel]
     );
 
     const statusOptions = [
-        { value: "active", label: "Active" },
-        { value: "resolved", label: "Resolved" },
+        { value: "active", label: t("alert_status.active") },
+        { value: "resolved", label: t("alert_status.resolved") },
     ];
 
     const filtered = useMemo(() => {
@@ -175,7 +179,9 @@ export default function AlertsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -186,26 +192,34 @@ export default function AlertsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <AlertTriangle className="h-5 w-5" />
-                        Alerts
+                        {t("page.alerts_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Summary badges */}
                     <div className="flex items-center gap-3 text-sm flex-wrap">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${filtered.length} alerts`}
+                            {loading
+                                ? t("form.loading")
+                                : `${filtered.length} ${plural(t, "count.alerts", filtered.length)}`}
                         </span>
                         {!loading && (
                             <>
                                 {activeCounts.critical > 0 && (
-                                    <Badge variant="destructive">{activeCounts.critical} critical</Badge>
+                                    <Badge variant="destructive">
+                                        {activeCounts.critical} {t("severity.critical")}
+                                    </Badge>
                                 )}
                                 {activeCounts.warning > 0 && (
                                     <Badge variant="outline" className="border-yellow-400 text-yellow-700">
-                                        {activeCounts.warning} warning
+                                        {activeCounts.warning} {t("severity.warning")}
                                     </Badge>
                                 )}
-                                {activeCounts.info > 0 && <Badge variant="secondary">{activeCounts.info} info</Badge>}
+                                {activeCounts.info > 0 && (
+                                    <Badge variant="secondary">
+                                        {activeCounts.info} {t("severity.info")}
+                                    </Badge>
+                                )}
                             </>
                         )}
                     </div>
@@ -213,42 +227,42 @@ export default function AlertsClient() {
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Severity</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.severity")}</label>
                             <MultiSelect
                                 options={severityOptions}
                                 selected={selectedSeverities}
                                 onSelectedChange={setSelectedSeverities}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Period</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.period")}</label>
                             <MultiSelect
                                 options={periodOptions}
                                 selected={selectedPeriods}
                                 onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Type</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.type")}</label>
                             <MultiSelect
                                 options={typeOptions}
                                 selected={selectedTypes}
                                 onSelectedChange={setSelectedTypes}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Status</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.status")}</label>
                             <MultiSelect
                                 options={statusOptions}
                                 selected={selectedStatuses}
                                 onSelectedChange={setSelectedStatuses}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
@@ -257,17 +271,19 @@ export default function AlertsClient() {
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[80px] px-3 py-2 shrink-0">Period</div>
-                            <div className="w-[90px] px-3 py-2 shrink-0">Severity</div>
-                            <div className="w-[200px] px-3 py-2 shrink-0">Title</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Description</div>
-                            <div className="w-[100px] px-3 py-2 shrink-0">Entries</div>
-                            <div className="w-[90px] px-3 py-2 shrink-0 text-right">Status</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0">{t("table.period")}</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">{t("table.severity")}</div>
+                            <div className="w-[200px] px-3 py-2 shrink-0">{t("table.title")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.description")}</div>
+                            <div className="w-[100px] px-3 py-2 shrink-0">{t("table.entries")}</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0 text-right">{t("table.status")}</div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
                             {filtered.length === 0 && !loading ? (
-                                <div className="py-12 text-center text-sm text-muted-foreground">No alerts found.</div>
+                                <div className="py-12 text-center text-sm text-muted-foreground">
+                                    {t("form.no_alerts")}
+                                </div>
                             ) : (
                                 <div
                                     style={{
@@ -288,7 +304,7 @@ export default function AlertsClient() {
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
                                                 onClick={() => router.push(`/dashboard/alerts/${row.id}`)}
-                                                title="Click to open the alert detail page"
+                                                title={t("list.open_alert_detail")}
                                             >
                                                 <div className="w-[80px] px-3 shrink-0 text-muted-foreground text-xs">
                                                     {row.referencePeriod}

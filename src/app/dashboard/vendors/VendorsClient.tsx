@@ -6,6 +6,9 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Store } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency, formatPercent } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface VendorRow {
     vendorId: string;
@@ -23,15 +26,9 @@ interface AggregatedVendor {
     periodCount: number;
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatPercent(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
-}
-
 export default function VendorsClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [data, setData] = useState<VendorRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -95,7 +92,9 @@ export default function VendorsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -106,19 +105,19 @@ export default function VendorsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <Store className="h-5 w-5" />
-                        Vendors (Fornecedores)
+                        {t("page.vendors_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Periods</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.periods")}</label>
                             <MultiSelect
                                 options={periodOptions}
                                 selected={selectedPeriods}
                                 onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
@@ -127,11 +126,13 @@ export default function VendorsClient() {
                     {/* Summary */}
                     <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${aggregated.length} vendors`}
+                            {loading
+                                ? t("form.loading")
+                                : `${aggregated.length} ${plural(t, "count.vendors", aggregated.length)}`}
                         </span>
                         {!loading && (
                             <Badge variant="outline" className="text-red-700 border-red-300">
-                                Total: {formatCurrency(grandTotal)}
+                                {t("summary.total")}: {formatCurrency(grandTotal, locale)}
                             </Badge>
                         )}
                     </div>
@@ -139,11 +140,11 @@ export default function VendorsClient() {
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="flex-1 px-3 py-2 min-w-0">Vendor Name</div>
-                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">Total</div>
-                            <div className="w-[80px] px-3 py-2 shrink-0 text-right">% of Total</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Entries</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Periods</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.vendor_name")}</div>
+                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">{t("table.total")}</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0 text-right">{t("table.pct_of_total")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">{t("table.entries")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">{t("filter.periods")}</div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
@@ -170,10 +171,10 @@ export default function VendorsClient() {
                                                 {row.name}
                                             </div>
                                             <div className="w-[130px] px-3 shrink-0 text-right tabular-nums text-red-600">
-                                                {formatCurrency(row.total)}
+                                                {formatCurrency(row.total, locale)}
                                             </div>
                                             <div className="w-[80px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
-                                                {formatPercent(pct)}
+                                                {formatPercent(pct, 1, locale)}
                                             </div>
                                             <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
                                                 {row.entryCount}

@@ -9,6 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { BarChart3, X } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface SummaryRow {
     period: string;
@@ -19,11 +22,9 @@ interface SummaryRow {
     count: number;
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 export default function SummaryClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [data, setData] = useState<SummaryRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -106,7 +107,9 @@ export default function SummaryClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -119,7 +122,7 @@ export default function SummaryClient() {
                 <Card>
                     <CardContent className="p-3 space-y-2">
                         <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-muted-foreground">Periods</span>
+                            <span className="text-xs font-medium text-muted-foreground">{t("filter.periods")}</span>
                             {selectedPeriods.length > 0 && (
                                 <button
                                     onClick={() => setSelectedPeriods([])}
@@ -150,7 +153,7 @@ export default function SummaryClient() {
                             options={periodOptions}
                             selected={selectedPeriods}
                             onSelectedChange={setSelectedPeriods}
-                            placeholder="All periods"
+                            placeholder={t("form.all_periods")}
                             className="w-full"
                         />
                     </CardContent>
@@ -169,22 +172,24 @@ export default function SummaryClient() {
                     <div className="flex items-center justify-between">
                         <CardTitle className="flex items-center gap-2 text-xl">
                             <BarChart3 className="h-5 w-5" />
-                            Summary by Subcategory
+                            {t("page.summary_title")}
                         </CardTitle>
                         <div className="flex items-center gap-4 text-sm">
                             <span className="text-muted-foreground">
-                                {loading ? "Loading..." : `${filtered.length} rows`}
+                                {loading
+                                    ? t("form.loading")
+                                    : `${filtered.length} ${plural(t, "count.rows", filtered.length)}`}
                             </span>
                             {!loading && (
                                 <>
                                     <Badge variant="outline" className="text-green-700 border-green-300">
-                                        Revenue: {formatCurrency(totals.revenue)}
+                                        {t("summary.revenue")}: {formatCurrency(totals.revenue, locale)}
                                     </Badge>
                                     <Badge variant="outline" className="text-red-700 border-red-300">
-                                        Expenses: {formatCurrency(totals.expenses)}
+                                        {t("summary.expenses")}: {formatCurrency(totals.expenses, locale)}
                                     </Badge>
                                     <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
-                                        Net: {formatCurrency(totals.net)}
+                                        {t("summary.net")}: {formatCurrency(totals.net, locale)}
                                     </Badge>
                                 </>
                             )}
@@ -196,7 +201,7 @@ export default function SummaryClient() {
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[80px] px-3 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Period"
+                                    label={t("table.period")}
                                     sortKey="period"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -205,7 +210,7 @@ export default function SummaryClient() {
                             </div>
                             <div className="w-[160px] px-3 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Category"
+                                    label={t("table.category")}
                                     sortKey="category"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -214,7 +219,7 @@ export default function SummaryClient() {
                             </div>
                             <div className="flex-1 px-3 py-2 min-w-0">
                                 <SortableHeader
-                                    label="Subcategory"
+                                    label={t("table.subcategory")}
                                     sortKey="subcategory"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -223,7 +228,7 @@ export default function SummaryClient() {
                             </div>
                             <div className="w-[120px] px-3 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
-                                    label="Total"
+                                    label={t("table.total")}
                                     sortKey="total"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -232,7 +237,7 @@ export default function SummaryClient() {
                             </div>
                             <div className="w-[70px] px-3 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
-                                    label="Entries"
+                                    label={t("table.entries")}
                                     sortKey="count"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -277,7 +282,7 @@ export default function SummaryClient() {
                                                     row.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
-                                                {formatCurrency(row.total)}
+                                                {formatCurrency(row.total, locale)}
                                             </div>
                                             <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
                                                 {row.count}
@@ -293,9 +298,11 @@ export default function SummaryClient() {
                             <div className="flex items-center border-t bg-muted/50 text-sm font-medium shrink-0">
                                 <div className="w-[80px] px-3 py-2 shrink-0" />
                                 <div className="w-[160px] px-3 py-2 shrink-0" />
-                                <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
+                                <div className="flex-1 px-3 py-2 min-w-0 text-xs text-muted-foreground">
+                                    {t("summary.total")}
+                                </div>
                                 <div className="w-[120px] px-3 py-2 shrink-0 text-right tabular-nums font-semibold">
-                                    {formatCurrency(totals.net)}
+                                    {formatCurrency(totals.net, locale)}
                                 </div>
                                 <div className="w-[70px] px-3 py-2 shrink-0 text-right tabular-nums text-muted-foreground">
                                     {totals.totalEntries}

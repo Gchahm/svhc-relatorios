@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
 import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
 import { alertTypeLabel } from "@/lib/alerts";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
 import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
 import type { AttachmentAnalysisRow } from "../../entries/types";
 
@@ -69,6 +70,8 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 export default function AlertDetailClient({ alertId }: { alertId: string }) {
+    const t = useTranslation();
+    const locale = useLocale();
     const [alert, setAlert] = useState<AlertDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
@@ -182,7 +185,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
     }
 
     const docId = referencedDocumentId(alert.metadata);
-    const evidence = evidenceFields(alert.metadata);
+    const evidence = evidenceFields(alert.metadata, t, locale);
 
     return (
         <div className="flex-1 space-y-4 overflow-auto">

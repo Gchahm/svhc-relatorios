@@ -1,4 +1,9 @@
+"use client";
+
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import type { SupportedLocale, DeepCatalogKey } from "@/lib/i18n/catalog";
 
 /**
  * Entry ids an alert concerns, parsed from its (untyped JSON) metadata. Covers both the
@@ -50,48 +55,49 @@ const CURRENCY_KEYS = new Set([
     "extracted_value",
 ]);
 const PERCENT_KEYS = new Set(["pct", "rate_pct"]);
-const KEY_LABELS: Record<string, string> = {
-    total_value: "Document total",
-    sum_entries: "Sum of entries",
-    over_amount: "Over amount",
-    total: "Total",
-    vendor_total: "Vendor total",
-    total_expenses: "Total expenses",
-    ledger_value: "Ledger value",
-    extracted_value: "Extracted value",
-    pct: "Share",
-    rate_pct: "Rate",
-    count: "Count",
-    paying: "Paying",
-    delinquent: "Delinquent",
-    kind: "Kind",
-    vendor_name: "Vendor",
-    vendor_id: "Vendor id",
-    document_number: "Document №",
-    issuer_cnpj: "Issuer CNPJ",
-    date: "Date",
-    description: "Description",
-    movement_type: "Movement",
-};
+// Metadata keys with a friendly catalog label (`meta.*`). Keys absent here fall back to a
+// readable humanized form (underscores → spaces), never raw snake_case.
+const META_LABEL_KEYS = new Set([
+    "total_value",
+    "sum_entries",
+    "over_amount",
+    "total",
+    "vendor_total",
+    "total_expenses",
+    "ledger_value",
+    "extracted_value",
+    "pct",
+    "rate_pct",
+    "count",
+    "paying",
+    "delinquent",
+    "kind",
+    "vendor_name",
+    "vendor_id",
+    "document_number",
+    "issuer_cnpj",
+    "date",
+    "description",
+    "movement_type",
+]);
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/** A translation function (from `useTranslation()` or the server `t`). */
+type Translate = (key: DeepCatalogKey) => string;
+
+function labelFor(key: string, t: Translate): string {
+    return META_LABEL_KEYS.has(key) ? t(`meta.${key}` as DeepCatalogKey) : key.replace(/_/g, " ");
 }
 
-function labelFor(key: string): string {
-    return KEY_LABELS[key] ?? key.replace(/_/g, " ");
-}
-
-function formatValue(key: string, value: unknown): string {
+function formatValue(key: string, value: unknown, locale: SupportedLocale): string {
     if (value === null || value === undefined) return "—";
     if (typeof value === "number") {
-        if (CURRENCY_KEYS.has(key)) return formatCurrency(value);
+        if (CURRENCY_KEYS.has(key)) return formatCurrency(value, locale);
         if (PERCENT_KEYS.has(key)) return `${value}%`;
         return String(value);
     }
     if (typeof value === "string" && CURRENCY_KEYS.has(key)) {
         const n = Number(value);
-        return Number.isFinite(n) ? formatCurrency(n) : value;
+        return Number.isFinite(n) ? formatCurrency(n, locale) : value;
     }
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
@@ -108,7 +114,7 @@ export interface EvidenceField {
  * entry links / a document link. Known keys get friendly labels and currency/percent formatting;
  * unknown keys fall back to a readable string. Malformed metadata → no fields (never throws).
  */
-export function evidenceFields(metadata: string | null): EvidenceField[] {
+export function evidenceFields(metadata: string | null, t: Translate, locale: SupportedLocale): EvidenceField[] {
     if (!metadata) return [];
     let meta: Record<string, unknown>;
     try {
@@ -120,30 +126,34 @@ export function evidenceFields(metadata: string | null): EvidenceField[] {
     }
     return Object.keys(meta)
         .filter(k => !HANDLED_KEYS.has(k))
-        .map(k => ({ key: k, label: labelFor(k), value: formatValue(k, meta[k]) }));
+        .map(k => ({ key: k, label: labelFor(k, t), value: formatValue(k, meta[k], locale) }));
 }
 
 export function SeverityBadge({ severity }: { severity: string }) {
+    const t = useTranslation();
+    const label =
+        severity === "critical" || severity === "warning" || severity === "info" ? t(`severity.${severity}`) : severity;
     if (severity === "critical") {
-        return <Badge variant="destructive">{severity}</Badge>;
+        return <Badge variant="destructive">{label}</Badge>;
     }
     if (severity === "warning") {
         return (
             <Badge variant="outline" className="border-yellow-400 text-yellow-700">
-                {severity}
+                {label}
             </Badge>
         );
     }
-    return <Badge variant="secondary">{severity}</Badge>;
+    return <Badge variant="secondary">{label}</Badge>;
 }
 
 export function StatusBadge({ resolved }: { resolved: boolean }) {
+    const t = useTranslation();
     if (resolved) {
         return (
             <Badge variant="outline" className="border-green-400 text-green-700">
-                resolved
+                {t("alert_status.resolved")}
             </Badge>
         );
     }
-    return <Badge variant="destructive">active</Badge>;
+    return <Badge variant="destructive">{t("alert_status.active")}</Badge>;
 }

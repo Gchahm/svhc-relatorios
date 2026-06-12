@@ -222,6 +222,202 @@ test("Catalog (I18N-002): new shell/auth keys resolve to non-empty strings in bo
     }
 });
 
+test("Catalog (I18N-003): dashboard list-page keys resolve to non-empty strings in both locales", async () => {
+    // The dashboard list pages + shared filter components consume exactly these keys
+    // (see specs/041-i18n-dashboard-lists/contracts/catalog-keys.md).
+    const requiredKeys = [
+        // page titles/descriptions
+        "page.reports_title",
+        "page.reports_description",
+        "page.fines_title",
+        "page.fines_description",
+        "page.comparison_title",
+        "page.comparison_description",
+        "page.summary_title",
+        "page.summary_description",
+        "page.runs_title",
+        "page.runs_description",
+        "page.units_title",
+        "page.units_description",
+        "page.vendors_title",
+        "page.vendors_description",
+        "page.document_analyses_title",
+        "page.document_analyses_description",
+        // table headers
+        "table.category",
+        "table.subcategory",
+        "table.unit",
+        "table.doc",
+        "table.amt",
+        "table.vnd",
+        "table.dt",
+        "table.title",
+        "table.severity",
+        "table.entries",
+        "table.number",
+        "table.issuer",
+        "table.total",
+        "table.sum_entries",
+        "table.links",
+        "table.revenue",
+        "table.expenses",
+        "table.month_balance",
+        "table.accumulated_balance",
+        "table.reason",
+        "table.block",
+        "table.share",
+        "table.run",
+        "table.executed_at",
+        "table.periods_scraped",
+        "table.attachments",
+        "table.errors",
+        "table.name",
+        "table.count",
+        "table.difference",
+        "table.pct_change",
+        "table.subcategories",
+        "table.period_base",
+        "table.period_compare",
+        "table.movement",
+        "table.duration_s",
+        "table.code",
+        "table.total_paid",
+        "table.vendor_name",
+        "table.pct_of_total",
+        "runs.status_success",
+        "runs.status_error",
+        "runs.status_running",
+        "runs.missing_title",
+        "runs.missing_message",
+        // form
+        "form.all",
+        "form.all_types",
+        "form.search_doc_placeholder",
+        "form.search_number_issuer",
+        "form.no_alerts",
+        "form.no_documents",
+        "form.no_entries",
+        "form.no_fines",
+        "form.no_vendors",
+        "form.no_units",
+        "form.no_runs",
+        "form.all_periods",
+        // filter labels
+        "filter.period",
+        "filter.search",
+        "filter.document_type",
+        "filter.attachment_status",
+        "filter.severity",
+        "filter.type",
+        "filter.status",
+        "filter.block",
+        "filter.reason",
+        "filter.category",
+        "filter.subcategory",
+        "filter.categories_subcategories",
+        "filter.periods",
+        // document reconciliation status
+        "status.over",
+        "status.within",
+        "status.under",
+        "status.unknown",
+        // alert severity
+        "severity.critical",
+        "severity.warning",
+        "severity.info",
+        // alert resolved state
+        "alert_status.active",
+        "alert_status.resolved",
+        // attachment match status
+        "match.all_match",
+        "match.has_mismatch",
+        "match.has_error",
+        "match.amount",
+        "match.vendor",
+        "match.date",
+        "match.errors",
+        "match.docs",
+        // pluralized counts (one/other)
+        "count.entries_one",
+        "count.entries_other",
+        "count.alerts_one",
+        "count.alerts_other",
+        "count.documents_one",
+        "count.documents_other",
+        "count.fines_one",
+        "count.fines_other",
+        "count.periods_one",
+        "count.periods_other",
+        "count.units_one",
+        "count.units_other",
+        "count.vendors_one",
+        "count.vendors_other",
+        "count.runs_one",
+        "count.runs_other",
+        "count.subcategories_one",
+        "count.subcategories_other",
+        "count.rows_one",
+        "count.rows_other",
+        // summary prefixes
+        "summary.revenue",
+        "summary.expenses",
+        "summary.net",
+        "summary.total",
+        // actions / notices
+        "action.open",
+        "action.dismiss",
+        "notice.deeplink_invalid",
+        "notice.deeplink_not_found_prefix",
+        "notice.deeplink_not_found_suffix",
+        // alert metadata evidence labels
+        "meta.total_value",
+        "meta.sum_entries",
+        "meta.over_amount",
+        "meta.total",
+        "meta.vendor_total",
+        "meta.total_expenses",
+        "meta.ledger_value",
+        "meta.extracted_value",
+        "meta.pct",
+        "meta.rate_pct",
+        "meta.count",
+        "meta.paying",
+        "meta.delinquent",
+        "meta.kind",
+        "meta.vendor_name",
+        "meta.vendor_id",
+        "meta.document_number",
+        "meta.issuer_cnpj",
+        "meta.date",
+        "meta.description",
+        "meta.movement_type",
+        // error prefix + list row chrome
+        "error.generic_prefix",
+        "list.open_attachment_detail",
+        "list.open_alert_detail",
+        "list.open_document_detail",
+        "list.entry_n",
+        "list.documents_subtitle",
+        "list.doc_fallback",
+    ];
+
+    for (const locale of ["pt-BR", "en"]) {
+        for (const key of requiredKeys) {
+            const parts = key.split(".");
+            let value = catalog[locale];
+            for (const part of parts) {
+                assert.ok(
+                    value && typeof value === "object" && part in value,
+                    `Catalog key "${key}" should exist in locale "${locale}"`
+                );
+                value = value[part];
+            }
+            assert.equal(typeof value, "string", `Catalog key "${key}" in "${locale}" should be a string`);
+            assert.ok(value.length > 0, `Catalog key "${key}" in "${locale}" should be non-empty`);
+        }
+    }
+});
+
 test("Catalog: pt-BR has complete section structure", async () => {
     const ptBr = catalog["pt-BR"];
 

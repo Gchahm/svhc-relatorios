@@ -9,6 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText } from "lucide-react";
 import type { DocumentStatus } from "@/lib/documents";
 import { StatusBadge } from "./StatusBadge";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface DocumentRow {
     id: string;
@@ -22,12 +25,9 @@ interface DocumentRow {
     status: DocumentStatus;
 }
 
-function formatCurrency(value: number | null): string {
-    if (value === null) return "—";
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 export default function DocumentsClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const router = useRouter();
     const [data, setData] = useState<DocumentRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -75,7 +75,9 @@ export default function DocumentsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -86,34 +88,36 @@ export default function DocumentsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <FileText className="h-5 w-5" />
-                        Documents (Notas Fiscais)
+                        {t("page.documents_title")} ({t("list.documents_subtitle")})
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Type</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.type")}</label>
                             <Select value={typeFilter} onValueChange={setTypeFilter}>
                                 <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="All types" />
+                                    <SelectValue placeholder={t("form.all_types")} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All types</SelectItem>
-                                    {typeOptions.map(t => (
-                                        <SelectItem key={t} value={t}>
-                                            {t}
+                                    <SelectItem value="all">{t("form.all_types")}</SelectItem>
+                                    {typeOptions.map(opt => (
+                                        <SelectItem key={opt} value={opt}>
+                                            {opt}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="w-[260px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Search (number / issuer)</label>
+                            <label className="block text-xs text-muted-foreground mb-1">
+                                {t("form.search_number_issuer")}
+                            </label>
                             <Input
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
-                                placeholder="NF number or issuer…"
+                                placeholder={t("form.search_doc_placeholder")}
                             />
                         </div>
                     </div>
@@ -121,26 +125,28 @@ export default function DocumentsClient() {
                     {/* Summary */}
                     <div className="flex items-center gap-3 text-sm">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${filtered.length} documents`}
+                            {loading
+                                ? t("form.loading")
+                                : `${filtered.length} ${plural(t, "count.documents", filtered.length)}`}
                         </span>
                     </div>
 
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[140px] px-3 py-2 shrink-0">Number</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Issuer</div>
-                            <div className="w-[90px] px-3 py-2 shrink-0">Type</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Total</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Sum entries</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Links</div>
-                            <div className="w-[90px] px-3 py-2 shrink-0 text-right">Status</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0">{t("table.number")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.issuer")}</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">{t("table.type")}</div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">{t("table.total")}</div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">{t("table.sum_entries")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">{t("table.links")}</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0 text-right">{t("table.status")}</div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
                             {filtered.length === 0 && !loading ? (
                                 <div className="py-12 text-center text-sm text-muted-foreground">
-                                    No documents found.
+                                    {t("form.no_documents")}
                                 </div>
                             ) : (
                                 <div
@@ -161,7 +167,7 @@ export default function DocumentsClient() {
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
                                                 onClick={() => router.push(`/dashboard/documents/${row.id}`)}
-                                                title="Click to open the document detail page"
+                                                title={t("list.open_document_detail")}
                                             >
                                                 <div
                                                     className="w-[140px] px-3 shrink-0 truncate font-medium tabular-nums"
@@ -179,10 +185,12 @@ export default function DocumentsClient() {
                                                     {row.documentType ?? "—"}
                                                 </div>
                                                 <div className="w-[120px] px-3 shrink-0 text-right tabular-nums">
-                                                    {formatCurrency(row.totalValue)}
+                                                    {row.totalValue === null
+                                                        ? "—"
+                                                        : formatCurrency(row.totalValue, locale)}
                                                 </div>
                                                 <div className="w-[120px] px-3 shrink-0 text-right tabular-nums">
-                                                    {formatCurrency(row.sumEntries)}
+                                                    {formatCurrency(row.sumEntries, locale)}
                                                 </div>
                                                 <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
                                                     {row.linkedCount}

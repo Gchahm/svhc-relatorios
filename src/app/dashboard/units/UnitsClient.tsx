@@ -5,6 +5,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2 } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface UnitPeriodRow {
     unitId: string;
@@ -25,11 +28,9 @@ interface AggregatedUnit {
     periodCount: number;
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 export default function UnitsClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [data, setData] = useState<UnitPeriodRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -58,8 +59,8 @@ export default function UnitsClient() {
     );
 
     const blockOptions = useMemo(
-        () => [...new Set(data.map(r => r.block))].sort().map(v => ({ value: v, label: `Block ${v}` })),
-        [data]
+        () => [...new Set(data.map(r => r.block))].sort().map(v => ({ value: v, label: `${t("filter.block")} ${v}` })),
+        [data, t]
     );
 
     const aggregated = useMemo<AggregatedUnit[]>(() => {
@@ -104,7 +105,9 @@ export default function UnitsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -115,29 +118,29 @@ export default function UnitsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <Building2 className="h-5 w-5" />
-                        Units
+                        {t("page.units_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Periods</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.periods")}</label>
                             <MultiSelect
                                 options={periodOptions}
                                 selected={selectedPeriods}
                                 onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Block</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.block")}</label>
                             <MultiSelect
                                 options={blockOptions}
                                 selected={selectedBlocks}
                                 onSelectedChange={setSelectedBlocks}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
@@ -146,12 +149,16 @@ export default function UnitsClient() {
                     {/* Summary */}
                     <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${aggregated.length} units`}
+                            {loading
+                                ? t("form.loading")
+                                : `${aggregated.length} ${plural(t, "count.units", aggregated.length)}`}
                         </span>
                         {!loading && (
                             <span className="text-muted-foreground">
-                                Total:{" "}
-                                <span className="font-medium text-foreground">{formatCurrency(totalAmount)}</span>
+                                {t("summary.total")}:{" "}
+                                <span className="font-medium text-foreground">
+                                    {formatCurrency(totalAmount, locale)}
+                                </span>
                             </span>
                         )}
                     </div>
@@ -159,12 +166,12 @@ export default function UnitsClient() {
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[80px] px-3 py-2 shrink-0">Code</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0">Block</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0">{t("table.code")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0">{t("table.block")}</div>
                             <div className="flex-1 px-3 py-2 min-w-0" />
-                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">Total Paid</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Entries</div>
-                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">Periods</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">{t("table.total_paid")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">{t("table.entries")}</div>
+                            <div className="w-[70px] px-3 py-2 shrink-0 text-right">{t("filter.periods")}</div>
                         </div>
 
                         <div ref={parentRef} className="flex-1 overflow-auto min-h-0">
@@ -192,7 +199,7 @@ export default function UnitsClient() {
                                             </div>
                                             <div className="flex-1 px-3 min-w-0" />
                                             <div className="w-[140px] px-3 shrink-0 text-right tabular-nums">
-                                                {formatCurrency(row.total)}
+                                                {formatCurrency(row.total, locale)}
                                             </div>
                                             <div className="w-[70px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">
                                                 {row.entryCount}

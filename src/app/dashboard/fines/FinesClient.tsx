@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Gavel } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency, formatDate } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface Fine {
     id: string;
@@ -35,16 +38,9 @@ function extractBlock(unitCode: string | null): string {
     return /[A-Za-z]/.test(last) ? last.toUpperCase() : "-";
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatDate(iso: string): string {
-    const [y, m, d] = iso.split("-");
-    return `${d}/${m}/${y}`;
-}
-
 export default function FinesClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [fines, setFines] = useState<Fine[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -86,8 +82,8 @@ export default function FinesClient() {
             [...new Set(rows.map(r => r.block))]
                 .filter(b => b !== "-")
                 .sort()
-                .map(v => ({ value: v, label: `Bloco ${v}` })),
-        [rows]
+                .map(v => ({ value: v, label: `${t("filter.block")} ${v}` })),
+        [rows, t]
     );
     const reasonOptions = useMemo(
         () => [...new Set(rows.map(r => r.reason))].sort().map(v => ({ value: v, label: v })),
@@ -121,7 +117,9 @@ export default function FinesClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -132,39 +130,39 @@ export default function FinesClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <Gavel className="h-5 w-5" />
-                        Multas
+                        {t("page.fines_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Period</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.period")}</label>
                             <MultiSelect
                                 options={periodOptions}
                                 selected={selectedPeriods}
                                 onSelectedChange={setSelectedPeriods}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Block</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.block")}</label>
                             <MultiSelect
                                 options={blockOptions}
                                 selected={selectedBlocks}
                                 onSelectedChange={setSelectedBlocks}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="flex-1 min-w-[200px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Reason</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("filter.reason")}</label>
                             <MultiSelect
                                 options={reasonOptions}
                                 selected={selectedReasons}
                                 onSelectedChange={setSelectedReasons}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
@@ -173,11 +171,13 @@ export default function FinesClient() {
                     {/* Summary */}
                     <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">
-                            {loading ? "Loading..." : `${filtered.length} fine${filtered.length !== 1 ? "s" : ""}`}
+                            {loading
+                                ? t("form.loading")
+                                : `${filtered.length} ${plural(t, "count.fines", filtered.length)}`}
                         </span>
                         {!loading && (
                             <Badge variant="outline" className="text-red-700 border-red-300">
-                                Total: {formatCurrency(totalAmount)}
+                                {t("summary.total")}: {formatCurrency(totalAmount, locale)}
                             </Badge>
                         )}
                     </div>
@@ -186,11 +186,11 @@ export default function FinesClient() {
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[90px] px-3 py-2 shrink-0">Period</div>
-                            <div className="w-[90px] px-3 py-2 shrink-0">Date</div>
-                            <div className="w-[60px] px-3 py-2 shrink-0">Unit</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Reason</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Amount</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">{t("table.period")}</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">{t("table.date")}</div>
+                            <div className="w-[60px] px-3 py-2 shrink-0">{t("table.unit")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.reason")}</div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">{t("table.amount")}</div>
                         </div>
 
                         {/* Virtualized body */}
@@ -217,7 +217,7 @@ export default function FinesClient() {
                                                 {row.period}
                                             </div>
                                             <div className="w-[90px] px-3 shrink-0 whitespace-nowrap">
-                                                {formatDate(row.date)}
+                                                {formatDate(row.date, locale)}
                                             </div>
                                             <div className="w-[60px] px-3 shrink-0 text-muted-foreground text-xs">
                                                 {row.unitCode ?? "-"}
@@ -226,7 +226,7 @@ export default function FinesClient() {
                                                 {row.reason}
                                             </div>
                                             <div className="w-[120px] px-3 shrink-0 text-right tabular-nums text-red-600">
-                                                {formatCurrency(row.amount)}
+                                                {formatCurrency(row.amount, locale)}
                                             </div>
                                         </div>
                                     );
