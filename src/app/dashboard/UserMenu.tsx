@@ -10,6 +10,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useTranslation } from "@/lib/i18n/client";
 import { LogOut, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -20,6 +21,7 @@ interface UserMenuProps {
 }
 
 export default function UserMenu({ name, email }: UserMenuProps) {
+    const t = useTranslation();
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const [, startTransition] = useTransition();
@@ -59,7 +61,7 @@ export default function UserMenu({ name, email }: UserMenuProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} disabled={isLoading} className="text-red-600 cursor-pointer">
                     <LogOut className="h-3.5 w-3.5 mr-2" />
-                    {isLoading ? "Signing out..." : "Sign out"}
+                    {isLoading ? t("auth.signing_out") : t("auth.sign_out")}
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

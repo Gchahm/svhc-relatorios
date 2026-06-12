@@ -123,6 +123,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
   `record-verdict` CLI.
 
 ## Active Technologies
+- TypeScript 5 / React 19 / Next.js 15 (App Router) + Existing only — the I18N-001 i18n layer (`@/lib/i18n`, (040-i18n-auth-shell-ptbr)
+- N/A — presentation-layer only; reads no data, writes nothing; no D1 schema, (040-i18n-auth-shell-ptbr)
 
 - Python 3.12 (analysis CLI under `scripts/analysis/`, run via `uv`); the + Existing only — `scripts/common/d1.py` (the `wrangler`-CLI wrapper: (035-prune-staging-rows)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes (DELETEs) the analysis-owned (035-prune-staging-rows)

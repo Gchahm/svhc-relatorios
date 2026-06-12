@@ -63,6 +63,8 @@ test("Catalog: pt-BR has all required keys", async () => {
         "error",
         "common",
         "auth",
+        "app",
+        "access",
         "formatting",
     ];
     for (const section of sections) {
@@ -157,12 +159,89 @@ test("Catalog: all values are strings", async () => {
     }
 });
 
+test("Catalog (I18N-002): new shell/auth keys resolve to non-empty strings in both locales", async () => {
+    // The auth pages + dashboard shell consume exactly these keys (see
+    // specs/040-i18n-auth-shell-ptbr/contracts/catalog-keys.md).
+    const requiredKeys = [
+        "app.title",
+        "access.denied_title",
+        "access.denied_message",
+        "nav.reports",
+        "nav.entries",
+        "nav.summary",
+        "nav.comparison",
+        "nav.vendors",
+        "nav.documents",
+        "nav.units",
+        "nav.fines",
+        "nav.alerts",
+        "nav.runs",
+        "auth.sign_in_title",
+        "auth.sign_in_description",
+        "auth.email_label",
+        "auth.password_label",
+        "auth.sign_in_email_placeholder",
+        "auth.sign_in_button",
+        "auth.signing_in",
+        "auth.sign_in_error",
+        "auth.unexpected_error",
+        "auth.no_account_prompt",
+        "auth.create_account_link",
+        "auth.sign_up_title",
+        "auth.sign_up_description",
+        "auth.name_label",
+        "auth.name_placeholder",
+        "auth.confirm_password_label",
+        "auth.sign_up_button",
+        "auth.signing_up",
+        "auth.sign_up_error",
+        "auth.email_in_use",
+        "auth.invalid_credentials",
+        "auth.passwords_no_match",
+        "auth.have_account_prompt",
+        "auth.sign_in_link",
+        "auth.sign_out",
+        "auth.signing_out",
+        "auth.sign_out_error",
+    ];
+
+    for (const locale of ["pt-BR", "en"]) {
+        for (const key of requiredKeys) {
+            const parts = key.split(".");
+            let value = catalog[locale];
+            for (const part of parts) {
+                assert.ok(
+                    value && typeof value === "object" && part in value,
+                    `Catalog key "${key}" should exist in locale "${locale}"`
+                );
+                value = value[part];
+            }
+            assert.equal(typeof value, "string", `Catalog key "${key}" in "${locale}" should be a string`);
+            assert.ok(value.length > 0, `Catalog key "${key}" in "${locale}" should be non-empty`);
+        }
+    }
+});
+
 test("Catalog: pt-BR has complete section structure", async () => {
     const ptBr = catalog["pt-BR"];
 
     // Expected sections
     const expectedSections = {
-        nav: ["home", "entries", "documents", "alerts", "dashboard", "settings"],
+        nav: [
+            "home",
+            "entries",
+            "documents",
+            "alerts",
+            "dashboard",
+            "settings",
+            "reports",
+            "summary",
+            "comparison",
+            "vendors",
+            "units",
+            "fines",
+            "runs",
+        ],
         button: ["submit", "cancel", "save", "delete", "close", "search", "download", "upload"],
         page: [
             "entries_title",
@@ -201,7 +280,28 @@ test("Catalog: pt-BR has complete section structure", async () => {
             "invalid_credentials",
             "session_expired",
             "sign_out",
+            "sign_in_email_placeholder",
+            "signing_in",
+            "unexpected_error",
+            "no_account_prompt",
+            "create_account_link",
+            "sign_up_title",
+            "sign_up_description",
+            "name_label",
+            "name_placeholder",
+            "confirm_password_label",
+            "sign_up_button",
+            "signing_up",
+            "sign_up_error",
+            "email_in_use",
+            "passwords_no_match",
+            "have_account_prompt",
+            "sign_in_link",
+            "signing_out",
+            "sign_out_error",
         ],
+        app: ["title"],
+        access: ["denied_title", "denied_message"],
         formatting: ["currency", "date", "percent"],
     };
 
