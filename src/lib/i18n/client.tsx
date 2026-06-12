@@ -6,7 +6,7 @@
 "use client";
 
 import React, { createContext, useContext } from "react";
-import type { SupportedLocale, DeepCatalogKey, CatalogShape } from "./catalog";
+import type { SupportedLocale, DeepCatalogKey } from "./catalog";
 import { catalog } from "./catalog";
 
 /**

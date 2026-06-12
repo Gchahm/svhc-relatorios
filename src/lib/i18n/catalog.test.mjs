@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { catalog } from "../../src/lib/i18n/catalog.ts";
+import { catalog } from "./catalog.ts";
 
 /**
  * Recursively extract all keys from a nested object
@@ -46,7 +46,7 @@ function checkKeysExist(sourceObj, targetObj, prefix = "", missingKeys = []) {
     return missingKeys;
 }
 
-test("Catalog: pt-BR has all required keys", async t => {
+test("Catalog: pt-BR has all required keys", async () => {
     const ptBr = catalog["pt-BR"];
     assert.ok(ptBr, "pt-BR locale should exist in catalog");
     assert.ok(Object.keys(ptBr).length > 0, "pt-BR should have at least one section");
@@ -71,7 +71,7 @@ test("Catalog: pt-BR has all required keys", async t => {
     }
 });
 
-test("Catalog: pt-BR has no empty string values", async t => {
+test("Catalog: pt-BR has no empty string values", async () => {
     const ptBr = catalog["pt-BR"];
     const keys = getAllKeys(ptBr);
     const emptyKeys = [];
@@ -90,7 +90,7 @@ test("Catalog: pt-BR has no empty string values", async t => {
     assert.equal(emptyKeys.length, 0, `pt-BR should have no empty string values. Found: ${emptyKeys.join(", ")}`);
 });
 
-test("Catalog: en keys are a subset of pt-BR (no orphan keys)", async t => {
+test("Catalog: en keys are a subset of pt-BR (no orphan keys)", async () => {
     const ptBr = catalog["pt-BR"];
     const en = catalog.en;
 
@@ -102,11 +102,10 @@ test("Catalog: en keys are a subset of pt-BR (no orphan keys)", async t => {
     );
 });
 
-test("Catalog: all alert.types keys are consistent", async t => {
+test("Catalog: all alert.types keys are consistent", async () => {
     const ptBr = catalog["pt-BR"].alert.types;
     const en = catalog.en.alert.types;
 
-    const ptBrKeys = Object.keys(ptBr).sort();
     const enKeys = Object.keys(en).sort();
 
     // en keys should be a subset of ptBr keys
@@ -115,7 +114,7 @@ test("Catalog: all alert.types keys are consistent", async t => {
     }
 });
 
-test("Catalog: no undefined values", async t => {
+test("Catalog: no undefined values", async () => {
     const locales = ["pt-BR", "en"];
 
     for (const locale of locales) {
@@ -135,7 +134,7 @@ test("Catalog: no undefined values", async t => {
     }
 });
 
-test("Catalog: all values are strings", async t => {
+test("Catalog: all values are strings", async () => {
     const locales = ["pt-BR", "en"];
 
     for (const locale of locales) {
@@ -158,7 +157,7 @@ test("Catalog: all values are strings", async t => {
     }
 });
 
-test("Catalog: pt-BR has complete section structure", async t => {
+test("Catalog: pt-BR has complete section structure", async () => {
     const ptBr = catalog["pt-BR"];
 
     // Expected sections

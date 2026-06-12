@@ -22,7 +22,7 @@ import type { SupportedLocale } from "./catalog";
  */
 export function getLocale(): SupportedLocale {
     try {
-        const context = getCloudflareContext();
+        getCloudflareContext();
         // Future: read from cookies or request headers
         // For now, always default to pt-BR
         return "pt-BR";

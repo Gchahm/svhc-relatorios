@@ -349,12 +349,14 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
 export type CatalogKey = keyof CatalogShape;
 
 /**
+ * Recursively extract all dot-notation leaf paths from a nested catalog shape,
+ * including nested sections like `alert.types.*` (so every key is type-checked).
+ */
+type Paths<T> = {
+    [K in keyof T & string]: T[K] extends string ? K : `${K}.${Paths<T[K]>}`;
+}[keyof T & string];
+
+/**
  * Extract all possible keys from the catalog shape recursively
  */
-export type DeepCatalogKey = {
-    [K in keyof CatalogShape]: CatalogShape[K] extends Record<string, string>
-        ? {
-              [NK in keyof CatalogShape[K]]: `${K & string}.${NK & string}`;
-          }[keyof CatalogShape[K]]
-        : never;
-}[keyof CatalogShape];
+export type DeepCatalogKey = Paths<CatalogShape>;

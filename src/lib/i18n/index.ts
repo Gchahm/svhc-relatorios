@@ -91,7 +91,7 @@ export function getAlertTypeLabel(
     alertType: keyof (typeof catalog)["pt-BR"]["alert"]["types"],
     locale?: SupportedLocale
 ): string {
-    return t(`alert.types.${alertType}` as DeepCatalogKey, locale);
+    return t(`alert.types.${alertType}`, locale);
 }
 
 /**
@@ -104,7 +104,7 @@ export { catalog, type SupportedLocale, type CatalogShape, type DeepCatalogKey }
  */
 export { formatCurrency, formatDate, formatPercent, formatNumber, formatDuration } from "./formatters";
 
-/**
- * Re-export client-side utilities (for use in client components)
- */
-export { LocaleProvider, useTranslation, useLocale } from "./client";
+// NOTE: client-side utilities (LocaleProvider, useTranslation, useLocale) are deliberately
+// NOT re-exported here. This barrel pulls in `./server` (getCloudflareContext), so importing
+// it from a client component would drag server-only code into the client bundle.
+// Client components must import from "@/lib/i18n/client" directly.
