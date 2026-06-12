@@ -74,25 +74,46 @@ export default function AlertsClient() {
     const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
 
+    // Monotonic request token: with several refetch triggers (mount, tab focus, page becoming
+    // visible) two requests can be in flight at once, so a slower earlier response must not
+    // overwrite the newer data — only the latest request applies its result (032 FR-005).
+    const requestSeq = useRef(0);
+
     const fetchData = () => {
+        const seq = ++requestSeq.current;
         setLoading(true);
         fetch("/api/alerts")
             .then(res => {
                 if (!res.ok) throw new Error("Failed to fetch alerts");
                 return res.json();
             })
-            .then(setData)
-            .catch(e => setError(e.message))
-            .finally(() => setLoading(false));
+            .then(rows => {
+                if (seq === requestSeq.current) setData(rows);
+            })
+            .catch(e => {
+                if (seq === requestSeq.current) setError(e.message);
+            })
+            .finally(() => {
+                if (seq === requestSeq.current) setLoading(false);
+            });
     };
 
     useEffect(() => {
         fetchData();
-        // Re-fetch when returning to this tab (e.g. after resolving on the detail page) so the
-        // list reflects the latest status without a manual refresh (FR-009).
+        // Re-fetch when this list becomes current again so it reflects the latest status without a
+        // manual refresh (032 FR-001/FR-002). `focus` covers returning from another browser tab;
+        // `visibilitychange` covers same-tab in-app navigation back from the detail page after a
+        // resolve/reopen, which does not fire `focus`.
         const onFocus = () => fetchData();
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") fetchData();
+        };
         window.addEventListener("focus", onFocus);
-        return () => window.removeEventListener("focus", onFocus);
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            window.removeEventListener("focus", onFocus);
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
     }, []);
 
     const severityOptions = [
