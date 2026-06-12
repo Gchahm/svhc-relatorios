@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from common import det_id, now_ms, d1
 from .nf_groups import group_attachments, reconcile_group
+from .page_classifications import _prune_page_classifications_sql
 from .vendor_match import is_payer_name, reconcile_vendor
 
 logger = logging.getLogger(__name__)
@@ -634,6 +635,14 @@ def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
     and the next run heals it. The stamp therefore commits WITH the insert, never alone with the
     delete. (It is set even for an error row — the attachment has been attempted; a re-attempt is
     requested deterministically via ``mark-pending``.)
+
+    Staging consume (feature 035 / issue #42): the attachment's ``page_classifications`` staging
+    rows are deleted in this SAME batch, AFTER the analysis INSERT — once the authoritative roll-up
+    lands, those per-page rows are obsolete (their content is now frozen into ``attachment_analyses``),
+    so the staging table stops accumulating consumed rows. Because the DELETE shares the batch, it
+    commits with the insert and rolls back with it: a failed write leaves the staging rows intact and
+    the attachment pending, self-healing on re-run. The DELETE is scoped strictly to this attachment's
+    id; for a shared-NF sibling (which has no staging rows of its own) it matches zero rows — a no-op.
     """
     doc_analysis_id = det_id("attachment_analysis", result.attachment_id)
     did = result.attachment_id.replace("'", "''")
@@ -643,7 +652,8 @@ def _merge_and_write(result: "AttachmentAnalysisResult", *, target) -> None:
         f"DELETE FROM attachment_analyses WHERE attachment_id = '{did}';\n"
         + d1.upsert_sql({"attachment_analyses": [result.to_dict()]})
         + f"\nINSERT INTO attachment_state (attachment_id, classified_at) VALUES ('{did}', {now_ms()})"
-        + " ON CONFLICT(attachment_id) DO UPDATE SET classified_at = excluded.classified_at;"
+        + " ON CONFLICT(attachment_id) DO UPDATE SET classified_at = excluded.classified_at;\n"
+        + _prune_page_classifications_sql([result.attachment_id])
     )
     d1.execute_sql(sql, target=target)
 

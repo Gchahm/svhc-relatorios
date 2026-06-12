@@ -314,6 +314,13 @@ def mark_pending(
 
     An attachment with no ``attachment_state`` row is already pending (no row ⇒ pending), so
     the UPDATE only needs to clear rows that exist; nothing is created to "mark pending".
+
+    Staging clear (feature 035 / issue #42): the re-queued attachments' ``page_classifications``
+    staging rows are deleted in the SAME ``execute_sql`` batch (one atomic re-queue: state cleared
+    and staging cleared together), so the fresh classification starts with no leftover rows from a
+    prior page set. The DELETE reuses the identical id scope as the UPDATE (the entry-id scope via
+    the same read-only ``attachments`` subquery — no mirror write). With no ids given this stays a
+    no-op (returns 0).
     """
     clauses = []
     if attachment_ids:
@@ -328,7 +335,13 @@ def mark_pending(
         logger.info("mark-pending: no attachment/entry ids given; nothing to do")
         return 0
     where = " OR ".join(clauses)
-    d1.execute_sql(f"UPDATE attachment_state SET classified_at = NULL WHERE {where};", target=target)
+    # Clear the classified stamp AND drop the stale staging rows in one atomic batch. The staging
+    # DELETE shares the WHERE scope (same id list / same read-only `attachments` subquery).
+    sql = (
+        f"UPDATE attachment_state SET classified_at = NULL WHERE {where};\n"
+        f"DELETE FROM page_classifications WHERE {where};"
+    )
+    d1.execute_sql(sql, target=target)
     n = len(attachment_ids or []) + len(entry_ids or [])
     logger.info("mark-pending: requested re-classification for %d id(s)%s", n, f" in {period}" if period else "")
     return n
