@@ -10,9 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
-import { Receipt } from "lucide-react";
+import { Receipt, X } from "lucide-react";
 import AttachmentAnalysisDetailDialog from "./AttachmentAnalysisDetailDialog";
+import { resolveDeepLink, shortenEntryId } from "./deepLink";
 import type { Entry, AttachmentAnalysisRow } from "./types";
+
+// Feedback for a deep-link that could not land on its target row (feature 037 / issue #45).
+type DeepLinkNotice = { kind: "not-found" | "invalid"; entryId: string; period: string };
 
 function getCurrentPeriod(): string {
     const now = new Date();
@@ -90,6 +94,8 @@ export default function EntriesClient() {
 
     // Deep-link target row highlight; the effect below runs once per (period|entry) param set.
     const [highlightedEntryId, setHighlightedEntryId] = useState<string | null>(null);
+    // Non-blocking feedback when the deep-link can't land (entry absent or invalid id).
+    const [deepLinkNotice, setDeepLinkNotice] = useState<DeepLinkNotice | null>(null);
     const deepLinkHandledRef = useRef<string | null>(null);
 
     // Fetch available periods
@@ -138,13 +144,35 @@ export default function EntriesClient() {
         }
     }, [selectedPeriod, fetchEntries]);
 
-    // Reset client-side filters when period changes
+    // Reset client-side filters when period changes; a manual period change also clears any
+    // stale deep-link notice so it doesn't linger against an unrelated period (FR-009).
     const handlePeriodChange = (value: string) => {
         setSelectedPeriod(value);
         setSelectedSubcategories([]);
         setSearch("");
         setSelectedDocTypes([]);
         setSelectedDocMatchStatus([]);
+        setDeepLinkNotice(null);
+    };
+
+    // Manual filter handlers: clear a stale deep-link notice when the user adjusts a filter
+    // themselves (FR-009). The programmatic filter-recovery reset (in the deep-link effect) uses
+    // the raw setters directly, so it does NOT clear the notice through these.
+    const handleSubcategoriesChange = (v: string[]) => {
+        setSelectedSubcategories(v);
+        setDeepLinkNotice(null);
+    };
+    const handleSearchChange = (v: string) => {
+        setSearch(v);
+        setDeepLinkNotice(null);
+    };
+    const handleDocTypesChange = (v: string[]) => {
+        setSelectedDocTypes(v);
+        setDeepLinkNotice(null);
+    };
+    const handleDocMatchStatusChange = (v: string[]) => {
+        setSelectedDocMatchStatus(v);
+        setDeepLinkNotice(null);
     };
 
     // Latest analysis per entry (endpoint orders analyzedAt DESC, so first-seen wins).
@@ -241,26 +269,76 @@ export default function EntriesClient() {
         overscan: 20,
     });
 
-    // Deep link: once the target period's entries + analyses have loaded, scroll/highlight the
-    // entry row and auto-open its attachment-analysis dialog. Runs once per (period|entry) set.
+    // Deep link: once the target period's entries + analyses have loaded, resolve the target row
+    // and act on the outcome (feature 037 / issue #45). Runs once per (period|entry) set — except
+    // a transitional filter-recovery, which intentionally does NOT consume the link so the
+    // post-clear re-render can land on the now-visible row.
     useEffect(() => {
         if (!deepLinkEntry || loading) return;
         // Wait until the period state matches the deep-link period (data is then for it).
         if (deepLinkPeriod && selectedPeriod !== deepLinkPeriod) return;
         const key = `${deepLinkPeriod ?? ""}|${deepLinkEntry}`;
         if (deepLinkHandledRef.current === key) return;
-        deepLinkHandledRef.current = key;
 
-        const idx = filtered.findIndex(e => e.id === deepLinkEntry);
-        if (idx >= 0) {
-            virtualizer.scrollToIndex(idx, { align: "center" });
-            setHighlightedEntryId(deepLinkEntry);
+        const hasActiveFilter =
+            selectedSubcategories.length > 0 ||
+            search.length > 0 ||
+            selectedDocTypes.length > 0 ||
+            selectedDocMatchStatus.length > 0;
+        const resolution = resolveDeepLink({
+            entryId: deepLinkEntry,
+            hasActiveFilter,
+            presentUnfiltered: entries.some(e => e.id === deepLinkEntry),
+            filteredIndex: filtered.findIndex(e => e.id === deepLinkEntry),
+        });
+
+        // Filter-recovery is transitional: clear the filters and let the effect re-run (filtered
+        // changes) to find the now-visible row. Don't consume the link or strip the URL yet.
+        if (resolution.outcome === "recovered-from-filter") {
+            setSelectedSubcategories([]);
+            setSearch("");
+            setSelectedDocTypes([]);
+            setSelectedDocMatchStatus([]);
+            return;
         }
-        // Open the validation dialog when an analysis exists for the entry (FR-007); when the
-        // entry has no analysis we still scrolled/highlighted above — no dialog, no error (FR-008).
-        const analysis = analysisByEntry.get(deepLinkEntry);
-        if (analysis) setSelectedAnalysis(analysis);
-    }, [deepLinkEntry, deepLinkPeriod, loading, selectedPeriod, filtered, analysisByEntry, virtualizer]);
+
+        // Terminal outcomes consume the link and strip the params so a refresh won't re-trigger.
+        deepLinkHandledRef.current = key;
+        const loadedPeriod = selectedPeriod;
+        if (resolution.outcome === "found") {
+            virtualizer.scrollToIndex(resolution.index, { align: "center" });
+            setHighlightedEntryId(deepLinkEntry);
+            // Open the validation dialog when an analysis exists for the entry (FR-008); when the
+            // entry has no analysis we still scrolled/highlighted above — no dialog, no notice.
+            const analysis = analysisByEntry.get(deepLinkEntry);
+            if (analysis) setSelectedAnalysis(analysis);
+        } else {
+            // "not-found" or "invalid" — surface a non-blocking notice instead of failing silently.
+            setDeepLinkNotice({ kind: resolution.outcome, entryId: deepLinkEntry, period: loadedPeriod });
+        }
+        // Strip the consumed entry/period params from the URL so a refresh doesn't re-trigger the
+        // deep-link behavior (FR-007); selected period is preserved in component state (A4).
+        if (typeof window !== "undefined") {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("entry");
+            url.searchParams.delete("period");
+            const qs = url.searchParams.toString();
+            window.history.replaceState(null, "", `${url.pathname}${qs ? `?${qs}` : ""}`);
+        }
+    }, [
+        deepLinkEntry,
+        deepLinkPeriod,
+        loading,
+        selectedPeriod,
+        entries,
+        filtered,
+        analysisByEntry,
+        virtualizer,
+        selectedSubcategories,
+        search,
+        selectedDocTypes,
+        selectedDocMatchStatus,
+    ]);
 
     if (error) {
         return (
@@ -298,7 +376,7 @@ export default function EntriesClient() {
                         <Input
                             placeholder="Search description..."
                             value={search}
-                            onChange={e => setSearch(e.target.value)}
+                            onChange={e => handleSearchChange(e.target.value)}
                             className="h-9"
                         />
                     </CardContent>
@@ -311,7 +389,7 @@ export default function EntriesClient() {
                             <MultiSelect
                                 options={docTypeOptions}
                                 selected={selectedDocTypes}
-                                onSelectedChange={setSelectedDocTypes}
+                                onSelectedChange={handleDocTypesChange}
                                 placeholder="All"
                                 className="w-full"
                             />
@@ -321,7 +399,7 @@ export default function EntriesClient() {
                             <MultiSelect
                                 options={matchStatusOptions}
                                 selected={selectedDocMatchStatus}
-                                onSelectedChange={setSelectedDocMatchStatus}
+                                onSelectedChange={handleDocMatchStatusChange}
                                 placeholder="All"
                                 className="w-full"
                             />
@@ -332,7 +410,7 @@ export default function EntriesClient() {
                 <CategoryTree
                     data={entries}
                     selected={selectedSubcategories}
-                    onSelectedChange={setSelectedSubcategories}
+                    onSelectedChange={handleSubcategoriesChange}
                 />
             </div>
 
@@ -387,6 +465,30 @@ export default function EntriesClient() {
                     </div>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
+                    {deepLinkNotice && (
+                        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                            <span className="flex-1">
+                                {deepLinkNotice.kind === "invalid" ? (
+                                    <>The linked entry reference was invalid, so it could not be opened.</>
+                                ) : (
+                                    <>
+                                        Entry{" "}
+                                        <span className="font-mono">{shortenEntryId(deepLinkNotice.entryId)}</span> not
+                                        found in {deepLinkNotice.period} — it may have been removed or re-scraped, or
+                                        the period may be wrong.
+                                    </>
+                                )}
+                            </span>
+                            <button
+                                type="button"
+                                aria-label="Dismiss"
+                                onClick={() => setDeepLinkNotice(null)}
+                                className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                    )}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[80px] px-2 py-2 shrink-0">
