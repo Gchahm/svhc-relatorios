@@ -76,12 +76,20 @@ async def extract_lancamentos_from_tab(
                 tipo_text = (await tds[3].inner_text()).strip() if len(tds) > 3 else ""
 
                 if valor_text:
-                    subtotais.append({
-                        "categoria": categoria,
-                        "subcategoria": subcategoria,
-                        "valor": parse_brl(valor_text),
-                        "tipo_movimento": tipo_text.strip() if tipo_text.strip() in ("D", "C") else "D",
-                    })
+                    valor = parse_brl(valor_text)
+                    if valor is None:
+                        # Fail the subtotal row, not the period (feature 030 / IMP-001).
+                        logger.warning(
+                            "Tab %s: skipping subtotal %r — unparseable amount cell %r",
+                            tab_id, subcategoria, valor_text,
+                        )
+                    else:
+                        subtotais.append({
+                            "categoria": categoria,
+                            "subcategoria": subcategoria,
+                            "valor": valor,
+                            "tipo_movimento": tipo_text.strip() if tipo_text.strip() in ("D", "C") else "D",
+                        })
         elif group_id:
             tds = await row.query_selector_all("td")
             if len(tds) < 5:
@@ -116,6 +124,10 @@ async def extract_lancamentos_from_tab(
             lancamentos.append({
                 "data": parse_date(date_text),
                 "descricao": descricao,
+                # Raw provenance (feature 030 / IMP-001), carried verbatim to the entry row. The
+                # amount is parsed tolerantly (may be None — the runner decides to skip + note it).
+                "descricao_raw": descricao,
+                "valor_raw": valor_text,
                 "valor": parse_brl(valor_text),
                 "tipo_movimento": tipo_text if tipo_text in ("D", "C") else "D",
                 "categoria": categoria,

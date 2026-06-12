@@ -106,6 +106,10 @@ export const entries = sqliteTable(
         date: text("date").notNull(), // ISO date string YYYY-MM-DD
         description: text("description").notNull(),
         amount: real("amount").notNull(),
+        // Scraper-owned raw provenance (feature 030 / IMP-001): verbatim portal cell text, nullable.
+        // Only the scraper writes these; analysis never reads/writes them (mirror invariant).
+        rawAmount: text("raw_amount"), // verbatim portal amount cell text, before parsing (e.g. "R$ 1.234,56")
+        rawDescription: text("raw_description"), // verbatim portal description cell text, before normalization
         movementType: text("movement_type", { length: 1 }).notNull(), // D or C
         subcategoryId: text("subcategory_id")
             .notNull()

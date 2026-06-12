@@ -269,6 +269,10 @@ async def run_scrape(
                     period_data = await _scrape_periodo(
                         browser, periodo_info, scrape_run, download_docs, cache_path, target
                     )
+                    # Pop the non-fatal row-level parse-skip notes BEFORE the upsert/reconcile see the
+                    # dict (feature 030 / IMP-001) — they are recorded as queryable run notes (IMP-002
+                    # channel) but never enter D1 or the reconciliation id sets.
+                    period_parse_notes = period_data.pop("_parse_notes", [])
                     # Upsert the period's ledger rows straight into D1 (idempotent INSERT OR REPLACE).
                     counts = d1.upsert_tables(period_data, target=target)
                     summary = ", ".join(f"{t}={n}" for t, n in counts.items())
@@ -284,6 +288,9 @@ async def run_scrape(
                     consistency_summary = _check_consistency(periodo, period_data, target)
                     if consistency_summary:
                         consistency_notes.append(f"Consistency mismatch in {label}: {consistency_summary}")
+
+                    # Surface the row-level parse skips on the run record (queryable; non-fatal).
+                    consistency_notes.extend(period_parse_notes)
 
                     scraped_count += 1
                     logger.info("[%d/%d] %s done -> D1 (%s): %s", i, len(periodos), label, target, summary)
@@ -534,10 +541,26 @@ async def _scrape_periodo(
     entries_out = []
     attachments_out = []
     doc_download_tasks = []
+    # Non-fatal parse-skip notes (feature 030 / IMP-001): a malformed amount cell fails its row, not
+    # the period. Surfaced via the run's `errors`/notes channel (IMP-002) — NOT a status=error trigger.
+    parse_notes: list[str] = []
     entry_key_counts: dict[tuple, int] = defaultdict(int)  # track duplicates for deterministic IDs
     for lanc in lancamentos_data:
         raw_descricao = lanc["descricao"]
         description = _strip_fornecedor_prefix(raw_descricao)
+
+        # Fail the row, not the period: skip an entry whose amount cell did not parse to a finite
+        # number, recording a queryable note with the offending raw text (FR-005/FR-006).
+        if lanc.get("valor") is None:
+            valor_raw = lanc.get("valor_raw")
+            note = (
+                f"Parse skipped 1 entry row in {periodo}: amount cell {valor_raw!r} "
+                f"(desc {description[:60]!r})"
+            )
+            logger.warning(note)
+            parse_notes.append(note)
+            continue
+
         documento_ids = lanc.get("documento_ids") or []
         # Backward compat: single documento_id field
         if not documento_ids and lanc.get("documento_id"):
@@ -559,6 +582,11 @@ async def _scrape_periodo(
             "date": date_str,
             "description": description,
             "amount": lanc["valor"],
+            # Scraper-owned raw provenance (feature 030 / IMP-001): verbatim portal cell text, before
+            # parsing / whitespace-normalization / fornecedor-prefix stripping. Analysis never writes
+            # these (mirror invariant). Nullable for rows scraped before this feature.
+            "raw_amount": lanc.get("valor_raw"),
+            "raw_description": lanc.get("descricao_raw"),
             "movement_type": lanc["tipo_movimento"],
             "subcategory_id": subcategory_id,
             "unit_id": refs.resolve_unit(raw_descricao),
@@ -660,9 +688,15 @@ async def _scrape_periodo(
         periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(attachments_out),
     )
 
-    return _build_period_data(
+    period_data = _build_period_data(
         refs, scrape_run, report, entries_out, subtotals_out, approvers_out, attachments_out
     )
+    # Non-table key carrying row-level parse-skip notes (feature 030 / IMP-001). `upsert_tables`
+    # iterates TABLE_ORDER and ignores it, but `run_scrape` pops it so it never leaks into the
+    # upsert or reconciliation id sets; the notes are merged into the run's queryable notes channel.
+    if parse_notes:
+        period_data["_parse_notes"] = parse_notes
+    return period_data
 
 
 async def run_download_docs(
