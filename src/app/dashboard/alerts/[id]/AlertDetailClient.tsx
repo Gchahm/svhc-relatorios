@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
 import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
+import { alertTypeLabel } from "@/lib/alerts";
 import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
 import type { AttachmentAnalysisRow } from "../../entries/types";
 
@@ -199,7 +200,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                        <Field label="Type" value={alert.type} />
+                        <Field label="Type" value={alertTypeLabel(alert.type)} />
                         <Field label="Period" value={alert.referencePeriod} />
                         <Field label="Created" value={formatTimestamp(alert.createdAt)} />
                         <Field label="Resolved at" value={formatTimestamp(alert.resolvedAt)} />

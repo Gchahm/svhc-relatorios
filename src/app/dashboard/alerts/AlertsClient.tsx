@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { affectedEntryIds, entryHref, SeverityBadge, StatusBadge } from "./alerts";
+import { alertTypeLabel } from "@/lib/alerts";
 
 interface AlertRow {
     id: string;
@@ -132,7 +133,7 @@ export default function AlertsClient() {
     );
 
     const typeOptions = useMemo(
-        () => [...new Set(data.map(r => r.type))].sort().map(v => ({ value: v, label: v })),
+        () => [...new Set(data.map(r => r.type))].sort().map(v => ({ value: v, label: alertTypeLabel(v) })),
         [data]
     );
 
