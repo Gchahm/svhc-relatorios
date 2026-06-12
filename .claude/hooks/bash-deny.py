@@ -32,13 +32,20 @@ PROFILES = {
     "issue-orchestrator": [
         (
             r"\bgh\s+pr\s+(diff|merge|close|review|edit)\b",
-            "the loop never reads diffs or mutates PRs — relay the event to the issue's worker via SendMessage",
+            "the loop never reads diffs or mutates PRs — the issue's worker owns its PR",
         ),
         (
             r"\bgit\s+(push|commit|merge|rebase|checkout|switch|reset)\b",
             "the loop never touches the working tree or the remote — implementation lives in the issue workers",
         ),
-        (_POST_REVIEWS, "posting reviews/comments is worker context"),
+        (
+            r"(?s)\bgh\s+api\b(?=[^\n]*\bpulls/[^\s]*/(?:reviews|comments)\b)",
+            "the loop never reads or writes review state — the worker watches its own PR",
+        ),
+        (
+            r"(?si)\bgh\s+pr\s+(view|list)\b(?=[^\n]*review)",
+            "the loop never reads review state (reviewDecision/reviews) — the worker watches its own PR; check only state/mergedAt",
+        ),
     ],
     "reviewer": [
         (

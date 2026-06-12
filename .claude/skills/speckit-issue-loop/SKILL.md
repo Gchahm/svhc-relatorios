@@ -12,7 +12,7 @@ description: >-
     as the recurring prompt of /loop, and to pair with pr-review-loop as the reviewer. Use for "work
     through our issue list with speckit", "start the issue implementation loop", or "implement open
     issues automatically".
-argument-hint: "[--label <name>] [--once]"
+argument-hint: "[issue-numbers in work order…] [--label <name>] [--once]"
 allowed-tools: Bash, Agent, Read, Write
 model: haiku
 hooks:
@@ -46,13 +46,27 @@ One pass per invocation; recurrence comes from `/loop`:
 - Run **`/pr-review-loop` alongside it** — that loop posts the reviews this loop reacts to. The two
   together form the full cycle: implement → review → fix → approve → merge.
 
+# Scope (the issue list)
+
+`$ARGUMENTS` may carry an explicit, **ordered** list of issue numbers (space- or comma-separated,
+e.g. `41 40 44 46 45` or `41, 40, 44, 46, 45`): work EXACTLY these issues, in EXACTLY this order —
+the list replaces the label filter and the priority/number ordering (the dependency gate still
+applies: a listed issue whose declared blocker is open is held as `waiting`). Persist the list as
+`scope` in the state file on the first pass so every later pass works the same queue. No arguments →
+scope is all open issues (or `--label`-filtered), ordered by the default rules in step 2.
+
+**Nothing in scope is ever silently dropped**: every scoped issue appears in every pass report with
+a status (`active` / `queued` / `waiting` / `merged` / `error` / `closed-externally`), and the counts
+in the report header must add up to the scope size.
+
 # State
 
 Keep a small state file at `.cache/speckit-issue-loop/state.json` (create the directory if needed):
 
 ```json
-{ "<issue-number>": { "status": "building|in-review|merged|error",
-                      "pr": <pr-number|null>, "branch": "<branch|null>", "worker": "<agent-id|null>" } }
+{ "scope": [41, 40, 44, 46, 45],
+  "issues": { "<issue-number>": { "status": "building|in-review|merged|error",
+                                  "pr": <pr-number|null>, "branch": "<branch|null>", "worker": "<agent-id|null>" } } }
 ```
 
 GitHub is the source of truth for issue/PR/review state; the file exists for two things only:
@@ -65,8 +79,11 @@ session-scoped — after a session restart they are stale; clear them and use th
 
 ```bash
 gh issue list --state open --json number,title,labels,body
-gh pr list --state open --json number,headRefName,body,reviewDecision
+gh pr list --state open --json number,headRefName,body
 ```
+
+(Open/merged is all you may know about a PR — review state is the worker's business, and the guard
+hook blocks you from reading it.)
 
 (`body` is needed for the dependency gate in step 2.)
 
@@ -84,7 +101,9 @@ issue is dispatched only when the previous one reached `merged` (or `error`, aft
 Sequential execution is the point: each feature lands on `main` before the next one builds on it, so
 there are no parallel feature branches and no merge races.
 
-**Order.** When dispatching, pick the FIRST unclaimed issue by, in priority order:
+**Order.** When dispatching, pick the FIRST unclaimed issue from the scope. With an explicit scope
+list, the list order IS the order (only the dependency gate below can hold an issue back). Without
+one, sort by, in priority order:
 
 1. **Dependency gate** — an issue is *eligible* only when every issue it declares a dependency on is
    **closed** (i.e. its PR merged). Dependencies are declared in the issue body or a comment, one per
@@ -125,34 +144,52 @@ verifying the app:
 Record `status: building` + the worker id. The PR number is learned from GitHub on a later pass
 (step 1 adopts the open PR carrying `Closes #<n>`); the worker stays silent until merge.
 
-## 3. Babysit the active worker (liveness only — never review state)
+## 3. Babysit the active worker (heartbeat liveness — never review state)
 
 The worker watches its own PR (speckit pr Step 7 watcher) — the loop does NOT read reviews, relay
-events, or chase `reviewDecision`. Its only concern: **is a worker alive on the active issue?**
+events, or chase `reviewDecision`. Its only concern: **is the active PR actually being watched?**
+Never assume it; **check the heartbeat** the worker's watcher touches every ~90s:
+
+```bash
+HB=".cache/pr-watcher/pr-<pr>.heartbeat"
+AGE=$(( $(date +%s) - $(stat -c %Y "$HB" 2>/dev/null || echo 0) ))
+```
 
 - **Worker reported in** (its background completion arrived since last pass): `status: merged` →
   close out, the next pass dispatches the next issue. `status: error` → mark `error`, surface it in
   the pass report, do not auto-respawn more than once.
-- **Worker finished WITHOUT a merged/error report** (died, crashed, ended prematurely), or the
-  session restarted (worker id stale): spawn a replacement worker (`model: opus`, no isolation,
-  `run_in_background: true`) with a catch-up prompt — check out the existing feature branch, read
-  the issue, the spec under `specs/<branch>/`, and the full PR review thread, then **resume the
-  speckit pr Step 7 watcher protocol** until merged. Update the worker id.
-- **Stall guard** (cheap, GitHub-only): if the PR has been open with no new commits and no new
-  reviews across ~8 consecutive passes (~2h), `SendMessage` the worker a nudge ("status?"). No
-  answer / unreachable → treat as dead and respawn the catch-up worker. Otherwise leave it alone —
-  a quiet worker whose watcher is armed is the normal state.
+- **Heartbeat fresh** (age < ~10 min): worker alive and watching — leave it alone; a quiet worker
+  is the normal state. Report `worker alive (heartbeat <age>s)`.
+- **Heartbeat stale or missing** (and the PR is still open): the PR is **unwatched** — a pending
+  approval would sit unmerged forever. This is the failure mode this step exists for; do NOT report
+  "worker watching" on faith. Respawn immediately: spawn a catch-up worker (`model: opus`, no
+  isolation, `run_in_background: true`) — check out the existing feature branch, read the issue,
+  the spec under `specs/<branch>/`, and the full PR review thread (anything already addressed),
+  then **resume the speckit pr Step 7 watcher protocol**. Step 7's "settle the existing thread"
+  rule is critical for catch-up: classify reviews **body-first** — a self-authored `COMMENTED`
+  review starting `VERDICT: approve` IS the formal approval in this single-account setup (GitHub
+  forbids self-approval, so a state of `APPROVED` may never appear) — and a waiting approval at the
+  current head means merge immediately, before arming any watcher. Update the worker id.
+  (Grace: skip the staleness check for the first ~5 min after spawning a worker — it is still
+  building/arming.)
+- **Active issue has no PR yet** (`building`): the heartbeat doesn't exist yet; rely on the worker's
+  completion notification, and if the worker completed without ever opening a PR, respawn with the
+  catch-up prompt.
 
 ## 4. Report the pass
 
 One header plus one line per tracked issue, e.g.:
 
+One line for EVERY issue in scope — never omit one — and a header whose counts sum to the scope
+size, e.g. (scope `41 40 44 46 45`):
+
 ```
-pass complete — active: #15, queue: 2, done: 1
-#17 merged     PR #39 ✅
-#15 in-review  PR #41 — worker alive, watching its PR
-#18 waiting    on #15 (depends-on, not yet merged)
-#19 queued     (next after #18 by issue order)
+pass complete — scope 5: active 1, queued 3, merged 1
+#41 in-review  PR #58 — worker alive (heartbeat 45s)
+#40 queued     (next, by scope order)
+#44 queued
+#46 queued
+#45 merged     PR #57 ✅
 ```
 
 If a worker errors, mark `error` with the reason and report it; do not silently respawn more than

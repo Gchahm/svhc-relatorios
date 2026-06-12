@@ -122,7 +122,22 @@ The agent context that opened the PR **owns it through merge**. Opening the PR i
 feature — reviews come back, and you are the one with the spec, plan, and implementation in context,
 so you handle them here rather than letting a fresh agent rediscover everything.
 
-**You watch the PR yourself.** After reporting the PR URL, arm a background watcher (Bash with
+**How verdicts arrive — read the BODY, not just the state.** When the reviewer authors with the
+same GitHub account as this PR (the normal case for this repo's automation), GitHub forbids formal
+self-approval, so the verdict arrives as a **`COMMENTED` review whose body starts with
+`VERDICT: approve` or `VERDICT: request-changes`**. A review's `state` field alone is therefore
+meaningless here: a `COMMENTED` review is NEVER "not actionable" until you have read its body —
+dismissing it as informational is exactly how an approved PR ends up waiting forever. Classify every
+review body-first: `VERDICT: approve` ≡ `APPROVED`, `VERDICT: request-changes` ≡
+`CHANGES_REQUESTED`; only a body with no `VERDICT:` prefix is informational.
+
+**Before arming any watcher, settle the existing thread.** On opening the PR, and on every re-arm or
+catch-up (a fresh context adopting an existing PR): list the reviews, classify them body-first as
+above, and if the latest verdict at the current head commit is an approval — **merge now**; if it is
+an unaddressed request-changes — address it now. Only arm the watcher when there is genuinely
+nothing pending. Never set `LAST_REVIEW_ID` past a review you have not classified and handled.
+
+**You watch the PR yourself.** After settling the thread, arm a background watcher (Bash with
 `run_in_background: true`) that polls the PR and exits when something needs you — when it exits you
 are re-invoked with its output in this same context. Do NOT rely on anyone relaying review events to
 you, and do not poll in the foreground:
@@ -130,15 +145,22 @@ you, and do not poll in the foreground:
 ```bash
 # arm with run_in_background: true; LAST_REVIEW_ID = highest review id you have already handled (0 at start)
 PR=<n>; LAST_REVIEW_ID=<id>
+HB=".cache/pr-watcher/pr-$PR.heartbeat"; mkdir -p "$(dirname "$HB")"
 while true; do
+    touch "$HB"   # liveness heartbeat — orchestrators probe this file's age to see the PR is watched
     STATE=$(gh pr view "$PR" --json state -q .state)
     if [ "$STATE" != "OPEN" ]; then echo "EVENT: pr-state $STATE"; exit 0; fi
     REVIEW=$(gh api "repos/{owner}/{repo}/pulls/$PR/reviews" --paginate \
-        --jq "[.[] | select(.id > $LAST_REVIEW_ID)] | last | select(. != null) | {id, state}")
+        --jq "[.[] | select(.id > $LAST_REVIEW_ID)] | last | select(. != null) | {id, state, body_head: (.body // \"\" | .[0:80])}")
     if [ -n "$REVIEW" ]; then echo "EVENT: new-review $REVIEW"; exit 0; fi
     sleep 90
 done
 ```
+
+Note the watcher's first iteration checks immediately — if a review is already waiting unhandled
+(e.g. an approval landed while no watcher was armed), arming it wakes you right away to act on it.
+While you are awake servicing an event, the heartbeat naturally goes stale; that is fine — re-arm
+promptly when done (never leave the PR open with no watcher armed at the end of a turn).
 
 On each wake-up, handle the event and then **re-arm the watcher** (with the updated
 `LAST_REVIEW_ID`) unless the PR reached a terminal state — merged by you, or closed externally
