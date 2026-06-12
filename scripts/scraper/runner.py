@@ -11,6 +11,7 @@ from .browser import BRCondosBrowser
 from .config import ACCOUNTABILITY_PATH, BRCONDOS_URL
 from .consistency import ALERT_TYPE as _CONSISTENCY_ALERT_TYPE, build_consistency_writeback
 from .download_failures import failed_attachment_ids, format_failure_note, resolve_status
+from .entry_ids import EntryKeyInput, ScrapedEntry, assign_entry_ids, detect_id_drift
 from .extractors.aprovadores import extract_aprovadores
 from .extractors.demonstrativo import extract_demonstrativo
 from .extractors.documentos import download_entry_documents
@@ -56,10 +57,6 @@ def _unit_id(code: str) -> str:
 
 def _report_id(period: str) -> str:
     return _det_id("report", period)
-
-
-def _entry_id(period: str, date_str: str, description: str, amount: float, subcategory_id: str, index: int) -> str:
-    return _det_id("entry", period, date_str, description, str(amount), subcategory_id, str(index))
 
 
 def _attachment_id(entry_id: str, external_document_id: int) -> str:
@@ -283,6 +280,14 @@ async def run_scrape(
                     # Pop the partial-download failed ids too (IMP-004 / issue #41) before the upsert
                     # sees the dict — they drive the run-level signal, never a D1 row.
                     period_download_failed_ids = period_data.pop("_download_failed_ids", [])
+
+                    # Entry-id drift detection (issue #40 / IMP-003): read the period's CURRENT entry
+                    # ids BEFORE the upsert overwrites them, and flag any natural key whose id moved
+                    # since the prior scrape. Queryable run note (IMP-002 channel), read-only — no
+                    # mirror write. Runs on the success path only, so an empty/failed scrape never
+                    # falsely fires (first scrape sees no prior rows → no note).
+                    consistency_notes.extend(_check_id_drift(periodo, period_data, target))
+
                     # Upsert the period's ledger rows straight into D1 (idempotent INSERT OR REPLACE).
                     counts = d1.upsert_tables(period_data, target=target)
                     summary = ", ".join(f"{t}={n}" for t, n in counts.items())
@@ -366,6 +371,44 @@ async def run_scrape(
         run_id[:8], scrape_run["status"], scraped_count, len(errors),
         sum(c for _, c in download_failure_counts), scrape_run["duration_seconds"],
     )
+
+
+def _check_id_drift(periodo: str, period_data: dict, target: Target) -> list[str]:
+    """Detect entry-id drift for a natural key between the prior D1 state and this scrape (issue #40).
+
+    Reads the period's CURRENT entry ids + natural keys from D1 BEFORE the caller upserts (the upsert
+    is INSERT OR REPLACE by id, so the old ids would otherwise be gone), then runs the pure
+    ``detect_id_drift`` against the freshly-built entry rows. A drifted id (a fresh id whose natural
+    key already existed under a different id) is a re-scrape-safety risk worth review, so it is
+    surfaced as a queryable, non-fatal run note (IMP-002 ``consistency_notes`` channel) — never a new
+    D1 row, alert, or status flip. Read-only; no mirror write (mirror invariant, feature 026).
+
+    Returns the list of run-note strings (each already prefixed with the period ``label``), empty on
+    a first scrape (no prior rows) or when every id reproduced.
+    """
+    period_literal = periodo.replace("'", "''")
+    existing = d1.query(
+        "SELECT e.id, e.date, e.description, e.amount, e.subcategory_id FROM entries e "
+        "JOIN accountability_reports r ON e.report_id = r.id "
+        f"WHERE r.period = '{period_literal}'",
+        target=target,
+    )
+    scraped = [
+        ScrapedEntry(
+            entry_id=e["id"],
+            date_str=e["date"],
+            description=e["description"],
+            amount=e["amount"],
+            subcategory_id=e["subcategory_id"],
+        )
+        for e in period_data.get("entries", [])
+    ]
+    notes = detect_id_drift(periodo, scraped, existing)
+    for note in notes:
+        logger.warning("  %s", note)
+    # The notes already name the period; the IMP-002 channel takes them verbatim (the `label` is
+    # the same period, so no extra prefix is needed — avoids "drift in <label>: drift in <period>").
+    return notes
 
 
 def _reconcile_period(periodo: str, period_data: dict, target: Target) -> None:
@@ -573,7 +616,13 @@ async def _scrape_periodo(
     # Non-fatal parse-skip notes (feature 030 / IMP-001): a malformed amount cell fails its row, not
     # the period. Surfaced via the run's `errors`/notes channel (IMP-002) — NOT a status=error trigger.
     parse_notes: list[str] = []
-    entry_key_counts: dict[tuple, int] = defaultdict(int)  # track duplicates for deterministic IDs
+
+    # Pass 1: prepare each parseable lancamento (resolve refs, strip prefixes) and collect the
+    # natural-key inputs for deterministic id assignment. Id derivation is order-independent for
+    # duplicate natural keys (issue #40 / IMP-003) — it needs the whole set of rows, so ids are
+    # assigned once (below) rather than inline per row.
+    prepared: list[dict] = []
+    id_inputs: list[EntryKeyInput] = []
     for lanc in lancamentos_data:
         raw_descricao = lanc["descricao"]
         description = _strip_fornecedor_prefix(raw_descricao)
@@ -600,10 +649,36 @@ async def _scrape_periodo(
         )
         date_str = lanc["data"].isoformat()
 
-        # Occurrence index handles entries with identical natural keys
-        natural_key = (date_str, description, lanc["valor"], subcategory_id)
-        entry_key_counts[natural_key] += 1
-        entry_id = _entry_id(periodo, date_str, description, lanc["valor"], subcategory_id, entry_key_counts[natural_key])
+        prepared.append({
+            "lanc": lanc,
+            "raw_descricao": raw_descricao,
+            "description": description,
+            "documento_ids": documento_ids,
+            "subcategory_id": subcategory_id,
+            "date_str": date_str,
+        })
+        id_inputs.append(
+            EntryKeyInput(date_str, description, lanc["valor"], subcategory_id, documento_ids)
+        )
+
+    # Deterministic, order-independent id assignment (issue #40 / IMP-003). For a duplicate natural
+    # key the discriminator prefers the entry's portal document-id set over the order it appeared in;
+    # singletons keep the legacy `det_id(..., "1")` id (no churn). Groups that fall back to the
+    # order-dependent occurrence index (no/shared docs) emit a queryable note (IMP-002 channel).
+    id_result = assign_entry_ids(periodo, id_inputs)
+    parse_notes.extend(id_result.fallback_notes)
+    for note in id_result.fallback_notes:
+        logger.warning(note)
+
+    # Pass 2: build the entry + attachment rows using the assigned ids.
+    for p, assigned in zip(prepared, id_result.assigned):
+        lanc = p["lanc"]
+        raw_descricao = p["raw_descricao"]
+        description = p["description"]
+        documento_ids = p["documento_ids"]
+        subcategory_id = p["subcategory_id"]
+        date_str = p["date_str"]
+        entry_id = assigned.entry_id
 
         entries_out.append({
             "id": entry_id,
