@@ -129,6 +129,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - N/A — no D1/R2 access, no schema, no migration. (036-shared-tolerance-contract)
 - TypeScript 5 / React 19 / Next.js 15 (App Router, client component) + Existing only — React (`useEffect`/`useRef`/`useState`/`useMemo`), (037-deeplink-not-found-notice)
 - N/A — client-side view change; reads no new data, writes nothing. (037-deeplink-not-found-notice)
+- TypeScript 5 / React 19 / Next.js 15 (App Router, client components) + Existing only — React; no new npm dependency. Unit test via Node's (038-alert-type-labels)
+- N/A — reads no data, writes nothing. (038-alert-type-labels)
 
 - Python 3.12 (scraper under `scripts/scraper/`, run via `uv`); the pure detection module is stdlib-only so it imports without `playwright`. + Existing only — `scripts/common/d1.py` (wrangler-CLI wrapper: `query` / `execute_sql`), `scripts/common` (`det_id`, `now_ms`). No new pip/npm deps. (029-scrape-consistency-validation)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes the analysis-owned `alerts` table (existing) and the `scrape_runs.errors` field (existing). Reads nothing new — the entries/subtotals/demonstrativo are already in the in-memory period payload; the only D1 read is the existing per-period prior-alert resolution read (mirrors `reconcile.py`). (029-scrape-consistency-validation)
