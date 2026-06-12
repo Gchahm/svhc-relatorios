@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .browser import BRCondosBrowser
 from .config import ACCOUNTABILITY_PATH, BRCONDOS_URL
+from .consistency import ALERT_TYPE as _CONSISTENCY_ALERT_TYPE, build_consistency_writeback
 from .extractors.aprovadores import extract_aprovadores
 from .extractors.demonstrativo import extract_demonstrativo
 from .extractors.documentos import download_entry_documents
@@ -236,6 +237,9 @@ async def run_scrape(
     browser = BRCondosBrowser()
     start = time.time()
     errors = []
+    # Consistency mismatches are NOT fatal scrape errors — kept in a separate accumulator so they are
+    # recorded on the run's `errors` field (queryable) WITHOUT flipping `status` to "error" (IMP-002).
+    consistency_notes = []
     scraped_count = 0
 
     try:
@@ -274,6 +278,13 @@ async def run_scrape(
                     # scrape-success path, so a failed/retried period never reconciles (FR-008).
                     _reconcile_period(periodo, period_data, target)
 
+                    # Scrape-time consistency validation (IMP-002 / issue #39): cross-check the
+                    # period's three views of the money (entries vs subtotals vs demonstrativo). Runs
+                    # ONLY on the scrape-success path so a failed/empty period never falsely fires.
+                    consistency_summary = _check_consistency(periodo, period_data, target)
+                    if consistency_summary:
+                        consistency_notes.append(f"Consistency mismatch in {label}: {consistency_summary}")
+
                     scraped_count += 1
                     logger.info("[%d/%d] %s done -> D1 (%s): %s", i, len(periodos), label, target, summary)
                     last_error = None
@@ -309,7 +320,11 @@ async def run_scrape(
     finally:
         await browser.close()
         scrape_run["duration_seconds"] = round(time.time() - start, 2)
-        scrape_run["errors"] = "\n".join(errors) if errors else None
+        # `status` is driven ONLY by the fatal `errors` list (set above). Consistency notes are
+        # merged into the run's `errors` text so a mismatch is queryable on the run row, but they do
+        # NOT make a successful-but-inconsistent run report `status == "error"` (IMP-002 / issue #39).
+        all_notes = errors + consistency_notes
+        scrape_run["errors"] = "\n".join(all_notes) if all_notes else None
 
     logger.info(
         "Scrape #%s finished: status=%s scraped=%d errors=%d duration=%.1fs",
@@ -395,6 +410,53 @@ def _reconcile_period(periodo: str, period_data: dict, target: Target) -> None:
         )
     else:
         logger.info("  Reconciled %s: nothing stale (mirror matches portal)", periodo)
+
+
+def _check_consistency(periodo: str, period_data: dict, target: Target) -> str | None:
+    """Cross-check a period's three views of the money + record any mismatch (IMP-002 / issue #39).
+
+    Called after a period's upsert + reconciliation succeed. Reads the period's demonstrativo totals
+    and rows from the in-memory ``period_data`` (no extra portal round-trip), cross-checks
+    per-``(subcategory, movement_type)`` entry sums against the recorded subtotals and the subtotal
+    sums-by-movement-type against the demonstrativo revenue/expense totals, and — via the pure
+    ``build_consistency_writeback`` — writes one idempotent, period-scoped ``scrape_inconsistency``
+    ``warning`` alert in a single atomic D1 batch (always a clearing DELETE; an INSERT only when
+    inconsistent). A ledger that doesn't add up is itself a finding: a scraper bug OR tampered HTML.
+
+    Returns a one-line summary string when the period is inconsistent (for the run-log warning + the
+    ``scrape_runs.errors`` note), else ``None``. The pure detection/SQL build lives in
+    ``consistency.py``; the impure prior-resolution read + ``execute_sql`` live here.
+    """
+    report = period_data["accountability_reports"][0]
+    total_receitas = report["total_revenue"]
+    total_despesas = report["total_expenses"]
+
+    # Feature-023 invariant (issue #34): the alert uses a stable per-period id and re-fires on every
+    # re-scrape while the period stays inconsistent, so read the user's prior resolution/notes for
+    # that id and graft it onto the re-emitted alert (build_consistency_writeback does the graft).
+    alert_id = _det_id("alert", periodo, _CONSISTENCY_ALERT_TYPE)
+    prior_rows = d1.query(
+        f"SELECT resolved, resolved_at, notes FROM alerts WHERE id = '{alert_id}'",
+        target=target,
+    )
+    prior_resolution = prior_rows[0] if prior_rows else None
+
+    result = build_consistency_writeback(
+        periodo,
+        period_data.get("entries", []),
+        period_data.get("category_subtotals", []),
+        total_receitas,
+        total_despesas,
+        prior_resolution,
+    )
+    # One atomic batch: the always-present clearing DELETE + (when inconsistent) the INSERT.
+    d1.execute_sql(result.sql, target=target)
+
+    if result.discrepancies:
+        logger.warning("  Consistency mismatch in %s: %s", periodo, result.summary)
+        return result.summary
+    logger.info("  Consistency OK for %s (entries/subtotals/demonstrativo reconcile)", periodo)
+    return None
 
 
 def _filter_periodos(
