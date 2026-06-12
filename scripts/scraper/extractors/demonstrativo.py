@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 
 from playwright.async_api import Page
@@ -8,11 +9,27 @@ from ..config import SELECTORS
 logger = logging.getLogger(__name__)
 
 
-def parse_brl(text: str) -> float:
-    """Convert 'R$ 443.995,17' or '443.995,17' to 443995.17."""
+def parse_brl(text: str) -> float | None:
+    """Convert 'R$ 443.995,17' or '443.995,17' to 443995.17.
+
+    Tolerant + pure (no logging/I/O): returns ``None`` for any input that does not yield a finite
+    number — empty/whitespace-only, junk, or a value that parses to NaN/inf. Never raises for a
+    ``str`` input, so callers decide severity (skip the row vs. fail the period). Feature 030 /
+    IMP-001: a malformed ledger cell must fail its row, not abort the whole period.
+    """
+    if text is None:
+        return None
     cleaned = re.sub(r"[R$\s]", "", text)
     cleaned = cleaned.replace(".", "").replace(",", ".")
-    return float(cleaned)
+    if not cleaned:
+        return None
+    try:
+        value = float(cleaned)
+    except (ValueError, TypeError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
 
 
 async def extract_demonstrativo(page: Page) -> dict:
@@ -34,7 +51,13 @@ async def extract_demonstrativo(page: Page) -> dict:
     data = {}
     for title_el, value_el in zip(titles, values):
         title = (await title_el.inner_text()).strip()
-        value = parse_brl((await value_el.inner_text()).strip())
+        raw_value = (await value_el.inner_text()).strip()
+        value = parse_brl(raw_value)
+        # The 5 demonstrativo summary values are REQUIRED for the period's report row; a malformed
+        # one is genuinely fatal for the period (preserves the existing "Missing financial data"
+        # abort semantics) — unlike a per-row ledger cell, which fails only its row.
+        if value is None:
+            raise RuntimeError(f"Unparseable demonstrativo value for {title!r}: {raw_value!r}")
 
         if "Receitas" in title:
             data["total_receitas"] = value
