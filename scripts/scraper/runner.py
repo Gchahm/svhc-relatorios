@@ -10,6 +10,7 @@ from pathlib import Path
 from .browser import BRCondosBrowser
 from .config import ACCOUNTABILITY_PATH, BRCONDOS_URL
 from .consistency import ALERT_TYPE as _CONSISTENCY_ALERT_TYPE, build_consistency_writeback
+from .download_failures import failed_attachment_ids, format_failure_note, resolve_status
 from .extractors.aprovadores import extract_aprovadores
 from .extractors.demonstrativo import extract_demonstrativo
 from .extractors.documentos import download_entry_documents
@@ -240,6 +241,12 @@ async def run_scrape(
     # Consistency mismatches are NOT fatal scrape errors — kept in a separate accumulator so they are
     # recorded on the run's `errors` field (queryable) WITHOUT flipping `status` to "error" (IMP-002).
     consistency_notes = []
+    # Partial attachment-download failures (IMP-004 / issue #41): NOT fatal scrape errors. Collected
+    # per period as queryable notes on the run's `errors` field, summarized in the run log, and used
+    # to flip `status` to "partial" (a fatal `errors` entry still dominates — see resolve_status).
+    download_failure_notes = []
+    download_failure_counts: list[tuple[str, int]] = []  # (label, count) for the final log summary
+    any_download_failed = False
     scraped_count = 0
 
     try:
@@ -273,6 +280,9 @@ async def run_scrape(
                     # dict (feature 030 / IMP-001) — they are recorded as queryable run notes (IMP-002
                     # channel) but never enter D1 or the reconciliation id sets.
                     period_parse_notes = period_data.pop("_parse_notes", [])
+                    # Pop the partial-download failed ids too (IMP-004 / issue #41) before the upsert
+                    # sees the dict — they drive the run-level signal, never a D1 row.
+                    period_download_failed_ids = period_data.pop("_download_failed_ids", [])
                     # Upsert the period's ledger rows straight into D1 (idempotent INSERT OR REPLACE).
                     counts = d1.upsert_tables(period_data, target=target)
                     summary = ", ".join(f"{t}={n}" for t, n in counts.items())
@@ -291,6 +301,15 @@ async def run_scrape(
 
                     # Surface the row-level parse skips on the run record (queryable; non-fatal).
                     consistency_notes.extend(period_parse_notes)
+
+                    # Surface partial attachment-download failures (IMP-004 / issue #41): a queryable
+                    # note + a final-log entry + a flag that flips the run status to "partial".
+                    note = format_failure_note(periodo, period_download_failed_ids)
+                    if note:
+                        any_download_failed = True
+                        download_failure_notes.append(note)
+                        download_failure_counts.append((label, len(period_download_failed_ids)))
+                        logger.warning("[%d/%d] %s: %s", i, len(periodos), label, note)
 
                     scraped_count += 1
                     logger.info("[%d/%d] %s done -> D1 (%s): %s", i, len(periodos), label, target, summary)
@@ -318,7 +337,9 @@ async def run_scrape(
                 except Exception:
                     pass
 
-        scrape_run["status"] = "error" if errors else "success"
+        # IMP-004 / issue #41: a fatal `errors` entry → "error"; else any partial-download failure
+        # → "partial"; else "success" (a flaky download must not pass as a clean success).
+        scrape_run["status"] = resolve_status(bool(errors), any_download_failed)
     except Exception as e:
         msg = f"Fatal error: {e}"
         logger.error(msg, exc_info=True)
@@ -327,15 +348,23 @@ async def run_scrape(
     finally:
         await browser.close()
         scrape_run["duration_seconds"] = round(time.time() - start, 2)
-        # `status` is driven ONLY by the fatal `errors` list (set above). Consistency notes are
-        # merged into the run's `errors` text so a mismatch is queryable on the run row, but they do
-        # NOT make a successful-but-inconsistent run report `status == "error"` (IMP-002 / issue #39).
-        all_notes = errors + consistency_notes
+        # `status` precedence is resolve_status(fatal errors, any download failure). Consistency
+        # notes (IMP-002) and partial-download notes (IMP-004) are merged into the run's `errors`
+        # text so they are queryable on the run row, but they do NOT force `status == "error"`.
+        all_notes = errors + consistency_notes + download_failure_notes
         scrape_run["errors"] = "\n".join(all_notes) if all_notes else None
 
+    if download_failure_counts:
+        summary = "; ".join(f"{label}: {count}" for label, count in download_failure_counts)
+        logger.warning(
+            "Partial attachment-download failures (IMP-004) in %d period(s): %s",
+            len(download_failure_counts), summary,
+        )
+
     logger.info(
-        "Scrape #%s finished: status=%s scraped=%d errors=%d duration=%.1fs",
-        run_id[:8], scrape_run["status"], scraped_count, len(errors), scrape_run["duration_seconds"],
+        "Scrape #%s finished: status=%s scraped=%d errors=%d download_failures=%d duration=%.1fs",
+        run_id[:8], scrape_run["status"], scraped_count, len(errors),
+        sum(c for _, c in download_failure_counts), scrape_run["duration_seconds"],
     )
 
 
@@ -643,6 +672,10 @@ async def _scrape_periodo(
     # Download attachments to the local cache, then upload each page to R2. The
     # attachment's file_path stores the R2-key tokens (`<period>/<basename>`), matching
     # objectKeyFromFilePath() in src/lib/r2.ts — nothing rests in the data folder.
+    # IMP-004 / issue #41: attachment ids a download was ATTEMPTED for this run. After the
+    # download loop + preserve merge, an attempted attachment still missing its pages (falsy
+    # file_path) is a partial-download failure surfaced on the run record (see run_scrape).
+    attempted_attachment_ids: set[str] = set()
     if download_docs and doc_download_tasks:
         total_docs = sum(len(ids) for _, ids, _ in doc_download_tasks)
         logger.info("  Downloading %d attachments for %d entries...", total_docs, len(doc_download_tasks))
@@ -650,6 +683,7 @@ async def _scrape_periodo(
         dest_dir = cache_dir / periodo
         downloaded = 0
         for entry_id, documento_ids, doc_records in doc_download_tasks:
+            attempted_attachment_ids.update(d["id"] for d in doc_records)
             paths_by_id = await download_entry_documents(
                 browser.page, documento_ids, entry_id, dest_dir
             )
@@ -683,6 +717,12 @@ async def _scrape_periodo(
         existing_by_id = {row["id"]: row for row in existing_rows}
         preserve_existing_attachment_cols(attachments_out, existing_by_id)
 
+    # IMP-004 / issue #41: compute the period's partial-download failures from the POST-preserve
+    # rows — an attempted attachment whose pages the preserve merge restored is not a loss, so it
+    # is excluded. The runner attaches the failed ids to a non-table key; run_scrape pops it before
+    # the upsert/reconcile (mirrors the _parse_notes convention) and records the run-level signal.
+    download_failed_ids = failed_attachment_ids(attachments_out, attempted_attachment_ids)
+
     logger.info(
         "  Period %s: %d entries, %d subtotals, %d approvers, %d docs",
         periodo, len(entries_out), len(subtotals_out), len(approvers_out), len(attachments_out),
@@ -696,6 +736,11 @@ async def _scrape_periodo(
     # upsert or reconciliation id sets; the notes are merged into the run's queryable notes channel.
     if parse_notes:
         period_data["_parse_notes"] = parse_notes
+    # Non-table key carrying the period's partial-download failed attachment ids (IMP-004 / issue
+    # #41). `upsert_tables` ignores it; `run_scrape` pops it before the upsert/reconcile so it never
+    # enters D1 or the reconciliation id sets, then records it on the run (status + note + log).
+    if download_failed_ids:
+        period_data["_download_failed_ids"] = download_failed_ids
     return period_data
 
 

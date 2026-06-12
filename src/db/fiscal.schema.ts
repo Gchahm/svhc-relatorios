@@ -23,7 +23,7 @@ export const scrapeRuns = sqliteTable("scrape_runs", {
     executedAt: integer("executed_at", { mode: "timestamp_ms" })
         .notNull()
         .$defaultFn(() => new Date()),
-    status: text("status", { length: 20 }).notNull(), // running, success, error
+    status: text("status", { length: 20 }).notNull(), // running, success, partial, error
     errors: text("errors"),
     durationSeconds: real("duration_seconds"),
 });

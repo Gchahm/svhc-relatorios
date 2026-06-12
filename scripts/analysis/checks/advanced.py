@@ -5,7 +5,7 @@ from collections import defaultdict
 
 from common import det_id
 from ..models import Alert, PeriodData, RefIndex
-from .attachments import check_attachment_mismatches
+from .attachments import check_attachment_mismatches, check_attachment_not_downloaded
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,7 @@ def run_advanced(
     alerts.extend(check_seasonality(period, all_periods))
     alerts.extend(check_delinquency(period, refs))
     alerts.extend(check_attachment_mismatches(period, refs))
+    alerts.extend(check_attachment_not_downloaded(period))
 
     logger.info("Advanced %s: %d alerts", period.period, len(alerts))
     return alerts
