@@ -1,0 +1,14 @@
+{
+    "notes": "Canonical (sum,total)->status reconciliation contract shared by Python analysis.nf_groups.reconcile_group and TypeScript src/lib/documents.ts documentStatus (IMP-006 / issue #43). Status names are TS-flavored; the Python test maps reconciled->within, over_claim->over, under_claim->under, None->unknown. Band: within iff abs(sum-total) <= 0.05 (inclusive) OR abs(sum-total)/total < 0.05 (strict); else over if sum>total else under; total null/<=0 -> unknown. A unilateral change to either implementation's tolerance constants or comparison operators flips at least one case below and fails that side's contract test. Keep this fixture and both implementations in lockstep.",
+    "cases": [
+        { "name": "exact_match", "sum": 100.0, "total": 100.0, "status": "within" },
+        { "name": "abs_band_inclusive", "sum": 100.05, "total": 100.0, "status": "within" },
+        { "name": "rel_band_inside", "sum": 10400.0, "total": 10000.0, "status": "within" },
+        { "name": "rel_band_exact_excluded", "sum": 10500.0, "total": 10000.0, "status": "over" },
+        { "name": "clear_over", "sum": 200.0, "total": 100.0, "status": "over" },
+        { "name": "clear_under", "sum": 50.0, "total": 100.0, "status": "under" },
+        { "name": "null_total", "sum": 100.0, "total": null, "status": "unknown" },
+        { "name": "zero_total", "sum": 100.0, "total": 0.0, "status": "unknown" },
+        { "name": "negative_total", "sum": 100.0, "total": -5.0, "status": "unknown" }
+    ]
+}
