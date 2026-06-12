@@ -14,6 +14,9 @@ import { Receipt, X } from "lucide-react";
 import AttachmentAnalysisDetailDialog from "./AttachmentAnalysisDetailDialog";
 import { resolveDeepLink, shortenEntryId } from "./deepLink";
 import type { Entry, AttachmentAnalysisRow } from "./types";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency, formatDate } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 // Feedback for a deep-link that could not land on its target row (feature 037 / issue #45).
 type DeepLinkNotice = { kind: "not-found" | "invalid"; entryId: string; period: string };
@@ -21,15 +24,6 @@ type DeepLinkNotice = { kind: "not-found" | "invalid"; entryId: string; period: 
 function getCurrentPeriod(): string {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatDate(iso: string): string {
-    const [y, m, d] = iso.split("-");
-    return `${d}/${m}/${y}`;
 }
 
 function stripDescriptionPrefix(description: string, subcategory: string): string {
@@ -70,6 +64,8 @@ function MatchCell({ match }: { match: boolean | null | undefined }) {
 }
 
 export default function EntriesClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     // Deep link (from an alert): ?period=<YYYY-MM>&entry=<entryId>. Read once on mount; the
     // period seeds the initial selection and the entry auto-opens its detail dialog after load.
     const searchParams = useSearchParams();
@@ -193,9 +189,9 @@ export default function EntriesClient() {
     );
 
     const matchStatusOptions = [
-        { value: "all_match", label: "All match" },
-        { value: "has_mismatch", label: "Has mismatch" },
-        { value: "has_error", label: "Has error" },
+        { value: "all_match", label: t("match.all_match") },
+        { value: "has_mismatch", label: t("match.has_mismatch") },
+        { value: "has_error", label: t("match.has_error") },
     ];
 
     // Sorting
@@ -343,7 +339,9 @@ export default function EntriesClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -354,10 +352,10 @@ export default function EntriesClient() {
             <div className="w-[220px] shrink-0 flex flex-col gap-3 overflow-auto min-h-0">
                 <Card>
                     <CardContent className="p-3 space-y-2">
-                        <span className="text-xs font-medium text-muted-foreground">Period</span>
+                        <span className="text-xs font-medium text-muted-foreground">{t("filter.period")}</span>
                         <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                             <SelectTrigger className="h-9">
-                                <SelectValue placeholder="Select period" />
+                                <SelectValue placeholder={t("form.select_period")} />
                             </SelectTrigger>
                             <SelectContent>
                                 {periods.map(p => (
@@ -372,9 +370,9 @@ export default function EntriesClient() {
 
                 <Card>
                     <CardContent className="p-3 space-y-2">
-                        <span className="text-xs font-medium text-muted-foreground">Search</span>
+                        <span className="text-xs font-medium text-muted-foreground">{t("filter.search")}</span>
                         <Input
-                            placeholder="Search description..."
+                            placeholder={t("form.search_placeholder")}
                             value={search}
                             onChange={e => handleSearchChange(e.target.value)}
                             className="h-9"
@@ -385,22 +383,26 @@ export default function EntriesClient() {
                 <Card>
                     <CardContent className="p-3 space-y-3">
                         <div className="space-y-1.5">
-                            <span className="block text-xs font-medium text-muted-foreground">Document type</span>
+                            <span className="block text-xs font-medium text-muted-foreground">
+                                {t("filter.document_type")}
+                            </span>
                             <MultiSelect
                                 options={docTypeOptions}
                                 selected={selectedDocTypes}
                                 onSelectedChange={handleDocTypesChange}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <span className="block text-xs font-medium text-muted-foreground">Attachment status</span>
+                            <span className="block text-xs font-medium text-muted-foreground">
+                                {t("filter.attachment_status")}
+                            </span>
                             <MultiSelect
                                 options={matchStatusOptions}
                                 selected={selectedDocMatchStatus}
                                 onSelectedChange={handleDocMatchStatusChange}
-                                placeholder="All"
+                                placeholder={t("form.all")}
                                 className="w-full"
                             />
                         </div>
@@ -420,42 +422,50 @@ export default function EntriesClient() {
                     <div className="flex items-center justify-between gap-4 flex-wrap">
                         <CardTitle className="flex items-center gap-2 text-xl">
                             <Receipt className="h-5 w-5" />
-                            Entries
+                            {t("page.entries_title")}
                         </CardTitle>
                         <div className="flex items-center gap-3 text-sm flex-wrap">
                             <span className="text-muted-foreground">
-                                {loading ? "Loading..." : `${filtered.length} entries`}
+                                {loading
+                                    ? t("form.loading")
+                                    : `${filtered.length} ${plural(t, "count.entries", filtered.length)}`}
                             </span>
                             {!loading && (
                                 <>
                                     <Badge variant="outline" className="text-green-700 border-green-300">
-                                        Revenue: {formatCurrency(totals.revenue)}
+                                        {t("summary.revenue")}: {formatCurrency(totals.revenue, locale)}
                                     </Badge>
                                     <Badge variant="outline" className="text-red-700 border-red-300">
-                                        Expenses: {formatCurrency(totals.expenses)}
+                                        {t("summary.expenses")}: {formatCurrency(totals.expenses, locale)}
                                     </Badge>
                                     <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
-                                        Net: {formatCurrency(totals.net)}
+                                        {t("summary.net")}: {formatCurrency(totals.net, locale)}
                                     </Badge>
                                     {docSummary.total > 0 && (
                                         <>
                                             <div className="w-px h-4 bg-border" />
                                             <span className="text-xs text-muted-foreground">
-                                                {docSummary.total} docs
+                                                {docSummary.total} {t("match.docs")}
                                             </span>
                                             {docSummary.amountBad > 0 && (
-                                                <Badge variant="destructive">{docSummary.amountBad} amount</Badge>
+                                                <Badge variant="destructive">
+                                                    {docSummary.amountBad} {t("match.amount")}
+                                                </Badge>
                                             )}
                                             {docSummary.vendorBad > 0 && (
-                                                <Badge variant="destructive">{docSummary.vendorBad} vendor</Badge>
+                                                <Badge variant="destructive">
+                                                    {docSummary.vendorBad} {t("match.vendor")}
+                                                </Badge>
                                             )}
                                             {docSummary.dateBad > 0 && (
                                                 <Badge variant="outline" className="border-yellow-400 text-yellow-700">
-                                                    {docSummary.dateBad} date
+                                                    {docSummary.dateBad} {t("match.date")}
                                                 </Badge>
                                             )}
                                             {docSummary.errors > 0 && (
-                                                <Badge variant="secondary">{docSummary.errors} errors</Badge>
+                                                <Badge variant="secondary">
+                                                    {docSummary.errors} {t("match.errors")}
+                                                </Badge>
                                             )}
                                         </>
                                     )}
@@ -469,19 +479,18 @@ export default function EntriesClient() {
                         <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                             <span className="flex-1">
                                 {deepLinkNotice.kind === "invalid" ? (
-                                    <>The linked entry reference was invalid, so it could not be opened.</>
+                                    <>{t("notice.deeplink_invalid")}</>
                                 ) : (
                                     <>
-                                        Entry{" "}
-                                        <span className="font-mono">{shortenEntryId(deepLinkNotice.entryId)}</span> not
-                                        found in {deepLinkNotice.period} — it may have been removed or re-scraped, or
-                                        the period may be wrong.
+                                        {t("notice.deeplink_not_found_prefix")}{" "}
+                                        <span className="font-mono">{shortenEntryId(deepLinkNotice.entryId)}</span> (
+                                        {deepLinkNotice.period}) {t("notice.deeplink_not_found_suffix")}
                                     </>
                                 )}
                             </span>
                             <button
                                 type="button"
-                                aria-label="Dismiss"
+                                aria-label={t("action.dismiss")}
                                 onClick={() => setDeepLinkNotice(null)}
                                 className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
                             >
@@ -493,7 +502,7 @@ export default function EntriesClient() {
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
                             <div className="w-[80px] px-2 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Date"
+                                    label={t("table.date")}
                                     sortKey="date"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -502,7 +511,7 @@ export default function EntriesClient() {
                             </div>
                             <div className="flex-1 px-2 py-2 min-w-0">
                                 <SortableHeader
-                                    label="Description"
+                                    label={t("table.description")}
                                     sortKey="description"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -511,7 +520,7 @@ export default function EntriesClient() {
                             </div>
                             <div className="w-[120px] px-2 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Category"
+                                    label={t("table.category")}
                                     sortKey="category"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -520,7 +529,7 @@ export default function EntriesClient() {
                             </div>
                             <div className="w-[120px] px-2 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Subcategory"
+                                    label={t("table.subcategory")}
                                     sortKey="subcategory"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -529,20 +538,20 @@ export default function EntriesClient() {
                             </div>
                             <div className="w-[56px] px-2 py-2 shrink-0">
                                 <SortableHeader
-                                    label="Unit"
+                                    label={t("table.unit")}
                                     sortKey="unit"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
                                     onSort={toggleSort}
                                 />
                             </div>
-                            <div className="w-[64px] px-2 py-2 shrink-0">Doc</div>
-                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Amt</div>
-                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Vnd</div>
-                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">Dt</div>
+                            <div className="w-[64px] px-2 py-2 shrink-0">{t("table.doc")}</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">{t("table.amt")}</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">{t("table.vnd")}</div>
+                            <div className="w-[40px] px-1 py-2 shrink-0 text-center">{t("table.dt")}</div>
                             <div className="w-[110px] px-2 py-2 shrink-0 flex justify-end">
                                 <SortableHeader
-                                    label="Amount"
+                                    label={t("table.amount")}
                                     sortKey="amount"
                                     currentSort={sortKey}
                                     currentDirection={sortDir}
@@ -564,8 +573,8 @@ export default function EntriesClient() {
                                     const analysis = analysisByEntry.get(entry.id);
                                     const docLabel = analysis
                                         ? analysis.error
-                                            ? "error"
-                                            : analysis.documentType || "doc"
+                                            ? t("badge.error")
+                                            : analysis.documentType || t("list.doc_fallback")
                                         : null;
                                     const isHighlighted = highlightedEntryId === entry.id;
                                     return (
@@ -582,13 +591,13 @@ export default function EntriesClient() {
                                                 analysis
                                                     ? analysis.serviceDescription ||
                                                       analysis.error ||
-                                                      "Click for attachment detail"
+                                                      t("list.open_attachment_detail")
                                                     : undefined
                                             }
                                             onClick={analysis ? () => setSelectedAnalysis(analysis) : undefined}
                                         >
                                             <div className="w-[80px] px-2 shrink-0 whitespace-nowrap">
-                                                {formatDate(entry.date)}
+                                                {formatDate(entry.date, locale)}
                                             </div>
                                             <div className="flex-1 px-2 min-w-0 truncate" title={entry.description}>
                                                 {stripDescriptionPrefix(entry.description, entry.subcategory)}
@@ -630,7 +639,7 @@ export default function EntriesClient() {
                                                     entry.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
-                                                {formatCurrency(entry.amount)}
+                                                {formatCurrency(entry.amount, locale)}
                                             </div>
                                         </div>
                                     );
@@ -642,7 +651,9 @@ export default function EntriesClient() {
                         {!loading && filtered.length > 0 && (
                             <div className="flex items-center border-t bg-muted/50 text-sm font-medium shrink-0">
                                 <div className="w-[80px] px-2 py-2 shrink-0" />
-                                <div className="flex-1 px-2 py-2 min-w-0 text-xs text-muted-foreground">Total</div>
+                                <div className="flex-1 px-2 py-2 min-w-0 text-xs text-muted-foreground">
+                                    {t("summary.total")}
+                                </div>
                                 <div className="w-[120px] px-2 py-2 shrink-0" />
                                 <div className="w-[120px] px-2 py-2 shrink-0" />
                                 <div className="w-[56px] px-2 py-2 shrink-0 text-right text-xs text-muted-foreground">
@@ -653,7 +664,7 @@ export default function EntriesClient() {
                                 <div className="w-[40px] px-1 py-2 shrink-0" />
                                 <div className="w-[40px] px-1 py-2 shrink-0" />
                                 <div className="w-[110px] px-2 py-2 shrink-0 text-right tabular-nums font-semibold">
-                                    {formatCurrency(totals.net)}
+                                    {formatCurrency(totals.net, locale)}
                                 </div>
                             </div>
                         )}

@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeftRight } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency, formatNumber } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
+import type { SupportedLocale } from "@/lib/i18n/catalog";
 
 interface ComparisonRow {
     category: string;
@@ -17,13 +21,11 @@ interface ComparisonRow {
     pctChange: number | null;
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatPct(value: number | null): string {
+function formatPct(value: number | null, locale: SupportedLocale): string {
     if (value === null) return "—";
-    return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+    // `pctChange` is already a percentage magnitude (e.g. 12.5 → "12,5%"); keep the explicit sign
+    // and use the shared locale-aware number formatter for the digits (1 decimal).
+    return `${value >= 0 ? "+" : ""}${formatNumber(value, 1, locale)}%`;
 }
 
 function isDiffPositive(row: ComparisonRow): boolean {
@@ -34,6 +36,8 @@ function isDiffPositive(row: ComparisonRow): boolean {
 }
 
 export default function ComparisonClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [periods, setPeriods] = useState<string[]>([]);
     const [period1, setPeriod1] = useState<string>("");
     const [period2, setPeriod2] = useState<string>("");
@@ -108,7 +112,9 @@ export default function ComparisonClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -119,17 +125,17 @@ export default function ComparisonClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <ArrowLeftRight className="h-5 w-5" />
-                        Comparativo de Períodos
+                        {t("page.comparison_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Period selectors */}
                     <div className="flex flex-wrap gap-3 items-end">
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Período 1 (base)</label>
+                            <label className="block text-xs text-muted-foreground mb-1">{t("table.period_base")}</label>
                             <Select value={period1} onValueChange={setPeriod1} disabled={periodsLoading}>
                                 <SelectTrigger className="h-9">
-                                    <SelectValue placeholder="Selecione..." />
+                                    <SelectValue placeholder={t("form.select_placeholder")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {periods.map(p => (
@@ -144,10 +150,12 @@ export default function ComparisonClient() {
                             <ArrowLeftRight className="h-4 w-4" />
                         </div>
                         <div className="w-[160px]">
-                            <label className="block text-xs text-muted-foreground mb-1">Período 2</label>
+                            <label className="block text-xs text-muted-foreground mb-1">
+                                {t("table.period_compare")}
+                            </label>
                             <Select value={period2} onValueChange={setPeriod2} disabled={periodsLoading}>
                                 <SelectTrigger className="h-9">
-                                    <SelectValue placeholder="Selecione..." />
+                                    <SelectValue placeholder={t("form.select_placeholder")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {periods.map(p => (
@@ -163,15 +171,19 @@ export default function ComparisonClient() {
                     {/* Summary badges */}
                     <div className="flex items-center gap-4 text-sm flex-wrap">
                         <span className="text-muted-foreground">
-                            {loading ? "Carregando..." : `${data.length} subcategorias`}
+                            {loading
+                                ? t("form.loading")
+                                : `${data.length} ${plural(t, "count.subcategories", data.length)}`}
                         </span>
                         {!loading && data.length > 0 && (
                             <>
                                 <Badge variant="outline" className="text-green-700 border-green-300">
-                                    Receita: {formatCurrency(totals.revenueP1)} → {formatCurrency(totals.revenueP2)}
+                                    {t("summary.revenue")}: {formatCurrency(totals.revenueP1, locale)} →{" "}
+                                    {formatCurrency(totals.revenueP2, locale)}
                                 </Badge>
                                 <Badge variant="outline" className="text-red-700 border-red-300">
-                                    Despesa: {formatCurrency(totals.expensesP1)} → {formatCurrency(totals.expensesP2)}
+                                    {t("summary.expenses")}: {formatCurrency(totals.expensesP1, locale)} →{" "}
+                                    {formatCurrency(totals.expensesP2, locale)}
                                 </Badge>
                             </>
                         )}
@@ -181,13 +193,17 @@ export default function ComparisonClient() {
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[140px] px-3 py-2 shrink-0">Categoria</div>
-                            <div className="flex-1 px-3 py-2 min-w-0">Subcategoria</div>
-                            <div className="w-[40px] px-3 py-2 shrink-0 text-center">Tipo</div>
-                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">{period1 || "Período 1"}</div>
-                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">{period2 || "Período 2"}</div>
-                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">Diferença</div>
-                            <div className="w-[80px] px-3 py-2 shrink-0 text-right">% Var.</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0">{t("table.category")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0">{t("table.subcategory")}</div>
+                            <div className="w-[40px] px-3 py-2 shrink-0 text-center">{t("table.movement")}</div>
+                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">
+                                {period1 || t("table.period")}
+                            </div>
+                            <div className="w-[130px] px-3 py-2 shrink-0 text-right">
+                                {period2 || t("table.period")}
+                            </div>
+                            <div className="w-[120px] px-3 py-2 shrink-0 text-right">{t("table.difference")}</div>
+                            <div className="w-[80px] px-3 py-2 shrink-0 text-right">{t("table.pct_change")}</div>
                         </div>
 
                         {/* Virtualized body */}
@@ -234,25 +250,25 @@ export default function ComparisonClient() {
                                                     row.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
-                                                {formatCurrency(row.valueP1)}
+                                                {formatCurrency(row.valueP1, locale)}
                                             </div>
                                             <div
                                                 className={`w-[130px] px-3 shrink-0 text-right tabular-nums ${
                                                     row.movementType === "D" ? "text-red-600" : "text-green-600"
                                                 }`}
                                             >
-                                                {formatCurrency(row.valueP2)}
+                                                {formatCurrency(row.valueP2, locale)}
                                             </div>
                                             <div
                                                 className={`w-[120px] px-3 shrink-0 text-right tabular-nums ${diffColor}`}
                                             >
                                                 {row.diff >= 0 ? "+" : ""}
-                                                {formatCurrency(row.diff)}
+                                                {formatCurrency(row.diff, locale)}
                                             </div>
                                             <div
                                                 className={`w-[80px] px-3 shrink-0 text-right tabular-nums text-xs ${diffColor}`}
                                             >
-                                                {formatPct(row.pctChange)}
+                                                {formatPct(row.pctChange, locale)}
                                             </div>
                                         </div>
                                     );

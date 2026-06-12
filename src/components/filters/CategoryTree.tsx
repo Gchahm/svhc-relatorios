@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n/client";
 
 interface CategoryNode {
     category: string;
@@ -17,6 +18,7 @@ interface CategoryTreeProps {
 }
 
 export function CategoryTree({ data, selected, onSelectedChange }: CategoryTreeProps) {
+    const t = useTranslation();
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
     const tree = useMemo(() => {
@@ -59,7 +61,9 @@ export function CategoryTree({ data, selected, onSelectedChange }: CategoryTreeP
         <Card className="flex-1 flex flex-col min-h-0">
             <CardContent className="p-3 flex flex-col min-h-0 gap-1">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-muted-foreground">Categories / Subcategories</span>
+                    <span className="text-xs font-medium text-muted-foreground">
+                        {t("filter.categories_subcategories")}
+                    </span>
                     {selected.length > 0 && (
                         <button
                             onClick={() => onSelectedChange([])}

@@ -121,6 +121,28 @@ export function useTranslation() {
 }
 
 /**
+ * useAlertTypeLabel hook - returns a function that localizes an alert `type` (snake_case) to a
+ * human-readable label. Uses the catalog `alert.types.<type>` entry when present; otherwise falls
+ * back to a humanized `snake_case → Sentence case` form. NEVER returns raw snake_case (FR-004).
+ *
+ * Mirrors the server `getAlertTypeLabel` from `@/lib/i18n` for client components.
+ */
+export function useAlertTypeLabel(): (type: string) => string {
+    const t = useTranslation();
+    const context = useContext(LocaleContext);
+    const locale = context?.locale ?? "pt-BR";
+    return (type: string): string => {
+        if (!type) return "";
+        const types = catalog[locale].alert.types as Record<string, string>;
+        if (type in types) {
+            return t(`alert.types.${type}` as DeepCatalogKey);
+        }
+        const spaced = type.replace(/_/g, " ");
+        return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+    };
+}
+
+/**
  * useLocale hook - get the current active locale
  *
  * Usage in client component:

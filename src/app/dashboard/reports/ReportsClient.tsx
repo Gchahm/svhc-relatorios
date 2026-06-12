@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileSpreadsheet } from "lucide-react";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import { plural } from "@/lib/i18n/plural";
 
 interface AccountabilityReport {
     id: string;
@@ -16,10 +19,6 @@ interface AccountabilityReport {
     sourceUrl: string;
 }
 
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 function colorBySign(value: number): string {
     if (value > 0) return "text-green-600";
     if (value < 0) return "text-red-600";
@@ -27,6 +26,8 @@ function colorBySign(value: number): string {
 }
 
 export default function ReportsClient() {
+    const t = useTranslation();
+    const locale = useLocale();
     const [reports, setReports] = useState<AccountabilityReport[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,9 @@ export default function ReportsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">Error: {error}</CardContent>
+                <CardContent className="py-12 text-center text-red-500">
+                    {t("error.generic_prefix")}: {error}
+                </CardContent>
             </Card>
         );
     }
@@ -64,24 +67,26 @@ export default function ReportsClient() {
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-xl">
                         <FileSpreadsheet className="h-5 w-5" />
-                        Prestações de Contas
+                        {t("page.reports_title")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-1 flex flex-col min-h-0">
                     {/* Summary */}
                     <div className="text-sm text-muted-foreground">
-                        {loading ? "Loading..." : `${reports.length} períodos`}
+                        {loading
+                            ? t("form.loading")
+                            : `${reports.length} ${plural(t, "count.periods", reports.length)}`}
                     </div>
 
                     {/* Table */}
                     <div className="rounded-md border flex-1 flex flex-col min-h-0">
                         {/* Header */}
                         <div className="flex bg-muted/50 text-xs font-medium text-muted-foreground border-b shrink-0">
-                            <div className="w-[90px] px-3 py-2 shrink-0">Período</div>
-                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">Receitas</div>
-                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">Despesas</div>
-                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">Saldo Mês</div>
-                            <div className="flex-1 px-3 py-2 min-w-0 text-right">Saldo Acumulado</div>
+                            <div className="w-[90px] px-3 py-2 shrink-0">{t("table.period")}</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">{t("table.revenue")}</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">{t("table.expenses")}</div>
+                            <div className="w-[140px] px-3 py-2 shrink-0 text-right">{t("table.month_balance")}</div>
+                            <div className="flex-1 px-3 py-2 min-w-0 text-right">{t("table.accumulated_balance")}</div>
                         </div>
 
                         {/* Virtualized body */}
@@ -106,20 +111,20 @@ export default function ReportsClient() {
                                         >
                                             <div className="w-[90px] px-3 shrink-0 font-mono">{report.period}</div>
                                             <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-green-600">
-                                                {formatCurrency(report.totalRevenue)}
+                                                {formatCurrency(report.totalRevenue, locale)}
                                             </div>
                                             <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-red-600">
-                                                {formatCurrency(report.totalExpenses)}
+                                                {formatCurrency(report.totalExpenses, locale)}
                                             </div>
                                             <div
                                                 className={`w-[140px] px-3 shrink-0 text-right tabular-nums ${colorBySign(report.monthBalance)}`}
                                             >
-                                                {formatCurrency(report.monthBalance)}
+                                                {formatCurrency(report.monthBalance, locale)}
                                             </div>
                                             <div
                                                 className={`flex-1 px-3 min-w-0 text-right tabular-nums ${colorBySign(report.accumulatedBalance)}`}
                                             >
-                                                {formatCurrency(report.accumulatedBalance)}
+                                                {formatCurrency(report.accumulatedBalance, locale)}
                                             </div>
                                         </div>
                                     );

@@ -50,6 +50,22 @@ export type CatalogShape = {
         documents_description: string;
         alerts_title: string;
         alerts_description: string;
+        reports_title: string;
+        reports_description: string;
+        fines_title: string;
+        fines_description: string;
+        comparison_title: string;
+        comparison_description: string;
+        summary_title: string;
+        summary_description: string;
+        runs_title: string;
+        runs_description: string;
+        units_title: string;
+        units_description: string;
+        vendors_title: string;
+        vendors_description: string;
+        document_analyses_title: string;
+        document_analyses_description: string;
     };
     dialog: {
         attachment_detail_title: string;
@@ -67,6 +83,53 @@ export type CatalogShape = {
         actions: string;
         status: string;
         type: string;
+        category: string;
+        subcategory: string;
+        unit: string;
+        doc: string;
+        amt: string;
+        vnd: string;
+        dt: string;
+        title: string;
+        severity: string;
+        entries: string;
+        number: string;
+        issuer: string;
+        total: string;
+        sum_entries: string;
+        links: string;
+        revenue: string;
+        expenses: string;
+        month_balance: string;
+        accumulated_balance: string;
+        reason: string;
+        block: string;
+        share: string;
+        run: string;
+        executed_at: string;
+        periods_scraped: string;
+        attachments: string;
+        errors: string;
+        name: string;
+        count: string;
+        difference: string;
+        pct_change: string;
+        subcategories: string;
+        period_base: string;
+        period_compare: string;
+        movement: string;
+        duration_s: string;
+        code: string;
+        total_paid: string;
+        vendor_name: string;
+        pct_of_total: string;
+    };
+    runs: {
+        status_success: string;
+        status_error: string;
+        status_running: string;
+        missing_title: string;
+        missing_message: string;
     };
     form: {
         search_placeholder: string;
@@ -74,6 +137,118 @@ export type CatalogShape = {
         select_placeholder: string;
         no_results: string;
         loading: string;
+        all: string;
+        all_types: string;
+        search_doc_placeholder: string;
+        search_number_issuer: string;
+        no_alerts: string;
+        no_documents: string;
+        no_entries: string;
+        no_fines: string;
+        no_vendors: string;
+        no_units: string;
+        no_runs: string;
+        all_periods: string;
+    };
+    filter: {
+        period: string;
+        search: string;
+        document_type: string;
+        attachment_status: string;
+        severity: string;
+        type: string;
+        status: string;
+        block: string;
+        reason: string;
+        category: string;
+        subcategory: string;
+        categories_subcategories: string;
+        periods: string;
+    };
+    status: {
+        over: string;
+        within: string;
+        under: string;
+        unknown: string;
+    };
+    severity: {
+        critical: string;
+        warning: string;
+        info: string;
+    };
+    alert_status: {
+        active: string;
+        resolved: string;
+    };
+    match: {
+        all_match: string;
+        has_mismatch: string;
+        has_error: string;
+        amount: string;
+        vendor: string;
+        date: string;
+        errors: string;
+        docs: string;
+    };
+    count: {
+        entries_one: string;
+        entries_other: string;
+        alerts_one: string;
+        alerts_other: string;
+        documents_one: string;
+        documents_other: string;
+        fines_one: string;
+        fines_other: string;
+        periods_one: string;
+        periods_other: string;
+        units_one: string;
+        units_other: string;
+        vendors_one: string;
+        vendors_other: string;
+        runs_one: string;
+        runs_other: string;
+        subcategories_one: string;
+        subcategories_other: string;
+        rows_one: string;
+        rows_other: string;
+    };
+    summary: {
+        revenue: string;
+        expenses: string;
+        net: string;
+        total: string;
+    };
+    action: {
+        open: string;
+        dismiss: string;
+    };
+    notice: {
+        deeplink_invalid: string;
+        deeplink_not_found_prefix: string;
+        deeplink_not_found_suffix: string;
+    };
+    meta: {
+        total_value: string;
+        sum_entries: string;
+        over_amount: string;
+        total: string;
+        vendor_total: string;
+        total_expenses: string;
+        ledger_value: string;
+        extracted_value: string;
+        pct: string;
+        rate_pct: string;
+        count: string;
+        paying: string;
+        delinquent: string;
+        kind: string;
+        vendor_name: string;
+        vendor_id: string;
+        document_number: string;
+        issuer_cnpj: string;
+        date: string;
+        description: string;
+        movement_type: string;
     };
     badge: {
         pending: string;
@@ -105,6 +280,15 @@ export type CatalogShape = {
         server_error: string;
         network_error: string;
         loading_failed: string;
+        generic_prefix: string;
+    };
+    list: {
+        open_attachment_detail: string;
+        open_alert_detail: string;
+        open_document_detail: string;
+        entry_n: string;
+        documents_subtitle: string;
+        doc_fallback: string;
     };
     common: {
         loading: string;
@@ -199,6 +383,22 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             documents_description: "Documentos fiscais identificados e analisados",
             alerts_title: "Alertas",
             alerts_description: "Divergências e achados da auditoria",
+            reports_title: "Prestações de Contas",
+            reports_description: "Demonstrativos financeiros por período",
+            fines_title: "Multas",
+            fines_description: "Multas aplicadas às unidades do condomínio",
+            comparison_title: "Comparação",
+            comparison_description: "Compare os valores entre dois períodos",
+            summary_title: "Resumo",
+            summary_description: "Resumo financeiro por subcategoria",
+            runs_title: "Execuções",
+            runs_description: "Histórico das execuções de coleta",
+            units_title: "Unidades",
+            units_description: "Lançamentos agrupados por unidade",
+            vendors_title: "Fornecedores",
+            vendors_description: "Gastos agrupados por fornecedor",
+            document_analyses_title: "Análises de Documentos",
+            document_analyses_description: "Análises de classificação dos documentos",
         },
         dialog: {
             attachment_detail_title: "Detalhes do Documento",
@@ -216,6 +416,53 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             actions: "Ações",
             status: "Status",
             type: "Tipo",
+            category: "Categoria",
+            subcategory: "Subcategoria",
+            unit: "Unidade",
+            doc: "Doc",
+            amt: "Vlr",
+            vnd: "Forn",
+            dt: "Dt",
+            title: "Título",
+            severity: "Severidade",
+            entries: "Lançamentos",
+            number: "Número",
+            issuer: "Emitente",
+            total: "Total",
+            sum_entries: "Soma lançamentos",
+            links: "Vínculos",
+            revenue: "Receitas",
+            expenses: "Despesas",
+            month_balance: "Saldo do mês",
+            accumulated_balance: "Saldo acumulado",
+            reason: "Motivo",
+            block: "Bloco",
+            share: "Participação",
+            run: "Execução",
+            executed_at: "Executado em",
+            periods_scraped: "Períodos coletados",
+            attachments: "Documentos",
+            errors: "Erros",
+            name: "Nome",
+            count: "Quantidade",
+            difference: "Diferença",
+            pct_change: "% Var.",
+            subcategories: "Subcategorias",
+            period_base: "Período 1 (base)",
+            period_compare: "Período 2",
+            movement: "Tipo",
+            duration_s: "Duração (s)",
+            code: "Código",
+            total_paid: "Total pago",
+            vendor_name: "Fornecedor",
+            pct_of_total: "% do Total",
+        },
+        runs: {
+            status_success: "sucesso",
+            status_error: "erro",
+            status_running: "em execução",
+            missing_title: "Períodos Faltando",
+            missing_message: "Os seguintes períodos não possuem prestações de contas:",
         },
         form: {
             search_placeholder: "Pesquisar por descrição...",
@@ -223,6 +470,119 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             select_placeholder: "Selecionar...",
             no_results: "Nenhum resultado encontrado",
             loading: "Carregando...",
+            all: "Todos",
+            all_types: "Todos os tipos",
+            search_doc_placeholder: "Número da NF ou emitente…",
+            search_number_issuer: "Buscar (número / emitente)",
+            no_alerts: "Nenhum alerta encontrado.",
+            no_documents: "Nenhum documento encontrado.",
+            no_entries: "Nenhum lançamento encontrado.",
+            no_fines: "Nenhuma multa encontrada.",
+            no_vendors: "Nenhum fornecedor encontrado.",
+            no_units: "Nenhuma unidade encontrada.",
+            no_runs: "Nenhuma execução encontrada.",
+            all_periods: "Todos os períodos",
+        },
+        filter: {
+            period: "Período",
+            search: "Pesquisar",
+            document_type: "Tipo de documento",
+            attachment_status: "Status do documento",
+            severity: "Severidade",
+            type: "Tipo",
+            status: "Status",
+            block: "Bloco",
+            reason: "Motivo",
+            category: "Categoria",
+            subcategory: "Subcategoria",
+            categories_subcategories: "Categorias / Subcategorias",
+            periods: "Períodos",
+        },
+        status: {
+            over: "Acima",
+            within: "Conforme",
+            under: "Abaixo",
+            unknown: "Desconhecido",
+        },
+        severity: {
+            critical: "Crítico",
+            warning: "Aviso",
+            info: "Informação",
+        },
+        alert_status: {
+            active: "Ativo",
+            resolved: "Resolvido",
+        },
+        match: {
+            all_match: "Todos conferem",
+            has_mismatch: "Com divergência",
+            has_error: "Com erro",
+            amount: "valor",
+            vendor: "fornecedor",
+            date: "data",
+            errors: "erros",
+            docs: "docs",
+        },
+        count: {
+            entries_one: "lançamento",
+            entries_other: "lançamentos",
+            alerts_one: "alerta",
+            alerts_other: "alertas",
+            documents_one: "documento",
+            documents_other: "documentos",
+            fines_one: "multa",
+            fines_other: "multas",
+            periods_one: "período",
+            periods_other: "períodos",
+            units_one: "unidade",
+            units_other: "unidades",
+            vendors_one: "fornecedor",
+            vendors_other: "fornecedores",
+            runs_one: "execução",
+            runs_other: "execuções",
+            subcategories_one: "subcategoria",
+            subcategories_other: "subcategorias",
+            rows_one: "linha",
+            rows_other: "linhas",
+        },
+        summary: {
+            revenue: "Receita",
+            expenses: "Despesa",
+            net: "Saldo",
+            total: "Total",
+        },
+        action: {
+            open: "Abrir",
+            dismiss: "Dispensar",
+        },
+        notice: {
+            deeplink_invalid: "A referência ao lançamento era inválida, então não foi possível abri-lo.",
+            deeplink_not_found_prefix: "Lançamento",
+            deeplink_not_found_suffix:
+                "não encontrado — ele pode ter sido removido ou recoletado, ou o período pode estar incorreto.",
+        },
+        meta: {
+            total_value: "Total do documento",
+            sum_entries: "Soma dos lançamentos",
+            over_amount: "Valor excedente",
+            total: "Total",
+            vendor_total: "Total do fornecedor",
+            total_expenses: "Total de despesas",
+            ledger_value: "Valor no livro",
+            extracted_value: "Valor extraído",
+            pct: "Participação",
+            rate_pct: "Taxa",
+            count: "Contagem",
+            paying: "Pagantes",
+            delinquent: "Inadimplentes",
+            kind: "Tipo",
+            vendor_name: "Fornecedor",
+            vendor_id: "ID do fornecedor",
+            document_number: "Nº do documento",
+            issuer_cnpj: "CNPJ do emitente",
+            date: "Data",
+            description: "Descrição",
+            movement_type: "Movimento",
         },
         badge: {
             pending: "Pendente",
@@ -254,6 +614,15 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             server_error: "Erro no servidor",
             network_error: "Erro de conexão",
             loading_failed: "Falha ao carregar",
+            generic_prefix: "Erro",
+        },
+        list: {
+            open_attachment_detail: "Clique para ver o documento",
+            open_alert_detail: "Clique para abrir o alerta",
+            open_document_detail: "Clique para abrir o documento",
+            entry_n: "Lançamento",
+            documents_subtitle: "Notas Fiscais",
+            doc_fallback: "doc",
         },
         common: {
             loading: "Carregando...",
@@ -340,6 +709,22 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             documents_description: "Identified and analyzed fiscal documents",
             alerts_title: "Alerts",
             alerts_description: "Audit findings and discrepancies",
+            reports_title: "Reports",
+            reports_description: "Financial statements by period",
+            fines_title: "Fines",
+            fines_description: "Fines applied to condominium units",
+            comparison_title: "Comparison",
+            comparison_description: "Compare values between two periods",
+            summary_title: "Summary",
+            summary_description: "Financial summary by subcategory",
+            runs_title: "Runs",
+            runs_description: "Scrape run history",
+            units_title: "Units",
+            units_description: "Entries grouped by unit",
+            vendors_title: "Vendors",
+            vendors_description: "Spending grouped by vendor",
+            document_analyses_title: "Document Analyses",
+            document_analyses_description: "Document classification analyses",
         },
         dialog: {
             attachment_detail_title: "Document Details",
@@ -357,6 +742,53 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             actions: "Actions",
             status: "Status",
             type: "Type",
+            category: "Category",
+            subcategory: "Subcategory",
+            unit: "Unit",
+            doc: "Doc",
+            amt: "Amt",
+            vnd: "Vnd",
+            dt: "Dt",
+            title: "Title",
+            severity: "Severity",
+            entries: "Entries",
+            number: "Number",
+            issuer: "Issuer",
+            total: "Total",
+            sum_entries: "Sum entries",
+            links: "Links",
+            revenue: "Revenue",
+            expenses: "Expenses",
+            month_balance: "Month balance",
+            accumulated_balance: "Accumulated balance",
+            reason: "Reason",
+            block: "Block",
+            share: "Share",
+            run: "Run",
+            executed_at: "Executed at",
+            periods_scraped: "Periods scraped",
+            attachments: "Documents",
+            errors: "Errors",
+            name: "Name",
+            count: "Count",
+            difference: "Difference",
+            pct_change: "% Chg.",
+            subcategories: "Subcategories",
+            period_base: "Period 1 (base)",
+            period_compare: "Period 2",
+            movement: "Type",
+            duration_s: "Duration (s)",
+            code: "Code",
+            total_paid: "Total paid",
+            vendor_name: "Vendor Name",
+            pct_of_total: "% of Total",
+        },
+        runs: {
+            status_success: "success",
+            status_error: "error",
+            status_running: "running",
+            missing_title: "Missing Periods",
+            missing_message: "The following periods have no accountability reports:",
         },
         form: {
             search_placeholder: "Search by description...",
@@ -364,6 +796,119 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             select_placeholder: "Select...",
             no_results: "No results found",
             loading: "Loading...",
+            all: "All",
+            all_types: "All types",
+            search_doc_placeholder: "NF number or issuer…",
+            search_number_issuer: "Search (number / issuer)",
+            no_alerts: "No alerts found.",
+            no_documents: "No documents found.",
+            no_entries: "No entries found.",
+            no_fines: "No fines found.",
+            no_vendors: "No vendors found.",
+            no_units: "No units found.",
+            no_runs: "No runs found.",
+            all_periods: "All periods",
+        },
+        filter: {
+            period: "Period",
+            search: "Search",
+            document_type: "Document type",
+            attachment_status: "Attachment status",
+            severity: "Severity",
+            type: "Type",
+            status: "Status",
+            block: "Block",
+            reason: "Reason",
+            category: "Category",
+            subcategory: "Subcategory",
+            categories_subcategories: "Categories / Subcategories",
+            periods: "Periods",
+        },
+        status: {
+            over: "Over",
+            within: "Within",
+            under: "Under",
+            unknown: "Unknown",
+        },
+        severity: {
+            critical: "Critical",
+            warning: "Warning",
+            info: "Info",
+        },
+        alert_status: {
+            active: "Active",
+            resolved: "Resolved",
+        },
+        match: {
+            all_match: "All match",
+            has_mismatch: "Has mismatch",
+            has_error: "Has error",
+            amount: "amount",
+            vendor: "vendor",
+            date: "date",
+            errors: "errors",
+            docs: "docs",
+        },
+        count: {
+            entries_one: "entry",
+            entries_other: "entries",
+            alerts_one: "alert",
+            alerts_other: "alerts",
+            documents_one: "document",
+            documents_other: "documents",
+            fines_one: "fine",
+            fines_other: "fines",
+            periods_one: "period",
+            periods_other: "periods",
+            units_one: "unit",
+            units_other: "units",
+            vendors_one: "vendor",
+            vendors_other: "vendors",
+            runs_one: "run",
+            runs_other: "runs",
+            subcategories_one: "subcategory",
+            subcategories_other: "subcategories",
+            rows_one: "row",
+            rows_other: "rows",
+        },
+        summary: {
+            revenue: "Revenue",
+            expenses: "Expenses",
+            net: "Net",
+            total: "Total",
+        },
+        action: {
+            open: "Open",
+            dismiss: "Dismiss",
+        },
+        notice: {
+            deeplink_invalid: "The linked entry reference was invalid, so it could not be opened.",
+            deeplink_not_found_prefix: "Entry",
+            deeplink_not_found_suffix:
+                "not found — it may have been removed or re-scraped, or the period may be wrong.",
+        },
+        meta: {
+            total_value: "Document total",
+            sum_entries: "Sum of entries",
+            over_amount: "Over amount",
+            total: "Total",
+            vendor_total: "Vendor total",
+            total_expenses: "Total expenses",
+            ledger_value: "Ledger value",
+            extracted_value: "Extracted value",
+            pct: "Share",
+            rate_pct: "Rate",
+            count: "Count",
+            paying: "Paying",
+            delinquent: "Delinquent",
+            kind: "Kind",
+            vendor_name: "Vendor",
+            vendor_id: "Vendor id",
+            document_number: "Document №",
+            issuer_cnpj: "Issuer CNPJ",
+            date: "Date",
+            description: "Description",
+            movement_type: "Movement",
         },
         badge: {
             pending: "Pending",
@@ -395,6 +940,15 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             server_error: "Server error",
             network_error: "Network error",
             loading_failed: "Failed to load",
+            generic_prefix: "Error",
+        },
+        list: {
+            open_attachment_detail: "Click for attachment detail",
+            open_alert_detail: "Click to open the alert detail page",
+            open_document_detail: "Click to open the document detail page",
+            entry_n: "Entry",
+            documents_subtitle: "Notas Fiscais",
+            doc_fallback: "doc",
         },
         common: {
             loading: "Loading...",
