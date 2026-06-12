@@ -23,6 +23,15 @@ from common.hashing import content_hash  # re-exported: the canonical "same NF" 
 # uses a 5% relative band for amount-match and consistency.py uses R$ 0.05 for
 # rounding. A group reconciles if it falls within EITHER, which keeps small
 # totals (rounding-dominated) and large totals (percentage-dominated) both sane.
+#
+# DRIFT GUARD (IMP-006 / issue #43): this over/within/under decision is mirrored in
+# TypeScript by ``documentStatus`` in ``src/lib/documents.ts`` (REL_TOL/ABS_TOL), which
+# drives the /dashboard/documents badge. The two MUST stay in lockstep — a divergence makes
+# the UI badge and the ``document_overpayment`` alert disagree. They are bound by the shared
+# fixture ``scripts/analysis/reconciliation_contract.json`` and cross-language contract tests
+# (``scripts/tests/test_reconciliation_contract.py`` + ``src/lib/documents.test.mjs``):
+# change a constant or comparison here and you MUST update documents.ts AND the fixture, or a
+# contract test fails.
 AMOUNT_REL_TOL = 0.05
 AMOUNT_ABS_TOL = 0.05
 

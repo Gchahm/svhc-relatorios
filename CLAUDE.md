@@ -125,6 +125,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 ## Active Technologies
 - Python 3.12 (analysis CLI under `scripts/analysis/`, run via `uv`); the + Existing only — `scripts/common/d1.py` (the `wrangler`-CLI wrapper: (035-prune-staging-rows)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes (DELETEs) the analysis-owned (035-prune-staging-rows)
+- Python 3.12 (analysis under `scripts/`, run via `uv`); TypeScript 5 / Node.js 22 (the app + test runner) + None added. Python stdlib `unittest`/`json`; Node.js built-in `node:test`/`node:assert`; native TS type-stripping in Node 22.18+ (confirmed v22.22.3) to import `documents.ts` with no bundler. (036-shared-tolerance-contract)
+- N/A — no D1/R2 access, no schema, no migration. (036-shared-tolerance-contract)
 
 - Python 3.12 (scraper under `scripts/scraper/`, run via `uv`); the pure detection module is stdlib-only so it imports without `playwright`. + Existing only — `scripts/common/d1.py` (wrangler-CLI wrapper: `query` / `execute_sql`), `scripts/common` (`det_id`, `now_ms`). No new pip/npm deps. (029-scrape-consistency-validation)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes the analysis-owned `alerts` table (existing) and the `scrape_runs.errors` field (existing). Reads nothing new — the entries/subtotals/demonstrativo are already in the in-memory period payload; the only D1 read is the existing per-period prior-alert resolution read (mirrors `reconcile.py`). (029-scrape-consistency-validation)

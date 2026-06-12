@@ -5,6 +5,14 @@
  */
 export type DocumentStatus = "over" | "within" | "under" | "unknown";
 
+// DRIFT GUARD (IMP-006 / issue #43): this over/within/under decision is mirrored in Python by
+// `reconcile_group` in `scripts/analysis/nf_groups.py` (AMOUNT_REL_TOL/AMOUNT_ABS_TOL), which
+// drives `amount_match`, shared-NF reconciliation, and the `document_overpayment` alert. The two
+// MUST stay in lockstep — a divergence makes this badge and the alert that created it disagree.
+// They are bound by the shared fixture `scripts/analysis/reconciliation_contract.json` and
+// cross-language contract tests (`src/lib/documents.test.mjs` + `scripts/tests/test_reconciliation_contract.py`):
+// change a constant or comparison here and you MUST update nf_groups.py AND the fixture, or a
+// contract test fails.
 const REL_TOL = 0.05;
 const ABS_TOL = 0.05;
 
