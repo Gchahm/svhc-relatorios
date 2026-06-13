@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ImageOff, ZoomIn } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "@/lib/i18n/client";
 
 type Status = "loading" | "loaded" | "error";
 
@@ -18,6 +19,7 @@ type Status = "loading" | "loaded" | "error";
  * next/image's optimizer cannot proxy cleanly on the Workers runtime.
  */
 export default function PageImageViewer({ src, alt }: { src: string; alt: string }) {
+    const t = useTranslation();
     const [status, setStatus] = useState<Status>("loading");
     const [open, setOpen] = useState(false);
 
@@ -25,7 +27,7 @@ export default function PageImageViewer({ src, alt }: { src: string; alt: string
         return (
             <div className="flex h-40 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
                 <ImageOff className="h-5 w-5" />
-                <span className="text-xs">Image unavailable</span>
+                <span className="text-xs">{t("viewer.image_unavailable")}</span>
             </div>
         );
     }
@@ -36,7 +38,7 @@ export default function PageImageViewer({ src, alt }: { src: string; alt: string
                 type="button"
                 onClick={() => status === "loaded" && setOpen(true)}
                 className="group relative block w-full overflow-hidden rounded-md border bg-muted/30"
-                aria-label={`Enlarge ${alt}`}
+                aria-label={t("viewer.enlarge").replace("{alt}", alt)}
             >
                 {status === "loading" && <div className="h-40 w-full animate-pulse bg-muted" />}
                 {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated dynamic route; next/image cannot proxy it on Workers */}

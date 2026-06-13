@@ -334,6 +334,117 @@ export type CatalogShape = {
         date: string;
         percent: string;
     };
+    detail: {
+        loading: string;
+        back_to_alerts: string;
+        back_to_documents: string;
+        alert_not_found: string;
+        document_not_found: string;
+        error_prefix: string;
+        unknown_error: string;
+        field_type: string;
+        field_period: string;
+        field_created: string;
+        field_resolved_at: string;
+        field_description: string;
+        field_notes: string;
+        section_resolution: string;
+        resolved_message: string;
+        reopen_alert: string;
+        reopening: string;
+        notes_optional_label: string;
+        notes_placeholder: string;
+        resolve_alert: string;
+        resolving: string;
+        section_evidence: string;
+        view_referenced_document: string;
+        section_affected_entries: string;
+        no_entries_linked: string;
+        field_category: string;
+        field_subcategory: string;
+        field_vendor: string;
+        field_unit: string;
+        field_amount: string;
+        view_attachment: string;
+        view_attachment_title: string;
+        no_attachment_analysis: string;
+        documents_button: string;
+        attached_documents: string;
+        no_documents_linked_entry: string;
+        field_issuer: string;
+        field_cnpj: string;
+        field_total: string;
+        field_sum_entries: string;
+        field_linked_entries: string;
+        section_document_image: string;
+        no_image_available: string;
+        document_fallback: string;
+        section_source_attachments: string;
+        from_entry: string;
+        no_image_for_source: string;
+        this_document: string;
+        unlabeled: string;
+        section_linked_entries: string;
+        no_entries_linked_plain: string;
+        col_period: string;
+        col_date: string;
+        col_description: string;
+        col_category: string;
+        col_vendor: string;
+        col_unit: string;
+        col_amount: string;
+        col_open: string;
+        open: string;
+        section_related_documents: string;
+        no_related_documents: string;
+        col_number: string;
+        col_issuer: string;
+        col_type: string;
+        col_total: string;
+        col_status: string;
+    };
+    analysis: {
+        dialog_title: string;
+        processing_error: string;
+        section_entry_source: string;
+        section_rollup: string;
+        section_pages: string;
+        field_category: string;
+        field_subcategory: string;
+        field_vendor: string;
+        field_date: string;
+        field_description: string;
+        field_issuer: string;
+        field_cnpj: string;
+        field_document_number: string;
+        field_service: string;
+        field_entry_amount: string;
+        field_document_amount: string;
+        field_gross: string;
+        field_net: string;
+        field_paid: string;
+        field_issue_date: string;
+        field_doc_type: string;
+        field_artifact_role: string;
+        match_amount: string;
+        match_vendor: string;
+        match_date: string;
+        match_ok: string;
+        match_mismatch: string;
+        reconciled_vs_payment: string;
+        not_extracted: string;
+        no_parsed_values: string;
+        parse_error_prefix: string;
+        no_pages_or_records: string;
+        page_n: string;
+    };
+    viewer: {
+        image_unavailable: string;
+        enlarge: string;
+        page_alt: string;
+        page_alt_role: string;
+        document_image_alt: string;
+    };
 };
 
 /**
@@ -668,6 +779,117 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             date: "DD/MM/YYYY",
             percent: "%",
         },
+        detail: {
+            loading: "Carregando…",
+            back_to_alerts: "Voltar para alertas",
+            back_to_documents: "Voltar para documentos",
+            alert_not_found: "Alerta não encontrado.",
+            document_not_found: "Documento não encontrado.",
+            error_prefix: "Erro:",
+            unknown_error: "Erro desconhecido",
+            field_type: "Tipo",
+            field_period: "Período",
+            field_created: "Criado em",
+            field_resolved_at: "Resolvido em",
+            field_description: "Descrição",
+            field_notes: "Observações",
+            section_resolution: "Resolução",
+            resolved_message: "Este alerta está resolvido",
+            reopen_alert: "Reabrir alerta",
+            reopening: "Reabrindo…",
+            notes_optional_label: "Observações (opcional)",
+            notes_placeholder: "Por que isto foi resolvido? (opcional)",
+            resolve_alert: "Resolver alerta",
+            resolving: "Resolvendo…",
+            section_evidence: "Evidências",
+            view_referenced_document: "Ver documento referenciado",
+            section_affected_entries: "Lançamentos afetados",
+            no_entries_linked: "Nenhum lançamento vinculado a este alerta.",
+            field_category: "Categoria",
+            field_subcategory: "Subcategoria",
+            field_vendor: "Fornecedor",
+            field_unit: "Unidade",
+            field_amount: "Valor",
+            view_attachment: "Ver anexo",
+            view_attachment_title: "Ver o anexo e as imagens de suas páginas",
+            no_attachment_analysis: "Sem análise de anexo",
+            documents_button: "Documentos",
+            attached_documents: "Documentos anexados",
+            no_documents_linked_entry: "Nenhum documento vinculado a este lançamento.",
+            field_issuer: "Emitente",
+            field_cnpj: "CNPJ",
+            field_total: "Total",
+            field_sum_entries: "Soma dos lançamentos",
+            field_linked_entries: "Lançamentos vinculados",
+            section_document_image: "Imagem do documento",
+            no_image_available: "Nenhuma imagem disponível",
+            document_fallback: "Documento",
+            section_source_attachments: "Anexos de origem",
+            from_entry: "Do lançamento",
+            no_image_for_source: "Sem imagem para esta origem",
+            this_document: "este documento",
+            unlabeled: "Sem rótulo",
+            section_linked_entries: "Lançamentos vinculados",
+            no_entries_linked_plain: "Nenhum lançamento vinculado.",
+            col_period: "Período",
+            col_date: "Data",
+            col_description: "Descrição",
+            col_category: "Categoria",
+            col_vendor: "Fornecedor",
+            col_unit: "Unidade",
+            col_amount: "Valor",
+            col_open: "Abrir",
+            open: "Abrir",
+            section_related_documents: "Documentos relacionados",
+            no_related_documents: "Nenhum outro documento está vinculado a estes lançamentos.",
+            col_number: "Número",
+            col_issuer: "Emitente",
+            col_type: "Tipo",
+            col_total: "Total",
+            col_status: "Status",
+        },
+        analysis: {
+            dialog_title: "Análise do anexo",
+            processing_error: "Erro de processamento:",
+            section_entry_source: "Lançamento (origem)",
+            section_rollup: "Consolidado (extraído)",
+            section_pages: "Páginas",
+            field_category: "Categoria",
+            field_subcategory: "Subcategoria",
+            field_vendor: "Fornecedor",
+            field_date: "Data",
+            field_description: "Descrição",
+            field_issuer: "Emitente",
+            field_cnpj: "CNPJ",
+            field_document_number: "Nº do documento",
+            field_service: "Serviço",
+            field_entry_amount: "Valor do lançamento",
+            field_document_amount: "Valor do documento",
+            field_gross: "Bruto",
+            field_net: "Líquido",
+            field_paid: "Pago",
+            field_issue_date: "Data de emissão",
+            field_doc_type: "Tipo de documento",
+            field_artifact_role: "Papel do artefato",
+            match_amount: "Valor",
+            match_vendor: "Fornecedor",
+            match_date: "Data",
+            match_ok: "OK",
+            match_mismatch: "divergência",
+            reconciled_vs_payment: "valor reconciliado com comprovante de pagamento",
+            not_extracted: "não extraído",
+            no_parsed_values: "Sem valores extraídos.",
+            parse_error_prefix: "Erro de leitura:",
+            no_pages_or_records: "Nenhuma página ou registro por página para esta análise.",
+            page_n: "página {n}",
+        },
+        viewer: {
+            image_unavailable: "Imagem indisponível",
+            enlarge: "Ampliar {alt}",
+            page_alt: "Página {label}",
+            page_alt_role: "Página {label} ({role})",
+            document_image_alt: "Imagem de {type}",
+        },
     },
     en: {
         nav: {
@@ -993,6 +1215,117 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             currency: "USD",
             date: "MM/DD/YYYY",
             percent: "%",
+        },
+        detail: {
+            loading: "Loading…",
+            back_to_alerts: "Back to alerts",
+            back_to_documents: "Back to documents",
+            alert_not_found: "Alert not found.",
+            document_not_found: "Document not found.",
+            error_prefix: "Error:",
+            unknown_error: "Unknown error",
+            field_type: "Type",
+            field_period: "Period",
+            field_created: "Created",
+            field_resolved_at: "Resolved at",
+            field_description: "Description",
+            field_notes: "Notes",
+            section_resolution: "Resolution",
+            resolved_message: "This alert is resolved",
+            reopen_alert: "Reopen alert",
+            reopening: "Reopening…",
+            notes_optional_label: "Notes (optional)",
+            notes_placeholder: "Why is this resolved? (optional)",
+            resolve_alert: "Resolve alert",
+            resolving: "Resolving…",
+            section_evidence: "Evidence",
+            view_referenced_document: "View referenced document",
+            section_affected_entries: "Affected entries",
+            no_entries_linked: "No entries linked to this alert.",
+            field_category: "Category",
+            field_subcategory: "Subcategory",
+            field_vendor: "Vendor",
+            field_unit: "Unit",
+            field_amount: "Amount",
+            view_attachment: "View attachment",
+            view_attachment_title: "View the attachment and its page images",
+            no_attachment_analysis: "No attachment analysis",
+            documents_button: "Documents",
+            attached_documents: "Attached documents",
+            no_documents_linked_entry: "No documents linked to this entry.",
+            field_issuer: "Issuer",
+            field_cnpj: "CNPJ",
+            field_total: "Total",
+            field_sum_entries: "Sum entries",
+            field_linked_entries: "Linked entries",
+            section_document_image: "Document image",
+            no_image_available: "No image available",
+            document_fallback: "Document",
+            section_source_attachments: "Source attachments",
+            from_entry: "From entry",
+            no_image_for_source: "No image for this source",
+            this_document: "this document",
+            unlabeled: "Unlabeled",
+            section_linked_entries: "Linked entries",
+            no_entries_linked_plain: "No entries linked.",
+            col_period: "Period",
+            col_date: "Date",
+            col_description: "Description",
+            col_category: "Category",
+            col_vendor: "Vendor",
+            col_unit: "Unit",
+            col_amount: "Amount",
+            col_open: "Open",
+            open: "Open",
+            section_related_documents: "Related documents",
+            no_related_documents: "No other documents are linked to these entries.",
+            col_number: "Number",
+            col_issuer: "Issuer",
+            col_type: "Type",
+            col_total: "Total",
+            col_status: "Status",
+        },
+        analysis: {
+            dialog_title: "Attachment Analysis",
+            processing_error: "Processing error:",
+            section_entry_source: "Entry (source)",
+            section_rollup: "Roll-up (extracted)",
+            section_pages: "Pages",
+            field_category: "Category",
+            field_subcategory: "Subcategory",
+            field_vendor: "Vendor",
+            field_date: "Date",
+            field_description: "Description",
+            field_issuer: "Issuer",
+            field_cnpj: "CNPJ",
+            field_document_number: "Document №",
+            field_service: "Service",
+            field_entry_amount: "Entry amount",
+            field_document_amount: "Document amount",
+            field_gross: "Gross",
+            field_net: "Net",
+            field_paid: "Paid",
+            field_issue_date: "Issue date",
+            field_doc_type: "Doc type",
+            field_artifact_role: "Artifact role",
+            match_amount: "Amount",
+            match_vendor: "Vendor",
+            match_date: "Date",
+            match_ok: "OK",
+            match_mismatch: "mismatch",
+            reconciled_vs_payment: "amount reconciled vs payment artifact",
+            not_extracted: "not extracted",
+            no_parsed_values: "No parsed values.",
+            parse_error_prefix: "Parse error:",
+            no_pages_or_records: "No pages or per-page records for this analysis.",
+            page_n: "page {n}",
+        },
+        viewer: {
+            image_unavailable: "Image unavailable",
+            enlarge: "Enlarge {alt}",
+            page_alt: "Page {label}",
+            page_alt_role: "Page {label} ({role})",
+            document_image_alt: "{type} image",
         },
     },
 };

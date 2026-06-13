@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
 import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
-import { alertTypeLabel } from "@/lib/alerts";
-import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { useTranslation, useLocale, useAlertTypeLabel } from "@/lib/i18n/client";
+import { formatCurrency, formatDateTime } from "@/lib/i18n/formatters.client";
 import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
 import type { AttachmentAnalysisRow } from "../../entries/types";
 
@@ -51,15 +51,6 @@ interface AlertDetail {
     entries: AffectedEntry[];
 }
 
-function formatTimestamp(ms: number | null): string {
-    if (!ms) return "—";
-    return new Date(ms).toLocaleString("pt-BR");
-}
-
-function formatCurrency(value: number): string {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 function Field({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex flex-col gap-0.5">
@@ -72,6 +63,9 @@ function Field({ label, value }: { label: string; value: string }) {
 export default function AlertDetailClient({ alertId }: { alertId: string }) {
     const t = useTranslation();
     const locale = useLocale();
+    const alertTypeLabel = useAlertTypeLabel();
+    const fmtTimestamp = (ms: number | null): string => (ms ? formatDateTime(ms, locale) : "—");
+    const fmtCurrency = (value: number): string => formatCurrency(value, locale);
     const [alert, setAlert] = useState<AlertDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
@@ -97,7 +91,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                     if (!cancelled) setNotFound(true);
                     return null;
                 }
-                if (!res.ok) throw new Error("Failed to fetch alert");
+                if (!res.ok) throw new Error("load-failed");
                 return res.json();
             })
             .then((data: AlertDetail | null) => {
@@ -128,7 +122,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 // Reopening clears notes; resolving keeps the (optional) draft.
                 body: JSON.stringify({ resolved, notes: resolved ? notesDraft.trim() || null : null }),
             });
-            if (!res.ok) throw new Error("Failed to update alert");
+            if (!res.ok) throw new Error(t("error.loading_failed"));
             // PATCH returns the alert core fields (no entries); preserve the entries we already have.
             const updated: Omit<AlertDetail, "entries"> = await res.json();
             setAlert(prev => (prev ? { ...prev, ...updated } : { ...updated, entries: [] }));
@@ -145,7 +139,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             href="/dashboard/alerts"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-            <ArrowLeft className="h-4 w-4" /> Back to alerts
+            <ArrowLeft className="h-4 w-4" /> {t("detail.back_to_alerts")}
         </Link>
     );
 
@@ -154,7 +148,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             <div className="space-y-4">
                 {backLink}
                 <Card>
-                    <CardContent className="py-12 text-center text-muted-foreground">Loading…</CardContent>
+                    <CardContent className="py-12 text-center text-muted-foreground">{t("detail.loading")}</CardContent>
                 </Card>
             </div>
         );
@@ -165,7 +159,9 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             <div className="space-y-4">
                 {backLink}
                 <Card>
-                    <CardContent className="py-12 text-center text-muted-foreground">Alert not found.</CardContent>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                        {t("detail.alert_not_found")}
+                    </CardContent>
                 </Card>
             </div>
         );
@@ -177,7 +173,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 {backLink}
                 <Card>
                     <CardContent className="py-12 text-center text-red-500">
-                        Error: {error ?? "Unknown error"}
+                        {t("detail.error_prefix")} {error ? t("error.loading_failed") : t("detail.unknown_error")}
                     </CardContent>
                 </Card>
             </div>
@@ -203,18 +199,22 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                        <Field label="Type" value={alertTypeLabel(alert.type)} />
-                        <Field label="Period" value={alert.referencePeriod} />
-                        <Field label="Created" value={formatTimestamp(alert.createdAt)} />
-                        <Field label="Resolved at" value={formatTimestamp(alert.resolvedAt)} />
+                        <Field label={t("detail.field_type")} value={alertTypeLabel(alert.type)} />
+                        <Field label={t("detail.field_period")} value={alert.referencePeriod} />
+                        <Field label={t("detail.field_created")} value={fmtTimestamp(alert.createdAt)} />
+                        <Field label={t("detail.field_resolved_at")} value={fmtTimestamp(alert.resolvedAt)} />
                     </div>
                     <div className="space-y-1">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Description</span>
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {t("detail.field_description")}
+                        </span>
                         <p className="whitespace-pre-wrap text-sm">{alert.description}</p>
                     </div>
                     {alert.notes && (
                         <div className="space-y-1">
-                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Notes</span>
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("detail.field_notes")}
+                            </span>
                             <p className="whitespace-pre-wrap text-sm">{alert.notes}</p>
                         </div>
                     )}
@@ -224,36 +224,42 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             {/* Resolution */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Resolution</CardTitle>
+                    <CardTitle className="text-base">{t("detail.section_resolution")}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                     {alert.resolved ? (
                         <div className="flex flex-col gap-3">
                             <p className="text-sm text-muted-foreground">
-                                This alert is resolved
-                                {alert.resolvedAt ? ` (${formatTimestamp(alert.resolvedAt)})` : ""}.
+                                {t("detail.resolved_message")}
+                                {alert.resolvedAt ? ` (${fmtTimestamp(alert.resolvedAt)})` : ""}.
                             </p>
                             <Button variant="outline" disabled={saving} onClick={() => submitResolution(false)}>
-                                {saving ? "Reopening…" : "Reopen alert"}
+                                {saving ? t("detail.reopening") : t("detail.reopen_alert")}
                             </Button>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-3">
                             <div className="space-y-1">
-                                <label className="text-xs text-muted-foreground">Notes (optional)</label>
+                                <label className="text-xs text-muted-foreground">
+                                    {t("detail.notes_optional_label")}
+                                </label>
                                 <Textarea
                                     value={notesDraft}
                                     onChange={e => setNotesDraft(e.target.value)}
-                                    placeholder="Why is this resolved? (optional)"
+                                    placeholder={t("detail.notes_placeholder")}
                                     rows={3}
                                 />
                             </div>
                             <Button disabled={saving} onClick={() => submitResolution(true)}>
-                                {saving ? "Resolving…" : "Resolve alert"}
+                                {saving ? t("detail.resolving") : t("detail.resolve_alert")}
                             </Button>
                         </div>
                     )}
-                    {actionError && <p className="text-sm text-red-600">Error: {actionError}</p>}
+                    {actionError && (
+                        <p className="text-sm text-red-600">
+                            {t("detail.error_prefix")} {actionError}
+                        </p>
+                    )}
                 </CardContent>
             </Card>
 
@@ -261,7 +267,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             {(evidence.length > 0 || docId) && (
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-base">Evidence</CardTitle>
+                        <CardTitle className="text-base">{t("detail.section_evidence")}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
                         {evidence.length > 0 && (
@@ -276,7 +282,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                 href={`/dashboard/documents/${docId}`}
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
                             >
-                                <FileText className="h-4 w-4" /> View referenced document{" "}
+                                <FileText className="h-4 w-4" /> {t("detail.view_referenced_document")}{" "}
                                 <ExternalLink className="h-3 w-3" />
                             </Link>
                         )}
@@ -287,11 +293,13 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             {/* Affected entries — full detail per entry, not just a link */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Affected entries ({alert.entries.length})</CardTitle>
+                    <CardTitle className="text-base">
+                        {t("detail.section_affected_entries")} ({alert.entries.length})
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     {alert.entries.length === 0 ? (
-                        <p className="py-2 text-sm text-muted-foreground">No entries linked to this alert.</p>
+                        <p className="py-2 text-sm text-muted-foreground">{t("detail.no_entries_linked")}</p>
                     ) : (
                         <div className="space-y-3">
                             {alert.entries.map(e => (
@@ -304,15 +312,15 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                                        <Field label="Period" value={e.period} />
+                                        <Field label={t("detail.field_period")} value={e.period} />
                                         <Field
-                                            label="Amount"
-                                            value={`${e.movementType === "C" ? "+" : "-"}${formatCurrency(e.amount)}`}
+                                            label={t("detail.field_amount")}
+                                            value={`${e.movementType === "C" ? "+" : "-"}${fmtCurrency(e.amount)}`}
                                         />
-                                        <Field label="Category" value={e.category ?? "—"} />
-                                        <Field label="Subcategory" value={e.subcategory ?? "—"} />
-                                        <Field label="Vendor" value={e.vendor ?? "—"} />
-                                        <Field label="Unit" value={e.unitCode ?? "—"} />
+                                        <Field label={t("detail.field_category")} value={e.category ?? "—"} />
+                                        <Field label={t("detail.field_subcategory")} value={e.subcategory ?? "—"} />
+                                        <Field label={t("detail.field_vendor")} value={e.vendor ?? "—"} />
+                                        <Field label={t("detail.field_unit")} value={e.unitCode ?? "—"} />
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         <Button
@@ -322,11 +330,11 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                             onClick={() => e.analysis && setSelectedAnalysis(e.analysis)}
                                             title={
                                                 e.analysis
-                                                    ? "View the attachment and its page images"
-                                                    : "No attachment analysis"
+                                                    ? t("detail.view_attachment_title")
+                                                    : t("detail.no_attachment_analysis")
                                             }
                                         >
-                                            <Paperclip className="h-3.5 w-3.5" /> View attachment
+                                            <Paperclip className="h-3.5 w-3.5" /> {t("detail.view_attachment")}
                                         </Button>
                                         <Button
                                             size="sm"
@@ -334,7 +342,8 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                             disabled={e.documents.length === 0}
                                             onClick={() => setDocsEntry(e)}
                                         >
-                                            <Files className="h-3.5 w-3.5" /> Documents ({e.documents.length})
+                                            <Files className="h-3.5 w-3.5" /> {t("detail.documents_button")} (
+                                            {e.documents.length})
                                         </Button>
                                     </div>
                                 </div>
@@ -355,13 +364,15 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Files className="h-4 w-4" /> Attached documents
+                            <Files className="h-4 w-4" /> {t("detail.attached_documents")}
                         </DialogTitle>
                     </DialogHeader>
                     {docsEntry && (
                         <div className="space-y-1">
                             {docsEntry.documents.length === 0 ? (
-                                <p className="py-2 text-sm text-muted-foreground">No documents linked to this entry.</p>
+                                <p className="py-2 text-sm text-muted-foreground">
+                                    {t("detail.no_documents_linked_entry")}
+                                </p>
                             ) : (
                                 docsEntry.documents.map(d => (
                                     <Link
