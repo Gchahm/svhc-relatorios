@@ -65,3 +65,50 @@ jobs:
 
             - name: Typecheck
               run: pnpm typecheck
+
+    # Integration + E2E smoke (feature 046 / TEST-004): a SEPARATE job from `verify` because it
+    # builds the app + provisions local Miniflare (D1/R2) + drives a headless browser, so it is
+    # slower and its failures should be independently visible. Runs in parallel with `verify`.
+    # If runtime ever exceeds budget, move it to `main` pushes + nightly by changing ONLY the
+    # `on`/`if` here — no test-code change.
+    e2e:
+        name: Integration + E2E smoke (seeded local D1/R2)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Setup Node 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Setup uv + Python 3.12
+              uses: astral-sh/setup-uv@v5
+              with:
+                  python-version: "3.12"
+                  enable-cache: true
+                  cache-dependency-glob: scripts/uv.lock
+
+            - name: Install Chromium for Playwright (Python)
+              run: cd scripts && uv run playwright install --with-deps chromium
+
+            # Provision a fresh local Miniflare state: apply migrations + seed synthetic data + R2.
+            - name: Seed local D1 + R2 (synthetic)
+              run: pnpm e2e:seed
+
+            - name: Python integration tests (real D1 writebacks)
+              run: pnpm test:py:integration
+
+            # Build the real Workers app, serve it, run the browser smoke, tear it down.
+            - name: Browser E2E smoke
+              run: pnpm test:e2e
