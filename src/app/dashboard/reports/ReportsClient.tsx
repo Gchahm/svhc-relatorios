@@ -20,8 +20,8 @@ interface AccountabilityReport {
 }
 
 function colorBySign(value: number): string {
-    if (value > 0) return "text-green-600";
-    if (value < 0) return "text-red-600";
+    if (value > 0) return "text-green-600 dark:text-green-400";
+    if (value < 0) return "text-red-600 dark:text-red-400";
     return "";
 }
 
@@ -54,7 +54,7 @@ export default function ReportsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -110,10 +110,10 @@ export default function ReportsClient() {
                                             }}
                                         >
                                             <div className="w-[90px] px-3 shrink-0 font-mono">{report.period}</div>
-                                            <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-green-600">
+                                            <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-green-600 dark:text-green-400">
                                                 {formatCurrency(report.totalRevenue, locale)}
                                             </div>
-                                            <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-red-600">
+                                            <div className="w-[140px] px-3 shrink-0 text-right tabular-nums text-red-600 dark:text-red-400">
                                                 {formatCurrency(report.totalExpenses, locale)}
                                             </div>
                                             <div

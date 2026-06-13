@@ -105,7 +105,10 @@ export function SeverityBadge({ severity }: { severity: string }) {
     }
     if (severity === "warning") {
         return (
-            <Badge variant="outline" className="border-yellow-400 text-yellow-700">
+            <Badge
+                variant="outline"
+                className="border-yellow-400 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300"
+            >
                 {label}
             </Badge>
         );
@@ -117,7 +120,10 @@ export function StatusBadge({ resolved }: { resolved: boolean }) {
     const t = useTranslation();
     if (resolved) {
         return (
-            <Badge variant="outline" className="border-green-400 text-green-700">
+            <Badge
+                variant="outline"
+                className="border-green-400 dark:border-green-700 text-green-700 dark:text-green-400"
+            >
                 {t("alert_status.resolved")}
             </Badge>
         );

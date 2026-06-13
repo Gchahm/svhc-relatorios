@@ -112,7 +112,7 @@ export default function ComparisonClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -177,11 +177,17 @@ export default function ComparisonClient() {
                         </span>
                         {!loading && data.length > 0 && (
                             <>
-                                <Badge variant="outline" className="text-green-700 border-green-300">
+                                <Badge
+                                    variant="outline"
+                                    className="text-green-700 dark:text-green-400 border-green-300 dark:border-green-800"
+                                >
                                     {t("summary.revenue")}: {formatCurrency(totals.revenueP1, locale)} →{" "}
                                     {formatCurrency(totals.revenueP2, locale)}
                                 </Badge>
-                                <Badge variant="outline" className="text-red-700 border-red-300">
+                                <Badge
+                                    variant="outline"
+                                    className="text-red-700 dark:text-red-400 border-red-300 dark:border-red-800"
+                                >
                                     {t("summary.expenses")}: {formatCurrency(totals.expensesP1, locale)} →{" "}
                                     {formatCurrency(totals.expensesP2, locale)}
                                 </Badge>
@@ -222,8 +228,8 @@ export default function ComparisonClient() {
                                         row.diff === 0
                                             ? "text-muted-foreground"
                                             : positive
-                                              ? "text-green-600"
-                                              : "text-red-600";
+                                              ? "text-green-600 dark:text-green-400"
+                                              : "text-red-600 dark:text-red-400";
                                     return (
                                         <div
                                             key={`${row.category}|||${row.subcategory}|||${row.movementType}`}
@@ -247,14 +253,18 @@ export default function ComparisonClient() {
                                             </div>
                                             <div
                                                 className={`w-[130px] px-3 shrink-0 text-right tabular-nums ${
-                                                    row.movementType === "D" ? "text-red-600" : "text-green-600"
+                                                    row.movementType === "D"
+                                                        ? "text-red-600 dark:text-red-400"
+                                                        : "text-green-600 dark:text-green-400"
                                                 }`}
                                             >
                                                 {formatCurrency(row.valueP1, locale)}
                                             </div>
                                             <div
                                                 className={`w-[130px] px-3 shrink-0 text-right tabular-nums ${
-                                                    row.movementType === "D" ? "text-red-600" : "text-green-600"
+                                                    row.movementType === "D"
+                                                        ? "text-red-600 dark:text-red-400"
+                                                        : "text-green-600 dark:text-green-400"
                                                 }`}
                                             >
                                                 {formatCurrency(row.valueP2, locale)}

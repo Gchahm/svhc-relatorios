@@ -33,6 +33,12 @@ export type CatalogShape = {
         denied_title: string;
         denied_message: string;
     };
+    theme: {
+        toggle_label: string;
+        light: string;
+        dark: string;
+        system: string;
+    };
     button: {
         submit: string;
         cancel: string;
@@ -477,6 +483,12 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             denied_message:
                 "Sua conta está aguardando aprovação. Entre em contato com um administrador para obter acesso.",
         },
+        theme: {
+            toggle_label: "Tema",
+            light: "Claro",
+            dark: "Escuro",
+            system: "Sistema",
+        },
         button: {
             submit: "Enviar",
             cancel: "Cancelar",
@@ -913,6 +925,12 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
         access: {
             denied_title: "Access Denied",
             denied_message: "Your account is pending approval. Contact an administrator to get access.",
+        },
+        theme: {
+            toggle_label: "Theme",
+            light: "Light",
+            dark: "Dark",
+            system: "System",
         },
         button: {
             submit: "Submit",

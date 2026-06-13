@@ -92,7 +92,7 @@ export default function VendorsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -131,7 +131,10 @@ export default function VendorsClient() {
                                 : `${aggregated.length} ${plural(t, "count.vendors", aggregated.length)}`}
                         </span>
                         {!loading && (
-                            <Badge variant="outline" className="text-red-700 border-red-300">
+                            <Badge
+                                variant="outline"
+                                className="text-red-700 dark:text-red-400 border-red-300 dark:border-red-800"
+                            >
                                 {t("summary.total")}: {formatCurrency(grandTotal, locale)}
                             </Badge>
                         )}
@@ -170,7 +173,7 @@ export default function VendorsClient() {
                                             <div className="flex-1 px-3 min-w-0 truncate" title={row.name}>
                                                 {row.name}
                                             </div>
-                                            <div className="w-[130px] px-3 shrink-0 text-right tabular-nums text-red-600">
+                                            <div className="w-[130px] px-3 shrink-0 text-right tabular-nums text-red-600 dark:text-red-400">
                                                 {formatCurrency(row.total, locale)}
                                             </div>
                                             <div className="w-[80px] px-3 shrink-0 text-right tabular-nums text-muted-foreground">

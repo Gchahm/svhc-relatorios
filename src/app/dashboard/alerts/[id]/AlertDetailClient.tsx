@@ -172,7 +172,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
             <div className="space-y-4">
                 {backLink}
                 <Card>
-                    <CardContent className="py-12 text-center text-red-500">
+                    <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                         {t("detail.error_prefix")} {error ? t("error.loading_failed") : t("detail.unknown_error")}
                     </CardContent>
                 </Card>
@@ -256,7 +256,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                         </div>
                     )}
                     {actionError && (
-                        <p className="text-sm text-red-600">
+                        <p className="text-sm text-red-600 dark:text-red-400">
                             {t("detail.error_prefix")} {actionError}
                         </p>
                     )}
@@ -280,7 +280,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                         {docId && (
                             <Link
                                 href={`/dashboard/documents/${docId}`}
-                                className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                                className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
                             >
                                 <FileText className="h-4 w-4" /> {t("detail.view_referenced_document")}{" "}
                                 <ExternalLink className="h-3 w-3" />
@@ -388,7 +388,7 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                                 {d.documentType ? ` · ${d.documentType}` : ""}
                                             </span>
                                         </span>
-                                        <span className="inline-flex shrink-0 items-center gap-1 text-blue-600">
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-blue-600 dark:text-blue-400">
                                             <FileText className="h-3.5 w-3.5" />
                                             <ExternalLink className="h-3 w-3" />
                                         </span>

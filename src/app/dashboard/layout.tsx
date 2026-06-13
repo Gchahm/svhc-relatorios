@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
 import UserMenu from "./UserMenu";
+import ThemeToggle from "./ThemeToggle";
 import {
     Receipt,
     BarChart3,
@@ -63,7 +64,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                             {t("nav.comparison")}
                         </NavLink>
 
-                        <div className="w-px h-4 bg-gray-200 mx-1" />
+                        <div className="w-px h-4 bg-border mx-1" />
 
                         {/* Entities */}
                         <NavLink href="/dashboard/vendors" icon={<Store className="h-3.5 w-3.5" />}>
@@ -79,14 +80,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
                             {t("nav.fines")}
                         </NavLink>
 
-                        <div className="w-px h-4 bg-gray-200 mx-1" />
+                        <div className="w-px h-4 bg-border mx-1" />
 
                         {/* Analysis */}
                         <NavLink href="/dashboard/alerts" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
                             {t("nav.alerts")}
                         </NavLink>
 
-                        <div className="w-px h-4 bg-gray-200 mx-1" />
+                        <div className="w-px h-4 bg-border mx-1" />
 
                         {/* System */}
                         <NavLink href="/dashboard/scrape-runs" icon={<RefreshCw className="h-3.5 w-3.5" />}>
@@ -94,10 +95,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                         </NavLink>
                     </nav>
 
-                    <UserMenu
-                        name={session.user?.name || session.user?.email || "User"}
-                        email={session.user?.email || ""}
-                    />
+                    <div className="flex items-center gap-1 shrink-0">
+                        <ThemeToggle />
+                        <UserMenu
+                            name={session.user?.name || session.user?.email || "User"}
+                            email={session.user?.email || ""}
+                        />
+                    </div>
                 </div>
             </header>
 
@@ -112,7 +116,7 @@ function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode
     return (
         <Link
             href={href}
-            className="flex items-center gap-1 px-2 py-1 rounded text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
             {icon}
             {children}

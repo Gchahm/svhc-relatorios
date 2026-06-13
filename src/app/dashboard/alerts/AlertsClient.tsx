@@ -37,7 +37,7 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
             <Link
                 href={entryHref(period, entryIds[0])}
                 onClick={e => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
             >
                 {t("action.open")} <ExternalLink className="h-3 w-3" />
             </Link>
@@ -45,7 +45,10 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
     }
     return (
         <Popover>
-            <PopoverTrigger onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline">
+            <PopoverTrigger
+                onClick={e => e.stopPropagation()}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
                 {entryIds.length} {plural(t, "count.entries", entryIds.length)} ▾
             </PopoverTrigger>
             <PopoverContent className="w-44 p-1" onClick={e => e.stopPropagation()}>
@@ -55,7 +58,7 @@ function EntryLinks({ period, entryIds }: { period: string; entryIds: string[] }
                             key={id}
                             href={entryHref(period, id)}
                             onClick={e => e.stopPropagation()}
-                            className="inline-flex items-center justify-between gap-1 rounded px-2 py-1 text-xs text-blue-600 hover:bg-muted hover:underline"
+                            className="inline-flex items-center justify-between gap-1 rounded px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:bg-muted hover:underline"
                         >
                             {t("list.entry_n")} {i + 1} <ExternalLink className="h-3 w-3" />
                         </Link>
@@ -179,7 +182,7 @@ export default function AlertsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -211,7 +214,10 @@ export default function AlertsClient() {
                                     </Badge>
                                 )}
                                 {activeCounts.warning > 0 && (
-                                    <Badge variant="outline" className="border-yellow-400 text-yellow-700">
+                                    <Badge
+                                        variant="outline"
+                                        className="border-yellow-400 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300"
+                                    >
                                         {activeCounts.warning} {t("severity.warning")}
                                     </Badge>
                                 )}

@@ -95,7 +95,10 @@ function LabeledPage({ page, t }: { page: SourcePage; t: (key: DeepCatalogKey) =
         <div className={`space-y-1 rounded-md border p-2 ${page.isDocument ? "ring-2 ring-blue-400" : ""}`}>
             <div className="flex items-center gap-1.5">
                 {page.isDocument && (
-                    <Badge variant="outline" className="border-blue-400 text-[10px] text-blue-700">
+                    <Badge
+                        variant="outline"
+                        className="border-blue-400 dark:border-blue-700 text-[10px] text-blue-700 dark:text-blue-400"
+                    >
                         {t("detail.this_document")}
                     </Badge>
                 )}
@@ -184,7 +187,7 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
             <div className="space-y-4">
                 {backLink}
                 <Card>
-                    <CardContent className="py-12 text-center text-red-500">
+                    <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                         {t("detail.error_prefix")} {error ? t("error.loading_failed") : t("detail.unknown_error")}
                     </CardContent>
                 </Card>
@@ -346,7 +349,7 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
                                     <div className="w-[70px] shrink-0 px-3 py-1.5 flex justify-end">
                                         <Link
                                             href={entryHref(e.period, e.entryId)}
-                                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
                                         >
                                             {t("detail.open")} <ExternalLink className="h-3 w-3" />
                                         </Link>
