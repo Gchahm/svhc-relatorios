@@ -127,6 +127,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - N/A — presentation-layer only; reads no data, writes nothing; no D1 schema, (040-i18n-auth-shell-ptbr)
 - TypeScript 5 / React 19 / Next.js 15 (App Router); Node 22 for the test runner + Existing only — the I18N-001 catalog/formatters (`src/lib/i18n/*`), shadcn/ui, `@tanstack/react-virtual`, lucide-react. No new npm dependency. (041-i18n-dashboard-lists)
 - N/A — presentation-layer change; reads no new data, writes nothing; no D1 schema/migration. (041-i18n-dashboard-lists)
+- TypeScript 5 / React 19 / Next.js 15 (App Router); Node 22 for the test runner + Existing only — the I18N-001 layer (`@/lib/i18n`, `@/lib/i18n/client`, (042-i18n-detail-surfaces)
+- N/A — reads no new data, writes nothing; no D1 schema/migration. (042-i18n-detail-surfaces)
 
 - Python 3.12 (analysis CLI under `scripts/analysis/`, run via `uv`); the + Existing only — `scripts/common/d1.py` (the `wrangler`-CLI wrapper: (035-prune-staging-rows)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`). Writes (DELETEs) the analysis-owned (035-prune-staging-rows)

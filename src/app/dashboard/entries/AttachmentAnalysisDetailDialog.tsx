@@ -5,6 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PageImageViewer from "./PageImageViewer";
 import type { AttachmentAnalysisRow } from "./types";
+import { useTranslation, useLocale } from "@/lib/i18n/client";
+import { formatCurrency } from "@/lib/i18n/formatters.client";
+import type { SupportedLocale, DeepCatalogKey } from "@/lib/i18n/catalog";
+
+type Translate = (key: DeepCatalogKey) => string;
 
 interface AttachmentAnalysisRecord {
     id: string;
@@ -27,29 +32,26 @@ interface PageInfo {
 // per the pipeline's amount precedence (payment_proof paid -> boleto -> invoice net -> gross).
 const PAYMENT_ARTIFACT_ROLES = new Set(["payment_proof", "boleto"]);
 
-// Well-known keys emitted by the VLM prompt, in display order, with friendly labels.
-const KNOWN_FIELDS: { key: string; label: string; currency?: boolean }[] = [
-    { key: "valor_total", label: "Gross", currency: true },
-    { key: "valor_liquido", label: "Net", currency: true },
-    { key: "valor_pago", label: "Paid", currency: true },
-    { key: "cnpj_emitente", label: "CNPJ" },
-    { key: "nome_emitente", label: "Issuer" },
-    { key: "data_emissao", label: "Issue date" },
-    { key: "numero_documento", label: "Document №" },
-    { key: "descricao_servico", label: "Service" },
-    { key: "tipo_documento", label: "Doc type" },
-    { key: "papel_artefato", label: "Artifact role" },
+// Well-known keys emitted by the VLM prompt, in display order, with friendly label keys.
+// The label is a catalog key (chrome, translated); the extraction `key` itself stays verbatim.
+const KNOWN_FIELDS: { key: string; labelKey: DeepCatalogKey; currency?: boolean }[] = [
+    { key: "valor_total", labelKey: "analysis.field_gross", currency: true },
+    { key: "valor_liquido", labelKey: "analysis.field_net", currency: true },
+    { key: "valor_pago", labelKey: "analysis.field_paid", currency: true },
+    { key: "cnpj_emitente", labelKey: "analysis.field_cnpj" },
+    { key: "nome_emitente", labelKey: "analysis.field_issuer" },
+    { key: "data_emissao", labelKey: "analysis.field_issue_date" },
+    { key: "numero_documento", labelKey: "analysis.field_document_number" },
+    { key: "descricao_servico", labelKey: "analysis.field_service" },
+    { key: "tipo_documento", labelKey: "analysis.field_doc_type" },
+    { key: "papel_artefato", labelKey: "analysis.field_artifact_role" },
 ];
 
 const KNOWN_KEYS = new Set(KNOWN_FIELDS.map(f => f.key));
 
-function formatCurrency(value: number) {
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatValue(value: unknown, currency?: boolean) {
+function formatValue(value: unknown, locale: SupportedLocale, currency?: boolean) {
     if (value === null || value === undefined || value === "") return null;
-    if (currency && typeof value === "number") return formatCurrency(value);
+    if (currency && typeof value === "number") return formatCurrency(value, locale);
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
 }
@@ -72,55 +74,67 @@ function parseResponse(record: AttachmentAnalysisRecord): {
     return { values: null, fallback: record.parseError || null };
 }
 
-function pageLabelDisplay(record: AttachmentAnalysisRecord) {
+function pageLabelDisplay(record: AttachmentAnalysisRecord, t: Translate) {
     if (record.pageLabel) return record.pageLabel;
-    if (record.pageIndex !== null) return `page ${record.pageIndex + 1}`;
+    if (record.pageIndex !== null) return t("analysis.page_n").replace("{n}", String(record.pageIndex + 1));
     return "?";
 }
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({ label, value, t }: { label: string; value: string | null | undefined; t: Translate }) {
     return (
         <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
             {value ? (
                 <span className="text-sm">{value}</span>
             ) : (
-                <span className="text-sm italic text-muted-foreground">not extracted</span>
+                <span className="text-sm italic text-muted-foreground">{t("analysis.not_extracted")}</span>
             )}
         </div>
     );
 }
 
-function RecordValues({ record }: { record: AttachmentAnalysisRecord }) {
+function RecordValues({
+    record,
+    t,
+    locale,
+}: {
+    record: AttachmentAnalysisRecord;
+    t: Translate;
+    locale: SupportedLocale;
+}) {
     const { values, fallback } = parseResponse(record);
 
     if (!values) {
         if (fallback) {
             return (
                 <div className="space-y-1">
-                    {record.parseError && <p className="text-xs text-red-600">Parse error: {record.parseError}</p>}
+                    {record.parseError && (
+                        <p className="text-xs text-red-600">
+                            {t("analysis.parse_error_prefix")} {record.parseError}
+                        </p>
+                    )}
                 </div>
             );
         }
-        return <p className="text-xs italic text-muted-foreground">No parsed values.</p>;
+        return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
     }
 
-    const known = KNOWN_FIELDS.map(f => ({ ...f, display: formatValue(values[f.key], f.currency) })).filter(
+    const known = KNOWN_FIELDS.map(f => ({ ...f, display: formatValue(values[f.key], locale, f.currency) })).filter(
         f => f.display !== null
     );
-    const extraKeys = Object.keys(values).filter(k => !KNOWN_KEYS.has(k) && formatValue(values[k]) !== null);
+    const extraKeys = Object.keys(values).filter(k => !KNOWN_KEYS.has(k) && formatValue(values[k], locale) !== null);
 
     if (known.length === 0 && extraKeys.length === 0) {
-        return <p className="text-xs italic text-muted-foreground">No parsed values.</p>;
+        return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
     }
 
     return (
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
             {known.map(f => (
-                <Field key={f.key} label={f.label} value={f.display} />
+                <Field key={f.key} label={t(f.labelKey)} value={f.display} t={t} />
             ))}
             {extraKeys.map(k => (
-                <Field key={k} label={k} value={formatValue(values[k])} />
+                <Field key={k} label={k} value={formatValue(values[k], locale)} t={t} />
             ))}
         </div>
     );
@@ -133,6 +147,8 @@ export default function AttachmentAnalysisDetailDialog({
     analysis: AttachmentAnalysisRow | null;
     onOpenChange: (open: boolean) => void;
 }) {
+    const t = useTranslation();
+    const locale = useLocale();
     const [records, setRecords] = useState<AttachmentAnalysisRecord[]>([]);
     const [pages, setPages] = useState<PageInfo[]>([]);
     const [loading, setLoading] = useState(false);
@@ -148,7 +164,7 @@ export default function AttachmentAnalysisDetailDialog({
         setRecords([]);
         fetch(`/api/attachment-analyses/${analysisId}`)
             .then(res => {
-                if (!res.ok) throw new Error("Failed to load records");
+                if (!res.ok) throw new Error("load-failed");
                 return res.json();
             })
             .then((data: AttachmentAnalysisRecord[]) => {
@@ -205,7 +221,7 @@ export default function AttachmentAnalysisDetailDialog({
             <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        Attachment Analysis
+                        {t("analysis.dialog_title")}
                         {analysis?.documentType && (
                             <Badge variant="outline" className="text-xs font-normal">
                                 {analysis.documentType}
@@ -219,47 +235,60 @@ export default function AttachmentAnalysisDetailDialog({
                         {/* Processing error */}
                         {analysis.error && (
                             <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-                                <span className="font-medium">Processing error:</span> {analysis.error}
+                                <span className="font-medium">{t("analysis.processing_error")}</span> {analysis.error}
                             </div>
                         )}
 
                         {/* Entry (source) — for cross-checking against the original record */}
                         <section className="space-y-3">
-                            <h3 className="text-sm font-semibold">Entry (source)</h3>
+                            <h3 className="text-sm font-semibold">{t("analysis.section_entry_source")}</h3>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                                <Field label="Category" value={analysis.categoryName} />
-                                <Field label="Subcategory" value={analysis.subcategoryName} />
-                                <Field label="Vendor" value={analysis.vendorName} />
-                                <Field label="Date" value={analysis.entryDate} />
-                                <Field label="Description" value={analysis.entryDescription} />
+                                <Field label={t("analysis.field_category")} value={analysis.categoryName} t={t} />
+                                <Field label={t("analysis.field_subcategory")} value={analysis.subcategoryName} t={t} />
+                                <Field label={t("analysis.field_vendor")} value={analysis.vendorName} t={t} />
+                                <Field label={t("analysis.field_date")} value={analysis.entryDate} t={t} />
+                                <Field
+                                    label={t("analysis.field_description")}
+                                    value={analysis.entryDescription}
+                                    t={t}
+                                />
                             </div>
                         </section>
 
                         {/* Roll-up */}
                         <section className="space-y-3">
-                            <h3 className="text-sm font-semibold">Roll-up (extracted)</h3>
+                            <h3 className="text-sm font-semibold">{t("analysis.section_rollup")}</h3>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                                <Field label="Issuer" value={analysis.issuerName} />
-                                <Field label="CNPJ" value={analysis.extractedCnpj} />
-                                <Field label="Document №" value={analysis.documentNumber} />
-                                <Field label="Service" value={analysis.serviceDescription} />
-                                <Field label="Entry amount" value={formatCurrency(analysis.entryAmount)} />
+                                <Field label={t("analysis.field_issuer")} value={analysis.issuerName} t={t} />
+                                <Field label={t("analysis.field_cnpj")} value={analysis.extractedCnpj} t={t} />
                                 <Field
-                                    label="Document amount"
+                                    label={t("analysis.field_document_number")}
+                                    value={analysis.documentNumber}
+                                    t={t}
+                                />
+                                <Field label={t("analysis.field_service")} value={analysis.serviceDescription} t={t} />
+                                <Field
+                                    label={t("analysis.field_entry_amount")}
+                                    value={formatCurrency(analysis.entryAmount, locale)}
+                                    t={t}
+                                />
+                                <Field
+                                    label={t("analysis.field_document_amount")}
                                     value={
                                         analysis.extractedAmount != null
-                                            ? formatCurrency(analysis.extractedAmount)
+                                            ? formatCurrency(analysis.extractedAmount, locale)
                                             : null
                                     }
+                                    t={t}
                                 />
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <MatchPill label="Amount" match={analysis.amountMatch} />
-                                <MatchPill label="Vendor" match={analysis.vendorMatch} />
-                                <MatchPill label="Date" match={analysis.dateMatch} />
+                                <MatchPill label={t("analysis.match_amount")} match={analysis.amountMatch} t={t} />
+                                <MatchPill label={t("analysis.match_vendor")} match={analysis.vendorMatch} t={t} />
+                                <MatchPill label={t("analysis.match_date")} match={analysis.dateMatch} t={t} />
                                 {reconciledAgainstPayment && (
                                     <Badge variant="outline" className="border-blue-400 text-blue-700 text-[10px]">
-                                        amount reconciled vs payment artifact
+                                        {t("analysis.reconciled_vs_payment")}
                                     </Badge>
                                 )}
                             </div>
@@ -267,19 +296,23 @@ export default function AttachmentAnalysisDetailDialog({
 
                         {/* Pages — page image alongside its extracted record */}
                         <section className="space-y-3">
-                            <h3 className="text-sm font-semibold">Pages</h3>
-                            {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-                            {error && <p className="text-sm text-red-600">Error: {error}</p>}
+                            <h3 className="text-sm font-semibold">{t("analysis.section_pages")}</h3>
+                            {loading && <p className="text-sm text-muted-foreground">{t("detail.loading")}</p>}
+                            {error && (
+                                <p className="text-sm text-red-600">
+                                    {t("detail.error_prefix")} {t("error.loading_failed")}
+                                </p>
+                            )}
                             {!loading && !error && pageEntries.length === 0 && orphanRecords.length === 0 && (
                                 <p className="text-sm italic text-muted-foreground">
-                                    No pages or per-page records for this analysis.
+                                    {t("analysis.no_pages_or_records")}
                                 </p>
                             )}
                             {pageEntries.map(({ page, record }) => (
                                 <div key={page.pageLabel} className="rounded-md border p-3 space-y-2">
                                     <div className="flex items-center gap-2">
                                         <Badge variant="secondary" className="text-[10px]">
-                                            {record ? pageLabelDisplay(record) : page.pageLabel}
+                                            {record ? pageLabelDisplay(record, t) : page.pageLabel}
                                         </Badge>
                                         {record?.artifactRole && (
                                             <Badge variant="outline" className="text-[10px]">
@@ -292,8 +325,11 @@ export default function AttachmentAnalysisDetailDialog({
                                             </span>
                                         )}
                                     </div>
-                                    <PageImageViewer src={page.imageUrl} alt={`Page ${page.pageLabel}`} />
-                                    {record && <RecordValues record={record} />}
+                                    <PageImageViewer
+                                        src={page.imageUrl}
+                                        alt={t("viewer.page_alt").replace("{label}", page.pageLabel)}
+                                    />
+                                    {record && <RecordValues record={record} t={t} locale={locale} />}
                                 </div>
                             ))}
                             {/* Records with no matching page image (e.g. representative-only extractions) */}
@@ -301,7 +337,7 @@ export default function AttachmentAnalysisDetailDialog({
                                 <div key={record.id} className="rounded-md border p-3 space-y-2">
                                     <div className="flex items-center gap-2">
                                         <Badge variant="secondary" className="text-[10px]">
-                                            {pageLabelDisplay(record)}
+                                            {pageLabelDisplay(record, t)}
                                         </Badge>
                                         {record.artifactRole && (
                                             <Badge variant="outline" className="text-[10px]">
@@ -310,7 +346,7 @@ export default function AttachmentAnalysisDetailDialog({
                                         )}
                                         <span className="text-[10px] text-muted-foreground">{record.analysisType}</span>
                                     </div>
-                                    <RecordValues record={record} />
+                                    <RecordValues record={record} t={t} locale={locale} />
                                 </div>
                             ))}
                         </section>
@@ -321,7 +357,7 @@ export default function AttachmentAnalysisDetailDialog({
     );
 }
 
-function MatchPill({ label, match }: { label: string; match: boolean | null }) {
+function MatchPill({ label, match, t }: { label: string; match: boolean | null; t: Translate }) {
     if (match === null) {
         return (
             <Badge variant="outline" className="text-[10px] text-muted-foreground">
@@ -332,13 +368,13 @@ function MatchPill({ label, match }: { label: string; match: boolean | null }) {
     if (match) {
         return (
             <Badge variant="outline" className="border-green-400 text-green-700 text-[10px]">
-                {label}: OK
+                {label}: {t("analysis.match_ok")}
             </Badge>
         );
     }
     return (
         <Badge variant="destructive" className="text-[10px]">
-            {label}: mismatch
+            {label}: {t("analysis.match_mismatch")}
         </Badge>
     );
 }

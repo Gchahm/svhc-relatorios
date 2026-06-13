@@ -66,6 +66,9 @@ test("Catalog: pt-BR has all required keys", async () => {
         "app",
         "access",
         "formatting",
+        "detail",
+        "analysis",
+        "viewer",
     ];
     for (const section of sections) {
         assert.ok(section in ptBr, `pt-BR should have "${section}" section`);
@@ -416,6 +419,151 @@ test("Catalog (I18N-003): dashboard list-page keys resolve to non-empty strings 
             assert.ok(value.length > 0, `Catalog key "${key}" in "${locale}" should be non-empty`);
         }
     }
+});
+
+test("Catalog (I18N-004): detail-surface keys resolve to non-empty strings in both locales", async () => {
+    // The detail pages, the attachment-analysis dialog, and the page-image viewer consume exactly
+    // these keys (see specs/042-i18n-detail-surfaces/data-model.md).
+    const requiredKeys = [
+        // shared detail-page chrome
+        "detail.loading",
+        "detail.back_to_alerts",
+        "detail.back_to_documents",
+        "detail.alert_not_found",
+        "detail.document_not_found",
+        "detail.error_prefix",
+        "detail.unknown_error",
+        "detail.field_type",
+        "detail.field_period",
+        "detail.field_created",
+        "detail.field_resolved_at",
+        "detail.field_description",
+        "detail.field_notes",
+        "detail.section_resolution",
+        "detail.resolved_message",
+        "detail.reopen_alert",
+        "detail.reopening",
+        "detail.notes_optional_label",
+        "detail.notes_placeholder",
+        "detail.resolve_alert",
+        "detail.resolving",
+        "detail.section_evidence",
+        "detail.view_referenced_document",
+        "detail.section_affected_entries",
+        "detail.no_entries_linked",
+        "detail.field_category",
+        "detail.field_subcategory",
+        "detail.field_vendor",
+        "detail.field_unit",
+        "detail.field_amount",
+        "detail.view_attachment",
+        "detail.view_attachment_title",
+        "detail.no_attachment_analysis",
+        "detail.documents_button",
+        "detail.attached_documents",
+        "detail.no_documents_linked_entry",
+        "detail.field_issuer",
+        "detail.field_cnpj",
+        "detail.field_total",
+        "detail.field_sum_entries",
+        "detail.field_linked_entries",
+        "detail.section_document_image",
+        "detail.no_image_available",
+        "detail.document_fallback",
+        "detail.section_source_attachments",
+        "detail.from_entry",
+        "detail.no_image_for_source",
+        "detail.this_document",
+        "detail.unlabeled",
+        "detail.section_linked_entries",
+        "detail.no_entries_linked_plain",
+        "detail.col_period",
+        "detail.col_date",
+        "detail.col_description",
+        "detail.col_category",
+        "detail.col_vendor",
+        "detail.col_unit",
+        "detail.col_amount",
+        "detail.col_open",
+        "detail.open",
+        "detail.section_related_documents",
+        "detail.no_related_documents",
+        "detail.col_number",
+        "detail.col_issuer",
+        "detail.col_type",
+        "detail.col_total",
+        "detail.col_status",
+        // attachment-analysis dialog
+        "analysis.dialog_title",
+        "analysis.processing_error",
+        "analysis.section_entry_source",
+        "analysis.section_rollup",
+        "analysis.section_pages",
+        "analysis.field_category",
+        "analysis.field_subcategory",
+        "analysis.field_vendor",
+        "analysis.field_date",
+        "analysis.field_description",
+        "analysis.field_issuer",
+        "analysis.field_cnpj",
+        "analysis.field_document_number",
+        "analysis.field_service",
+        "analysis.field_entry_amount",
+        "analysis.field_document_amount",
+        "analysis.field_gross",
+        "analysis.field_net",
+        "analysis.field_paid",
+        "analysis.field_issue_date",
+        "analysis.field_doc_type",
+        "analysis.field_artifact_role",
+        "analysis.match_amount",
+        "analysis.match_vendor",
+        "analysis.match_date",
+        "analysis.match_ok",
+        "analysis.match_mismatch",
+        "analysis.reconciled_vs_payment",
+        "analysis.not_extracted",
+        "analysis.no_parsed_values",
+        "analysis.parse_error_prefix",
+        "analysis.no_pages_or_records",
+        "analysis.page_n",
+        // page-image viewer
+        "viewer.image_unavailable",
+        "viewer.enlarge",
+        "viewer.page_alt",
+        "viewer.page_alt_role",
+        "viewer.document_image_alt",
+    ];
+
+    for (const locale of ["pt-BR", "en"]) {
+        for (const key of requiredKeys) {
+            const parts = key.split(".");
+            let value = catalog[locale];
+            for (const part of parts) {
+                assert.ok(
+                    value && typeof value === "object" && part in value,
+                    `Catalog key "${key}" should exist in locale "${locale}"`
+                );
+                value = value[part];
+            }
+            assert.equal(typeof value, "string", `Catalog key "${key}" in "${locale}" should be a string`);
+            assert.ok(value.length > 0, `Catalog key "${key}" in "${locale}" should be non-empty`);
+        }
+    }
+
+    // Interpolation templates must keep their placeholder tokens.
+    assert.ok(catalog["pt-BR"].analysis.page_n.includes("{n}"), "analysis.page_n must keep {n}");
+    assert.ok(catalog["pt-BR"].viewer.enlarge.includes("{alt}"), "viewer.enlarge must keep {alt}");
+    assert.ok(catalog["pt-BR"].viewer.page_alt.includes("{label}"), "viewer.page_alt must keep {label}");
+    assert.ok(
+        catalog["pt-BR"].viewer.page_alt_role.includes("{label}") &&
+            catalog["pt-BR"].viewer.page_alt_role.includes("{role}"),
+        "viewer.page_alt_role must keep {label} and {role}"
+    );
+    assert.ok(
+        catalog["pt-BR"].viewer.document_image_alt.includes("{type}"),
+        "viewer.document_image_alt must keep {type}"
+    );
 });
 
 test("Catalog: pt-BR has complete section structure", async () => {
