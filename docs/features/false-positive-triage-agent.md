@@ -52,22 +52,22 @@ for each target document/attachment:
 ```
 
 Steps 1 (evidence) and 2 (judge) already exist as the **`review-mismatch`** pattern. The new work is steps
-3–6 as a *data* correction (improve-classification routes step 3 to a *code* PR instead — see §5).
+3–6 as a _data_ correction (improve-classification routes step 3 to a _code_ PR instead — see §5).
 
 ---
 
 ## 3. Existing assets the agent reuses (≈80% is already there)
 
-| Capability | Where | Reusable as-is? |
-|---|---|---|
-| Scoped, read-only finding summary **with page image `read_path`s** | `summarize_mismatches(..., attachment_ids=, entry_ids=)` → CLI `mismatches --attachment-id/--entry-id`; materializes images from R2 | ✅ yes — this is the evidence feed |
-| Per-finding visual judgment (true/false/transient/page-error + root cause) | `review-mismatch` agent | ✅ yes — judgment pattern |
-| Per-page correction primitive | `classify-doc-page` skill + `record-classification --attachment-id --page --json` | ✅ yes |
-| Re-queue an attachment | `mark-pending --attachment-id …` (clears `attachment_state.classified_at` **and** its staging rows) | ✅ yes |
-| Roll-up + write analysis (atomic) | `apply-extractions` → `_merge_and_write` | ⚠️ scoping + safety gaps (§4) |
-| Rebuild global documents entity | `build-documents` (global, idempotent, prunes stale) | ✅ yes |
-| Refresh alerts | `analyze --periodo` (atomic delete+insert per period) | ✅ yes |
-| Verdict / audit bookkeeping | `record-verdict` + `<period>.verdicts.json` (improve-classification) | ◑ exists but models *code-fix* verdicts, not data corrections (§4.4) |
+| Capability                                                                 | Where                                                                                                                               | Reusable as-is?                                                      |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Scoped, read-only finding summary **with page image `read_path`s**         | `summarize_mismatches(..., attachment_ids=, entry_ids=)` → CLI `mismatches --attachment-id/--entry-id`; materializes images from R2 | ✅ yes — this is the evidence feed                                   |
+| Per-finding visual judgment (true/false/transient/page-error + root cause) | `review-mismatch` agent                                                                                                             | ✅ yes — judgment pattern                                            |
+| Per-page correction primitive                                              | `classify-doc-page` skill + `record-classification --attachment-id --page --json`                                                   | ✅ yes                                                               |
+| Re-queue an attachment                                                     | `mark-pending --attachment-id …` (clears `attachment_state.classified_at` **and** its staging rows)                                 | ✅ yes                                                               |
+| Roll-up + write analysis (atomic)                                          | `apply-extractions` → `_merge_and_write`                                                                                            | ⚠️ scoping + safety gaps (§4)                                        |
+| Rebuild global documents entity                                            | `build-documents` (global, idempotent, prunes stale)                                                                                | ✅ yes                                                               |
+| Refresh alerts                                                             | `analyze --periodo` (atomic delete+insert per period)                                                                               | ✅ yes                                                               |
+| Verdict / audit bookkeeping                                                | `record-verdict` + `<period>.verdicts.json` (improve-classification)                                                                | ◑ exists but models _code-fix_ verdicts, not data corrections (§4.4) |
 
 **Implication:** the read/evidence half of the agent needs almost nothing new. The gaps are all on the
 **write/correction** half and in **scoping/safety**.
@@ -85,28 +85,28 @@ and `_merge_and_write` **still writes it** — deleting the prior analysis + rec
 `classified_at`. So any pending attachment whose staging rows were already pruned (feature 035 prunes them
 after a successful apply) gets its **good analysis overwritten with an empty one**.
 
-**Root cause.** The two pipeline phases have *different* correct selection criteria, but `apply` borrows the
+**Root cause.** The two pipeline phases have _different_ correct selection criteria, but `apply` borrows the
 wrong one:
 
-| phase | "what to select" should be | uses today |
-|---|---|---|
-| `docs-plan` (what to **show vision**) | **pending** = `classified_at IS NULL` (+ `mark-pending` re-queue) | ✅ correct |
-| `apply` (what to **roll up**) | **what was actually classified** = has staging rows | ❌ borrows the pending plan |
+| phase                                 | "what to select" should be                                        | uses today                  |
+| ------------------------------------- | ----------------------------------------------------------------- | --------------------------- |
+| `docs-plan` (what to **show vision**) | **pending** = `classified_at IS NULL` (+ `mark-pending` re-queue) | ✅ correct                  |
+| `apply` (what to **roll up**)         | **what was actually classified** = has staging rows               | ❌ borrows the pending plan |
 
 **Change (single, minimal, no migration).** Make `apply` process **only the groups whose representative has
-staging rows** in `page_classifications`. This one change is both the safety guard *and* the scoping
+staging rows** in `page_classifications`. This one change is both the safety guard _and_ the scoping
 mechanism:
 
-- *Safety:* an attachment with no staging (a pruned bystander, or one whose vision step crashed before
+- _Safety:_ an attachment with no staging (a pruned bystander, or one whose vision step crashed before
   recording) is simply **not visited** — it stays pending and self-heals on a later real classification.
   Nothing is overwritten with an empty roll-up.
-- *Scoping:* you select an attachment for `apply` **by recording its staging** (`record-classification`).
+- _Scoping:_ you select an attachment for `apply` **by recording its staging** (`record-classification`).
   A targeted correction touches only what you recorded — no global pending mutation, no id flags.
-- *Group-aware:* key the check off the **group representative** (siblings carry no staging and inherit the
+- _Group-aware:_ key the check off the **group representative** (siblings carry no staging and inherit the
   rep's extraction via fan-out), not a naïve per-row staging filter.
 
 This is why it **eliminates the manual isolation step entirely**: in the manual fix the 12-page bystander
-had to have its stamp restored *only because* `apply` walked the pending plan. Staging-driven `apply` never
+had to have its stamp restored _only because_ `apply` walked the pending plan. Staging-driven `apply` never
 visits it. The problem stops existing rather than needing a workaround.
 
 `docs-plan`, the loader pending query, `mark-pending`, `classify-period`, and `improve-classification` keep
@@ -117,8 +117,8 @@ using `classified_at IS NULL` for the **vision** phase — unchanged. Only `appl
 > split `classified_at` (status) from a new selection flag and is well-aligned with feature 016, but it costs
 > a migration + refactoring every selection site + keeping two columns atomically coherent + a "who enqueues
 > new scrapes" decision — and it does **not** remove the empty-overwrite risk on its own (a flagged row with
-> no staging still clobbers, so you'd need this guard anyway). Its only unique benefit would be a *durable
-> queryable run-queue*, but the batch orchestrator's real queue is the **open-findings set**, already durable
+> no staging still clobbers, so you'd need this guard anyway). Its only unique benefit would be a _durable
+> queryable run-queue_, but the batch orchestrator's real queue is the **open-findings set**, already durable
 > and re-derivable on demand from `mismatches` (and self-shrinking as corrections land). "What will apply
 > touch?" stays inspectable here too: `SELECT DISTINCT attachment_id FROM page_classifications`. So the column
 > buys complexity without a benefit that matters here. **Not adopted.**
@@ -127,8 +127,8 @@ using `classified_at IS NULL` for the **vision** phase — unchanged. Only `appl
 
 ### 4.3 🟠 HIGH — a **document → attachment(s)** resolver
 
-The agent is handed a *document* id (that's what the UI/alert shows), but correction happens at the
-*attachment* level. A document is global and N:N with entries (`document_entries.source_attachment_id`).
+The agent is handed a _document_ id (that's what the UI/alert shows), but correction happens at the
+_attachment_ level. A document is global and N:N with entries (`document_entries.source_attachment_id`).
 There is no CLI that maps a document id to its source attachment ids today (the manual flow used raw SQL).
 
 **Change (small).** Either add `mismatches --document-id <id>` (expands to the doc's `attachment_ids` and
@@ -139,8 +139,8 @@ entry point and avoids ad-hoc SQL in the agent. (With 4.2, enqueueing the resolv
 
 ### 4.3 🟠 HIGH — a **document → attachment(s)** resolver
 
-The agent is handed a *document* id (that's what the UI/alert shows), but correction happens at the
-*attachment* level. A document is global and N:N with entries (`document_entries.source_attachment_id`).
+The agent is handed a _document_ id (that's what the UI/alert shows), but correction happens at the
+_attachment_ level. A document is global and N:N with entries (`document_entries.source_attachment_id`).
 There is no CLI that maps a document id to its source attachment ids today (the manual flow used raw SQL).
 
 **Change (small).** Either add `mismatches --document-id <id>` (expands to the doc's `attachment_ids` and
@@ -150,7 +150,7 @@ entry point and avoids ad-hoc SQL in the agent.
 
 ### 4.4 🟡 MEDIUM — a **data-correction verdict + audit trail** (distinct from the code-fix `false`)
 
-The existing verdict taxonomy (`review-mismatch`) is built for the *code-fix* loop: a `false` verdict →
+The existing verdict taxonomy (`review-mismatch`) is built for the _code-fix_ loop: a `false` verdict →
 `fix-mismatch` opens a **PR**. The new agent's correction is a **data re-classification**, not code. We need
 a first-class record of "this finding was auto-resolved as a false positive by re-classifying attachment X:
 `valor_total` 800→320, because page p1 reads 320 (PIX proof + ledger agree)". A human must be able to audit
@@ -173,9 +173,9 @@ requirement.
 ### 4.6 🟢 LOW — guardrails & ergonomics (mostly agent-prompt, some flow)
 
 - **Identity-key preservation (correctness).** The document key is `(numero_documento, cnpj_emitente)`.
-  To fix an *amount* misread, the agent MUST keep those stable so `total_value` is corrected **in place**;
-  changing them re-keys the document (prunes the old, spawns a new). Only change them when the *number/CNPJ
-  itself* is the misread. (Runbook Problem #4.)
+  To fix an _amount_ misread, the agent MUST keep those stable so `total_value` is corrected **in place**;
+  changing them re-keys the document (prunes the old, spawns a new). Only change them when the _number/CNPJ
+  itself_ is the misread. (Runbook Problem #4.)
 - **Image budget → fan-out.** A context exhausts ~18 page images (memory `analyze-docs-batch-size`). A batch
   orchestrator must fan out **one sub-agent per document** (like improve-classification fans out
   `review-mismatch`), not view all pages in one context.
@@ -191,9 +191,9 @@ requirement.
 ## 5. Relationship to `improve-classification` (don't reinvent or collide)
 
 `improve-classification` is **period-scoped** and treats a `false` mismatch as a **systematic code fault** →
-delegates `fix-mismatch` → opens a **human-gated PR** → re-queues → re-runs. Its "fix" changes *code*.
+delegates `fix-mismatch` → opens a **human-gated PR** → re-queues → re-runs. Its "fix" changes _code_.
 
-The new agent is **document/attachment-scoped** and its "fix" changes *data* (re-classification), with **no
+The new agent is **document/attachment-scoped** and its "fix" changes _data_ (re-classification), with **no
 PR**. The two are complementary, and the boundary between them is the single most important judgment the new
 agent makes:
 
@@ -208,9 +208,10 @@ finding →
 **Anti-pattern to avoid:** hand-correcting 100 documents one-by-one when the real cause is one systematic
 code bug. The agent must detect "same root cause across N findings" and escalate to a code fix rather than
 mass-papering data. (See `rollup-amount-false-positives.md` for exactly such a systematic class — those are
-*not* per-document data corrections.)
+_not_ per-document data corrections.)
 
 The new agent can be seen as a **lightweight, data-only sibling** of `improve-classification`:
+
 - shares: `review-mismatch`-style evidence+judgment, `mark-pending`/`apply`/`build-documents`/`analyze`.
 - differs: per-document scope, data-correction instead of PR, no `loop-state`/iteration/PR machinery.
 
@@ -237,7 +238,7 @@ Both are unblocked once §4.1 (safety) + §4.2/4.3 (scoping/resolver) land; §4.
 
 This is a **fraud/forgery audit tool**: hiding a real finding is far worse than leaving a false positive.
 
-1. **Evidence-bound only.** A correction is allowed *only* when the page legibly shows a value that
+1. **Evidence-bound only.** A correction is allowed _only_ when the page legibly shows a value that
    contradicts what the system recorded (page=320, recorded=800, and independent signals agree). No
    heuristic "make it match the ledger" — that would erase genuine discrepancies (cf. memory
    `vendor-cnpj-matching-unsafe`, and the false-negative caution in `rollup-amount-false-positives.md`).
@@ -262,7 +263,7 @@ This is a **fraud/forgery audit tool**: hiding a real finding is far worse than 
   → **Consequence:** the audit trail + reversibility (§4.4) and the post-correction verification (§7.6) are
   now **load-bearing, not optional** — they are the only safety net once a correction lands unreviewed.
   Treat §4.4 as 🔴 (promoted from 🟡): a correction MUST record `{attachment_id, page, field, from, to,
-  evidence_read_path, agent, timestamp}` to a durable, human-visible, reversible store before/with the write,
+evidence_read_path, agent, timestamp}` to a durable, human-visible, reversible store before/with the write,
   and the agent MUST re-verify (target cleared + no new finding) and roll back / flag if verification fails.
 
 - **Q3 (audit store) — still open:** reuse `<period>.verdicts.json` (new `resolution:"data-correction"`
@@ -274,16 +275,16 @@ This is a **fraud/forgery audit tool**: hiding a real finding is far worse than 
 
 ## 9. Summary of concrete changes
 
-| # | Change | Priority | Type |
-|---|---|---|---|
-| 4.1+4.2 | make `apply` **staging-driven** (process only groups whose rep has staging rows) — fixes safety **and** scoping in one change, **no schema/migration** | 🔴 blocking | safety+scoping, code |
-| 4.3 | document→attachment resolver (`mismatches --document-id` or `document-evidence`) | 🟠 high | ergonomics, code |
-| 4.4 | data-correction verdict + audit trail + reversibility | 🔴 blocking (full autonomy, D3) | auditability |
-| 4.5 | composite `reclassify --attachment-id` (safe ordering) | 🟡 medium | ergonomics |
-| 4.6 | guardrail/ergonomic notes (identity key, fan-out, remote, hooks, high-res) | 🟢 low | agent prompt |
-| 6 | `fix-document-findings` agent + `triage-false-positives` skill | — | new agents/skill |
-| 10 | **typed full-document transcription + deterministic interpretation** (see §10) | 🟠 high — companion | extraction refactor |
-| 11 | extract the **vision transcriber as a standalone, reusable module** (Claude API + structured output; own dep) — see §11 | 🟠 high — companion | architecture |
+| #       | Change                                                                                                                                                 | Priority                        | Type                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | -------------------- |
+| 4.1+4.2 | make `apply` **staging-driven** (process only groups whose rep has staging rows) — fixes safety **and** scoping in one change, **no schema/migration** | 🔴 blocking                     | safety+scoping, code |
+| 4.3     | document→attachment resolver (`mismatches --document-id` or `document-evidence`)                                                                       | 🟠 high                         | ergonomics, code     |
+| 4.4     | data-correction verdict + audit trail + reversibility                                                                                                  | 🔴 blocking (full autonomy, D3) | auditability         |
+| 4.5     | composite `reclassify --attachment-id` (safe ordering)                                                                                                 | 🟡 medium                       | ergonomics           |
+| 4.6     | guardrail/ergonomic notes (identity key, fan-out, remote, hooks, high-res)                                                                             | 🟢 low                          | agent prompt         |
+| 6       | `fix-document-findings` agent + `triage-false-positives` skill                                                                                         | —                               | new agents/skill     |
+| 10      | **typed full-document transcription + deterministic interpretation** (see §10)                                                                         | 🟠 high — companion             | extraction refactor  |
+| 11      | extract the **vision transcriber as a standalone, reusable module** (Claude API + structured output; own dep) — see §11                                | 🟠 high — companion             | architecture         |
 
 The read/evidence path needs **no** change. The whole feature hinges on the **§4.1+4.2 staging-driven
 `apply`** (one localized code change, no schema/migration — fixes both safety and scoping) plus the
@@ -295,31 +296,31 @@ and guardrails. **§10** is a larger companion refactor that multiplies the valu
 ## 10. Companion enhancement: typed full-document transcription + deterministic interpretation
 
 > Requested as an improvement to the extraction flow. Larger than §4–§7 and valuable on its own, but it
-> *strengthens* the triage agent (better evidence + a cheap correction path), so it lives here. May warrant
+> _strengthens_ the triage agent (better evidence + a cheap correction path), so it lives here. May warrant
 > its own `/speckit specify`.
 
 ### 10.1 The problem with today's extraction
 
-The vision step (`classify-doc-page`) is asked to both **read** the page *and* **interpret** it — to decide
+The vision step (`classify-doc-page`) is asked to both **read** the page _and_ **interpret** it — to decide
 "which number is the total," "which party is the issuer." It outputs a flat ~10-field object
 (`valor_total`, `cnpj_emitente`, …). Two failure modes follow directly:
 
 - **Interpretation errors become data errors.** The 757dedb0 bug (`valor_total` 800 vs the page's 320) was
-  the model picking the wrong number; the NFS-e *did* legibly show 320, the model just interpreted wrong.
+  the model picking the wrong number; the NFS-e _did_ legibly show 320, the model just interpreted wrong.
 - **Almost everything on the page is thrown away.** Real example — the DANFE on
   `dashboard/documents/8293d3db…` (`000006227`, AGUA MARINHA PISCINAS):
 
-  | the page contains | the flat extraction captured |
-  |---|---|
-  | 44-digit chave de acesso, série, natureza da operação, protocolo | — |
-  | emitente block (name, **CNPJ**, IE, address) | name **misread** ("AGUA **MORENA**"), **CNPJ = null** |
-  | destinatário (SÃO VICENTE HOME CLUB, CNPJ, address) | — |
-  | item table (código, descrição, NCM, CFOP, qty, unit price, ICMS) | — |
-  | totais (base ICMS, valor ICMS, vProd, **vNF = 2790,00**) | `valor_total: 2790` only |
-  | fatura / duplicatas (installments) | — |
+    | the page contains                                                | the flat extraction captured                          |
+    | ---------------------------------------------------------------- | ----------------------------------------------------- |
+    | 44-digit chave de acesso, série, natureza da operação, protocolo | —                                                     |
+    | emitente block (name, **CNPJ**, IE, address)                     | name **misread** ("AGUA **MORENA**"), **CNPJ = null** |
+    | destinatário (SÃO VICENTE HOME CLUB, CNPJ, address)              | —                                                     |
+    | item table (código, descrição, NCM, CFOP, qty, unit price, ICMS) | —                                                     |
+    | totais (base ICMS, valor ICMS, vProd, **vNF = 2790,00**)         | `valor_total: 2790` only                              |
+    | fatura / duplicatas (installments)                               | —                                                     |
 
-  So the "IA extraction" the UI shows (feature 048) is thin and even *wrong* on the issuer — the reviewer
-  can't see what the AI saw, which was the original complaint.
+    So the "IA extraction" the UI shows (feature 048) is thin and even _wrong_ on the issuer — the reviewer
+    can't see what the AI saw, which was the original complaint.
 
 ### 10.2 The change: transcribe into a typed schema, then derive deterministically
 
@@ -332,7 +333,7 @@ PAGE IMAGE ──vision (fuzzy)──▶  TYPED TRANSCRIPTION            ──d
 ```
 
 1. **Vision transcribes everything into a typed JSON keyed by document type.** The model first detects the
-   type (it already emits `papel_artefato` / `tipo_documento`), then fills that type's schema with *every*
+   type (it already emits `papel_artefato` / `tipo_documento`), then fills that type's schema with _every_
    field present on the page — it no longer decides what "the total" is, only records labeled values
    verbatim (e.g. NFS-e: `valores.valor_servico=320`, `valores.valor_liquido=320`, `retencoes.irrf=0`).
 2. **A deterministic, pure mapper per type derives the reconciliation fields** the pipeline needs
@@ -375,19 +376,19 @@ changes.
 
 ### 10.5 Why this multiplies the triage agent's value
 
-- **Better evidence.** The agent (and the human) judge against a *complete* typed transcription, not 5 flat
+- **Better evidence.** The agent (and the human) judge against a _complete_ typed transcription, not 5 flat
   fields — far fewer ambiguous calls.
-- **A new, cheap correction class — re-derive without re-vision.** If a finding is caused by the *mapper*
+- **A new, cheap correction class — re-derive without re-vision.** If a finding is caused by the _mapper_
   picking the wrong field (not a transcription error), fix the mapper once and **re-derive the reconciliation
-  fields from the stored transcriptions** — no image reads, no vision cost, and it corrects *every* document
+  fields from the stored transcriptions** — no image reads, no vision cost, and it corrects _every_ document
   of that type at once. This is strictly better than per-document re-classification for systematic cases, and
   refines the §5 decision tree into three branches:
 
-  ```
-  real disagreement on the page          → leave for human (true finding)
-  transcription itself is wrong (misread) → re-classify that one attachment (vision)   [§4 path]
-  transcription right, mapper wrong        → fix the deterministic mapper + RE-DERIVE   [new, cheap, systematic]
-  ```
+    ```
+    real disagreement on the page          → leave for human (true finding)
+    transcription itself is wrong (misread) → re-classify that one attachment (vision)   [§4 path]
+    transcription right, mapper wrong        → fix the deterministic mapper + RE-DERIVE   [new, cheap, systematic]
+    ```
 
 - **More precise corrections.** The agent's "record the verified value" (D2) becomes "correct the typed
   field" (e.g. set `emitente.nome = "AGUA MARINHA"`, add the missing `emitente.cnpj`); the mapper re-derives
@@ -402,7 +403,7 @@ changes.
 - **Schema/mapper/renderer maintenance** — a registry to keep current as new document shapes appear. The
   `outro` fallback ensures unknown types never block the pipeline.
 - **Type-detection errors** route to the wrong schema/mapper. Needs a confident-type gate + the ability to
-  *correct the type* (the triage agent can), and the generic fallback.
+  _correct the type_ (the triage agent can), and the generic fallback.
 - **Coexistence** of old flat records and new typed records during rollout (handled by `schema_version` +
   dual-path mapper/UI, or a re-classification campaign for high-value periods).
 
@@ -430,7 +431,7 @@ changes.
 - **It protects the stdlib-only invariant.** The `analysis` package is deliberately **stdlib-only**
   (CLAUDE.md). A transcriber that calls the Claude API needs the `anthropic` SDK + image handling — putting
   it in its **own** module keeps that dependency out of `analysis`, which keeps consuming pure typed JSON.
-- **It removes the orchestrator's image budget.** Today the *orchestrating agent itself* reads page images
+- **It removes the orchestrator's image budget.** Today the _orchestrating agent itself_ reads page images
   in-context (the ~18-image cumulative budget — memory `analyze-docs-batch-size`). If transcription is a
   script that calls the API per page, the orchestrator never loads an image into its own context — it shells
   out and gets JSON back. That budget constraint, and the per-context fan-out gymnastics, largely disappear.
@@ -453,7 +454,7 @@ transcriber imports `analysis`; the only contract between them is the typed-JSON
 
 The model call sits behind a **swappable backend** chosen by a prop (`backend: "cli" | "api"`), because the
 two have different sweet spots and the rest of the module doesn't care which ran. **Schema validation lives
-*above* the backend** — whichever backend returns the JSON, the module validates it against the §10 type
+_above_ the backend** — whichever backend returns the JSON, the module validates it against the §10 type
 schema itself — so the backends are freely interchangeable and the typed-JSON guarantee never depends on the
 backend.
 
@@ -461,16 +462,16 @@ Two backends:
 
 - **`cli` — shell out to `claude -p` (Claude Code, headless).** Reuses the existing **Claude Code login — no
   `ANTHROPIC_API_KEY`, no `anthropic` SDK dependency.** The subprocess reads the image and returns JSON (we
-  parse + validate it our side; the CLI doesn't *enforce* a schema). Because it runs in its **own subprocess
+  parse + validate it our side; the CLI doesn't _enforce_ a schema). Because it runs in its **own subprocess
   context**, it still keeps page images out of the orchestrator's budget (§11.1). Best for **per-document,
   on-demand** transcription — the triage agent's corrections.
 - **`api` — Anthropic Messages API via the `anthropic` SDK** (per the bundled `claude-api` skill — consult it
   when implementing). A request with an `image` block + `output_config: {format: {type: "json_schema",
-  schema}}` (via `messages.parse()`), so the typed shape is **enforced** at the wire, then validated again.
+schema}}` (via `messages.parse()`), so the typed shape is **enforced** at the wire, then validated again.
   Needs an `ANTHROPIC_API_KEY` + the SDK. Unlocks **Batch (50%) + prompt caching** (§11.5). Best for
   **bulk / production** transcription.
 
-*Schema constraints to respect on the `api` backend:* structured outputs allow objects/arrays/enums/`anyOf`/
+_Schema constraints to respect on the `api` backend:_ structured outputs allow objects/arrays/enums/`anyOf`/
 `$ref` and require `additionalProperties:false`, but **not** numeric/length bounds or recursion — the SDK
 strips unsupported keywords and validates them client-side, so keep the typed schemas within that subset
 (resolves T1: JSON Schema is both the prompt spec and the wire contract). The `cli` backend has no wire
@@ -490,11 +491,11 @@ either wraps this module or is retired in its favor; the orchestrator stops doin
 
 ### 11.4 What's reusable vs project-specific
 
-| Reusable (the module / future package) | Project-specific (stays in this repo) |
-|---|---|
-| `transcribe()` + CLI; the Claude API call; image handling | `record-classification` adapter; D1 staging write |
-| The typed per-type **schemas** (§10.3) | The **deterministic mappers** (§10.2) — *mostly* reusable (NF-e total = vNF is universal), but "which field SVHC reconciles on" is arguably app policy; start them app-side, extract later if a second consumer appears |
-| Prompt + model config per type | Roll-up into `attachment_analyses`, `build-documents`, alerts |
+| Reusable (the module / future package)                    | Project-specific (stays in this repo)                                                                                                                                                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transcribe()` + CLI; the Claude API call; image handling | `record-classification` adapter; D1 staging write                                                                                                                                                                       |
+| The typed per-type **schemas** (§10.3)                    | The **deterministic mappers** (§10.2) — _mostly_ reusable (NF-e total = vNF is universal), but "which field SVHC reconciles on" is arguably app policy; start them app-side, extract later if a second consumer appears |
+| Prompt + model config per type                            | Roll-up into `attachment_analyses`, `build-documents`, alerts                                                                                                                                                           |
 
 ### 11.5 High-volume transcription (bulk re-classification campaigns)
 
@@ -520,7 +521,7 @@ These two together make a full-corpus typed re-transcription affordable, which i
   `scripts/analysis`. Extractable to its own repo with no untangling.
 - Dependencies are **per-backend**: the `cli` backend needs only the `claude` binary on PATH (no Python
   dep); the `api` backend pulls in the `anthropic` SDK as an **optional extra** (e.g. `pip install
-  doc-transcribe[api]`). Either way the dependency stays out of the stdlib-only `analysis` pipeline.
+doc-transcribe[api]`). Either way the dependency stays out of the stdlib-only `analysis` pipeline.
 - Auth is **per-backend** too: `cli` uses the existing Claude Code login (nothing new); `api` reads
   `ANTHROPIC_API_KEY` from the environment (never committed) — same posture as every other secret here.
 
