@@ -52,10 +52,11 @@ What makes this different from the old `speckit-issue-loop` + `pr-review-loop`:
   `uv run --no-project python "$CLAUDE_PROJECT_DIR/$DECISION_SCRIPT" <subcommand> …` (never bare
   `python`/`python3` — repo convention).
 - `STATE_FILE`: `.cache/implement-loop/state.json` — written ONLY by the script; you never edit it.
-- `HEARTBEAT`: `.cache/implement-loop/heartbeat-<issue>` (developer, per-issue) and
-  `.cache/implement-loop/review-heartbeat-<pr>` (reviewer, per-PR). Each worker touches its own file
-  ~every 60s for its whole life; the script reads the age to tell whether that worker is alive.
-  Per-issue/per-PR (not one shared file) so a finished-but-stuck worker can't mask another.
+- **Liveness:** the script reads each worker's **harness transcript mtime**
+  (`~/.claude/projects/*/*/subagents/agent-<id>.jsonl`) — fresh = working, silent ≥20 min = dead/idle.
+  Workers do NOT maintain any heartbeat: a self-touched `while true; touch …` loop orphans (it
+  outlives the agent and lies "alive" forever — this was a real bug), whereas the transcript is
+  harness-owned and freezes when the agent stops.
 - `INTERVAL`: cron expression for the recurring pass. Default `*/14 * * * *` (~every 14 min).
   `--every <Nm>` overrides (e.g. `--every 10m` → `*/10 * * * *`).
 - `WORKER_PROMPT`: `templates/dispatch-prompt.md` — the per-issue task handed to a fresh developer.
@@ -103,6 +104,16 @@ renews it before the 7-day cron expiry:
 - With `--once`: do NOT arm — run a single pass, then remind the user they can start the standing
   loop with `/implement-loop`.
 
+**Reap orphaned timers.** Workers never start detached `while true; do touch …` loops (their liveness
+is their harness transcript), so any such loop that has reparented to init (`PPID 1`) is a timer a
+dead worker left behind and must be killed — otherwise it runs forever. Sweep them at the start of
+every pass (the `$2==1` filter targets only true orphans, so it can never kill this pass's own
+shell):
+
+```bash
+ps -eo pid,ppid,args | awk '$2==1 && /\.cache\/(implement-loop|pr-watcher)\/.*heartbeat/ {print $1}' | xargs -r kill 2>/dev/null || true
+```
+
 ## 1. Ask the script what to do (one call per pass)
 
 ```bash
@@ -110,11 +121,15 @@ uv run --no-project python "$CLAUDE_PROJECT_DIR/.claude/skills/implement-loop/sc
 ```
 
 It prints one JSON object: `{ "action": …, "report": […], "stop_agent": …, "stop_reviewer": …,
-"review": … }`. **Print the `report` lines** as the pass report. Then, in order:
+"review": … }`. **For observability, first echo the raw decision** — print the `action` + `reason`
+and any non-null `review` / `stop_agent` / `stop_reviewer` (one line, e.g.
+`decision: resume #84 — worker not running, issue still open — died; continue it`), THEN print the
+`report` lines. (Without this the run is opaque — you can't tell why a pass did nothing.) Then, in
+order:
 
 **First, honor any `stop_*` ids with `TaskStop`** — a background worker spawn is a `local_agent`
 task whose `task_id` IS the agent id the script returns, so `TaskStop(task_id=<id>)` is a guaranteed
-hard kill (no permission, no agent-teams flag). Killing a worker also stops its heartbeat loop.
+hard kill (no permission, no agent-teams flag).
 - `stop_agent`: a developer whose issue is now closed (work merged) but still alive — it finished but
   hung and never replied. (This is the fix for "the worker finished but the loop didn't proceed.")
 - `stop_reviewer`: a reviewer that is stale (the head moved under it), lingering (its head is now
@@ -131,7 +146,7 @@ hard kill (no permission, no agent-teams flag). Killing a worker also stops its 
   issue is still open — it died (or hung). Read `templates/catchup-prompt.md`, substitute
   `{{ISSUE_NUMBER}}` / `{{ISSUE_TITLE}}` / `{{BRANCH}}` / `{{PR}}`. Then:
   - **First reap the old worker**: `TaskStop(task_id=<agent>)` (harmless no-op if it's already gone)
-    so a hung-but-not-fully-dead worker can't linger or keep touching its heartbeat.
+    so a hung-but-not-fully-dead worker can't linger.
   - **Resume fast-path** (optional) — if `agent` is from THIS session and `SendMessage` is available
     (agent teams, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), `SendMessage` the substituted body to
     `agent` to continue in place (preserves its full context — a stopped subagent auto-resumes).

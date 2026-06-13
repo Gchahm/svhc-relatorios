@@ -55,6 +55,7 @@ The decision tree (matches the skill's Workflow):
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -63,12 +64,15 @@ import sys
 import time
 
 STATE_REL = ".cache/implement-loop/state.json"
-HEARTBEAT_DIR_REL = ".cache/implement-loop"
-# Per-ISSUE heartbeat (`heartbeat-<issue>`), NOT one shared file: a worker that finished but is
-# still alive/stuck must not keep the *next* issue's worker looking alive.
+# Liveness comes from each subagent's HARNESS-OWNED transcript mtime, NOT a self-touched heartbeat.
+# A heartbeat (a `while true; touch …` loop) orphans — it outlives the agent and lies "alive" forever
+# (observed in practice). The transcript `agent-<id>.jsonl` is written by the harness as the agent
+# works and freezes the moment it stops, so it can't be orphaned.
+_TRANSCRIPT_GLOB = "~/.claude/projects/*/*/subagents/agent-{id}.jsonl"
 
-GRACE_SECONDS = 180          # right after a spawn the worker is still arming — treat as alive
-HEARTBEAT_STALE_SECONDS = 300  # worker touches the heartbeat ~every 60s; 5 missed ticks = dead
+GRACE_SECONDS = 180          # right after a spawn the transcript may not exist yet — treat as alive
+AGENT_STALE_SECONDS = 1200   # transcript silent ≥20 min => dead/idle (tolerates a long single tool
+                             # call like a build; the pass interval is ~14 min)
 MAX_RESTARTS = 2             # resumes of one issue before we give up and surface an error
 
 _DEP_RE = re.compile(r"(?im)^\s*(?:depends on|blocked by)\s*#(\d+)\b")
@@ -157,36 +161,38 @@ def gh_last_reviewed_commit(number, login):
 
 # ---------------------------------------------------------------- liveness
 
-def _heartbeat_age(name):
-    try:
-        path = os.path.join(project_dir(), HEARTBEAT_DIR_REL, name)
-        return time.time() - os.stat(path).st_mtime
-    except OSError:
+def transcript_age(agent_id):
+    """Seconds since the subagent's transcript was last written, or None if no transcript exists.
+
+    The harness writes `agent-<id>.jsonl` as the subagent works (across any session of this project),
+    so a fresh mtime means it is actively working and a stale one means it has stopped. Unlike a
+    self-touched heartbeat, this cannot be orphaned.
+    """
+    if not agent_id:
         return None
+    paths = glob.glob(os.path.expanduser(_TRANSCRIPT_GLOB.format(id=agent_id)))
+    if not paths:
+        return None
+    return time.time() - max(os.stat(p).st_mtime for p in paths)
 
 
-def heartbeat_age(issue):
-    return _heartbeat_age(f"heartbeat-{issue}")
+def _alive(agent_id, spawned_at):
+    if agent_id is None:
+        return False
+    if time.time() - (spawned_at or 0) < GRACE_SECONDS:
+        return True  # just spawned — transcript may not exist yet
+    age = transcript_age(agent_id)
+    return age is not None and age < AGENT_STALE_SECONDS
 
 
 def agent_running(cw):
-    """Is the developer worker alive? Within the post-spawn grace window, or a fresh per-issue heartbeat."""
-    if cw.get("agent") is None:
-        return False  # already reaped this pass — don't keep "stopping" a cleared worker
-    if time.time() - (cw.get("spawned_at") or 0) < GRACE_SECONDS:
-        return True
-    age = heartbeat_age(cw.get("issue"))
-    return age is not None and age < HEARTBEAT_STALE_SECONDS
+    """Is the developer worker alive? (post-spawn grace, or a fresh transcript mtime)"""
+    return _alive(cw.get("agent"), cw.get("spawned_at"))
 
 
 def reviewer_running(cw):
-    """Is a reviewer worker alive for this PR? Grace window since spawn, or a fresh review heartbeat."""
-    if cw.get("reviewer_agent") is None:
-        return False
-    if time.time() - (cw.get("reviewer_spawned_at") or 0) < GRACE_SECONDS:
-        return True
-    age = _heartbeat_age(f"review-heartbeat-{cw.get('pr')}")
-    return age is not None and age < HEARTBEAT_STALE_SECONDS
+    """Is a reviewer worker alive for this PR? (post-spawn grace, or a fresh transcript mtime)"""
+    return _alive(cw.get("reviewer_agent"), cw.get("reviewer_spawned_at"))
 
 
 def compute_review(cw, rec, login):
@@ -341,8 +347,8 @@ def cmd_next(argv):
             if stop_reviewer and not (review and review.get("spawn")):
                 cw["reviewer_agent"] = cw["reviewer_spawned_at"] = cw["reviewer_head"] = None
             if agent_running(cw):
-                age = heartbeat_age(n)
-                hb = f"heartbeat {int(age)}s" if age is not None else "within grace"
+                age = transcript_age(cw.get("agent"))
+                hb = f"transcript {int(age)}s ago" if age is not None else "within grace"
                 save_state(state)
                 return emit({"action": "wait", "issue": n, "agent": cw["agent"], "pr": rec.get("pr"),
                              "reason": f"worker alive ({hb})", "review": review,

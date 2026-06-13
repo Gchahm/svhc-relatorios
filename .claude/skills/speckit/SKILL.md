@@ -68,10 +68,14 @@ glob `specs/<NNN>-*`, and list its contents to see which phases have run:
 
 Use this to suggest the next phase and to resume mid-workflow.
 
-## Memory
+## Memory (repo-specific — not shipped with the skill)
 
-The project constitution lives at `.claude/skills/speckit/memory/constitution.md`. The `analyze`
-and `plan` phases read it for principle validation; the `constitution` phase reads and overwrites it.
+This skill is **repo-agnostic**; everything project-specific is memory kept per-repo. The project
+constitution lives at `.claude/agent-memory/speckit/constitution.md` — the `analyze` and `plan`
+phases read it for principle validation, and the `constitution` phase creates/overwrites it (it also
+captures the project's *Running & Verifying the App* commands that the `pr` phase defers to). When
+you copy this skill into a new repo that file won't exist yet — run `speckit constitution` there to
+generate it for that project.
 
 ## Outputs (written to the repo, not the skill)
 

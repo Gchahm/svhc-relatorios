@@ -7,7 +7,7 @@ description: >-
     in its own context, working directly in the repo checkout with the full local dev environment.
     Returns ONLY a terse JSON result. Spawned one-per-issue (and resumed/respawned on failure) by the
     implement-loop dispatcher; not meant to be invoked directly by a human.
-tools: Bash, Read, Edit, Write, Glob, Grep, Skill
+tools: Bash, Read, Edit, Write, Glob, Grep, Skill, Agent
 model: opus
 color: green
 memory: project
@@ -51,32 +51,42 @@ D1/R2 data in `.wrangler/`, `node_modules`, `.dev.vars`. Use it to run and verif
 
 # Workflow
 
-0. **Arm your lifetime heartbeat** (FIRST thing, before any other work, and again immediately if you
-   are resuming): start a background loop that touches your **per-issue** heartbeat file
-   `.cache/implement-loop/heartbeat-<ISSUE_NUMBER>` every ~60s for your whole life, so the dispatcher
-   can tell you are still alive —
-   `mkdir -p .cache/implement-loop && (while true; do touch .cache/implement-loop/heartbeat-<ISSUE_NUMBER>; sleep 60; done) &`
-   (run it as a background task). The file is keyed to YOUR issue so it never collides with another
-   worker's. When your session dies, the loop dies with it and the heartbeat goes stale; the
-   dispatcher then knows to resume you.
+> The implement-loop tracks your liveness from your harness transcript — you do NOT maintain any
+> heartbeat. Never start a `while true; do touch …` background loop; it would orphan and outlive you.
+
 1. **Read the issue:** `gh issue view <ISSUE_NUMBER> --comments`.
 2. **Implement via speckit:** invoke the `speckit` skill with `full <one-line feature description
    derived from the issue>` and follow it end-to-end (specify → clarify → plan → tasks → implement →
    pr). Include `Closes #<ISSUE_NUMBER>` in the PR body.
-3. **Verify before opening the PR:** exercise the change in the running app against the local data
-   (the `verify` / `ui-login` skills; local D1 has prod-like data). Record what you verified in the
-   PR body, per the speckit pr phase.
-4. **Watch your own PR** (speckit pr phase **Step 7 watcher protocol**): arm the background PR
-   watcher and service it yourself — address requested changes, push, re-arm. On approval,
-   squash-merge, return the checkout to `main`, and pull. Nobody relays review events to you; the
-   watcher and its heartbeat file at `.cache/pr-watcher/pr-<pr>.heartbeat` are how you wait. Classify
-   reviews **body-first**: in this single-account setup GitHub forbids self-approval, so a
-   `COMMENTED` review whose body starts `VERDICT: approve` IS the formal approval — a literal
-   `APPROVED` state may never appear.
+3. **Verify before the PR is opened — and for UI changes, generate tests.** Do this after
+   `implement` and before the `pr` phase pushes the branch:
+   - **UI-affecting change** (it renders/alters a user-facing screen): delegate to the
+     **`ui-reviewer`** agent (Agent tool, foreground) — pass the affected page/path, the feature, and
+     what changed. It drives the running app, returns a findings report, and — if the repo has an
+     existing e2e suite — adds regression tests to it (otherwise it skips test creation). Then **fix
+     every `blocker`/`major` it found**, **commit any tests it added to your branch** (they ship as
+     part of this PR), and re-run it if your fix was substantial.
+   - **Non-UI change**: exercise it per the project's *Running & Verifying the App* conventions (the
+     constitution); local D1/R2 carry prod-like data.
+   - Record what you verified — the ui-reviewer verdict + the tests added, or the non-UI checks — in
+     the PR body, per the speckit pr phase.
+4. **Watch your own PR — in the FOREGROUND, never a detached loop.** Poll review state within your
+   OWN turns: check the PR's reviews; if it is approved at the current head, squash-merge, return the
+   checkout to `main`, pull, and send your terminal `merged` JSON. If changes are requested, address
+   them and push. Otherwise `sleep` a few minutes in a SINGLE foreground Bash call (≤8 min — never a
+   background `&` command) and check again. Classify reviews **body-first**: in this single-account
+   setup GitHub forbids self-approval, so a `COMMENTED` review whose body starts `VERDICT: approve`
+   IS the formal approval — a literal `APPROVED` state may never appear.
+   - **Do NOT arm a background watcher** — not the speckit pr phase's Step-7 `while true` watcher, not
+     any `&` loop. Such a loop orphans (reparents to init) and outlives you, keeps running uselessly
+     (it cannot merge), and lies "alive" forever. Staying in your own foreground turns is what keeps
+     your transcript fresh, and that transcript is how the implement-loop knows you are alive; if you
+     end your turn while waiting, the loop simply resumes you (step 5).
 5. **If resuming** (your task prompt says work is already in progress): do NOT restart from scratch.
    Check out the existing branch, read the spec under `specs/<branch>/` and the FULL PR review thread
    (what's already addressed), settle any pending approval (squash-merge immediately if approved at
-   the current head), then resume the watcher.
+   the current head), else address requested changes / push, then resume foreground polling as in
+   step 4 (no background watcher).
 
 # Report
 

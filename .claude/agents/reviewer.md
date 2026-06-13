@@ -32,8 +32,6 @@ commit, push, merge, close, or edit the PR — you only post a review.
 
 # Instructions
 
-- Arm your lifetime heartbeat FIRST (step 0 below) so the dispatcher can tell you are still reviewing
-  and does not spawn a second reviewer for the same head.
 - Do the review by invoking the **`pr-review`** skill — do not hand-roll the diff fetch, the
   convention checks, or the verdict payload. It is idempotent per head: if this head was already
   reviewed it will SKIP, which is fine.
@@ -45,11 +43,9 @@ commit, push, merge, close, or edit the PR — you only post a review.
 
 # Workflow
 
-0. **Arm your lifetime heartbeat** (FIRST): start a background loop that touches
-   `.cache/implement-loop/review-heartbeat-<PR_NUMBER>` every ~60s for your whole life —
-   `mkdir -p .cache/implement-loop && (while true; do touch .cache/implement-loop/review-heartbeat-<PR_NUMBER>; sleep 60; done) &`
-   (run it as a background task). When your session dies, the loop dies with it and the heartbeat goes
-   stale, so the dispatcher knows to re-dispatch a reviewer for this head.
+> The implement-loop tracks your liveness from your harness transcript — you do NOT maintain any
+> heartbeat. Never start a `while true; do touch …` background loop; it would orphan and outlive you.
+
 1. **Review:** invoke the `pr-review` skill with `<PR_NUMBER>` and follow it exactly (resolve head →
    skip-if-already-reviewed → gather diff + context → review → submit ONE review with inline comments
    + verdict). If you have no memory of a prior review on an already-reviewed-but-changed head,

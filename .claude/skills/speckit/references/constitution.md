@@ -8,13 +8,14 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-You are updating the project constitution at `.claude/skills/speckit/memory/constitution.md`. This file is a TEMPLATE containing placeholder tokens in square brackets (e.g. `[PROJECT_NAME]`, `[PRINCIPLE_1_NAME]`). Your job is to (a) collect/derive concrete values, (b) fill the template precisely, and (c) propagate any amendments across dependent artifacts.
+You are creating or updating the project constitution at `.claude/agent-memory/speckit/constitution.md`. This is the project's **repo-specific memory** — the speckit skill itself ships NO constitution (it is repo-agnostic); every repo keeps its own here. Your job is to (a) collect/derive concrete values for this project, (b) fill the constitution precisely, and (c) propagate any amendments across dependent artifacts.
 
 Follow this execution flow:
 
-1. Load the existing constitution template at `.claude/skills/speckit/memory/constitution.md`.
-   - Identify every placeholder token of the form `[ALL_CAPS_IDENTIFIER]`.
-   **IMPORTANT**: The user might require less or more principles than the ones used in the template. If a number is specified, respect that - follow the general template. You will update the doc accordingly.
+1. Load the existing constitution at `.claude/agent-memory/speckit/constitution.md`.
+   - **If the file does not exist yet (a fresh repo)**, create it: copy the placeholder skeleton from `.claude/skills/speckit/templates/constitution-template.md` to that path, then fill every `[ALL_CAPS_IDENTIFIER]` token with concrete values derived from the repo (`package.json` scripts / `Makefile` / `pyproject.toml` / `README` / CI config) and the user's input. (The template ships with the skill; the filled constitution lives in repo memory.)
+   - If it exists, identify every placeholder token of the form `[ALL_CAPS_IDENTIFIER]` and any stale values.
+   **IMPORTANT**: The user might require fewer or more principles than usual. If a number is specified, respect it. Adapt the section count accordingly.
 
 2. Collect/derive values for placeholders:
    - If user input (conversation) supplies a value, use it.
@@ -31,6 +32,7 @@ Follow this execution flow:
    - Preserve heading hierarchy and comments can be removed once replaced unless they still add clarifying guidance.
    - Ensure each Principle section: succinct name line, paragraph (or bullet list) capturing non‑negotiable rules, explicit rationale if not obvious.
    - Ensure Governance section lists amendment procedure, versioning policy, and compliance review expectations.
+   - **Ensure a "Running & Verifying the App" section** capturing the concrete, copy-pasteable commands an agent needs (derive them from the repo's `package.json` scripts / `Makefile` / `pyproject.toml` / `README` / CI): how to **start the app / dev server**, how to **exercise a change** against local or prod-like data (what surface, what data), and the **lint / format / test** commands to run before opening a PR. This is the project's verification knowledge — the repo-agnostic `speckit pr` phase defers to this section instead of hardcoding any command. (If this project uses a dedicated verification agent/skill, name it here.)
 
 4. Consistency propagation checklist (convert prior checklist into active validations):
    - Read `.claude/skills/speckit/templates/plan-template.md` and ensure any "Constitution Check" or rules align with updated principles.
@@ -53,7 +55,7 @@ Follow this execution flow:
    - Dates ISO format YYYY-MM-DD.
    - Principles are declarative, testable, and free of vague language ("should" → replace with MUST/SHOULD rationale where appropriate).
 
-7. Write the completed constitution back to `.claude/skills/speckit/memory/constitution.md` (overwrite).
+7. Write the completed constitution back to `.claude/agent-memory/speckit/constitution.md` (overwrite).
 
 8. Output a final summary to the user with:
    - New version and bump rationale.
@@ -71,4 +73,4 @@ If the user supplies partial updates (e.g., only one principle revision), still 
 
 If critical info missing (e.g., ratification date truly unknown), insert `TODO(<FIELD_NAME>): explanation` and include in the Sync Impact Report under deferred items.
 
-Do not create a new template; always operate on the existing `.claude/skills/speckit/memory/constitution.md` file.
+Operate on the file at `.claude/agent-memory/speckit/constitution.md`: update it in place if present, or create it there if absent. Never scatter copies into the skill folder or elsewhere — the speckit skill stays repo-agnostic; the constitution is per-repo memory.

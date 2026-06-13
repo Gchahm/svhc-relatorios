@@ -62,16 +62,16 @@ repo root, i.e. `<branch-name>/spec.md`).
 
 Example: `https://github.com/<org>/<repo>/tree/main/specs/001-short-name/spec.md`
 
-### Step 4: Verify in the running app (local data)
+### Step 4: Verify in the running app
 
-Before opening the PR, verify the change where it actually runs. The dev checkout carries prod-like
-local data (Miniflare D1/R2 under `.wrangler/`), so the feature can be exercised against real data
-shapes, not an empty database:
+Before opening the PR, verify the change where it actually runs — exercise the affected surface, not
+just unit tests. Use **this project's** run/verify conventions, which live in the constitution's
+**Running & Verifying the App** section (`.claude/agent-memory/speckit/constitution.md`) — this skill
+hardcodes no commands, so read them from there:
 
-- Start the app (`pnpm dev`) and drive the affected surface — the `verify` and `ui-login` skills
-  cover the auth-gated dashboard via the Playwright browser.
-- Exercise the feature with the local data (real entries/attachments/alerts), not synthetic input;
-  watch for errors in the dev server output while doing so.
+- Start the app / dev server as that section documents, drive the affected surface against local or
+  prod-like data (not synthetic input), and watch for errors. If the constitution names a dedicated
+  verification agent/skill for the app, use it.
 - Keep 1-3 bullets of *what you exercised and observed* — they go in the PR body (next step).
 - Only changes with no runtime surface (docs, CI, comments) may skip this; the PR body must then say
   `Verification: none — no runtime surface`.
@@ -116,87 +116,22 @@ Add user preference endpoints for theme and notification settings.
 - PR URL
 - Spec URL (for reference)
 
-### Step 7: Own the PR until merge (review follow-up protocol)
+### Step 7: Hand off — opening the PR ends this phase
 
-The agent context that opened the PR **owns it through merge**. Opening the PR is not the end of the
-feature — reviews come back, and you are the one with the spec, plan, and implementation in context,
-so you handle them here rather than letting a fresh agent rediscover everything.
+Opening the PR and reporting it (Step 6) is where the `pr` phase stops. **Reviewing, addressing
+review feedback, and merging are the caller's responsibility — not this skill's.** This keeps speckit
+repo-agnostic: it does not arm watchers, poll for reviews, touch heartbeat files, or merge.
 
-**How verdicts arrive — read the BODY, not just the state.** When the reviewer authors with the
-same GitHub account as this PR (the normal case for this repo's automation), GitHub forbids formal
-self-approval, so the verdict arrives as a **`COMMENTED` review whose body starts with
-`VERDICT: approve` or `VERDICT: request-changes`**. A review's `state` field alone is therefore
-meaningless here: a `COMMENTED` review is NEVER "not actionable" until you have read its body —
-dismissing it as informational is exactly how an approved PR ends up waiting forever. Classify every
-review body-first: `VERDICT: approve` ≡ `APPROVED`, `VERDICT: request-changes` ≡
-`CHANGES_REQUESTED`; only a body with no `VERDICT:` prefix is informational.
+- Under the **implement-loop**, the `developer` agent owns its PR through merge — it polls the PR in
+  the foreground, addresses the `reviewer` agent's requested changes, and squash-merges on approval.
+  That watch/merge protocol lives in the `developer` agent definition, not here.
+- Run standalone (a human invoked `/speckit pr`), the human reviews and merges.
 
-**Before arming any watcher, settle the existing thread.** On opening the PR, and on every re-arm or
-catch-up (a fresh context adopting an existing PR): list the reviews, classify them body-first as
-above, and if the latest verdict at the current head commit is an approval — **merge now**; if it is
-an unaddressed request-changes — address it now. Only arm the watcher when there is genuinely
-nothing pending. Never set `LAST_REVIEW_ID` past a review you have not classified and handled.
-
-**You watch the PR yourself.** After settling the thread, arm a background watcher (Bash with
-`run_in_background: true`) that polls the PR and exits when something needs you — when it exits you
-are re-invoked with its output in this same context. Do NOT rely on anyone relaying review events to
-you, and do not poll in the foreground:
-
-```bash
-# arm with run_in_background: true; LAST_REVIEW_ID = highest review id you have already handled (0 at start)
-PR=<n>; LAST_REVIEW_ID=<id>
-HB=".cache/pr-watcher/pr-$PR.heartbeat"; mkdir -p "$(dirname "$HB")"
-while true; do
-    touch "$HB"   # liveness heartbeat — orchestrators probe this file's age to see the PR is watched
-    STATE=$(gh pr view "$PR" --json state -q .state)
-    if [ "$STATE" != "OPEN" ]; then echo "EVENT: pr-state $STATE"; exit 0; fi
-    REVIEW=$(gh api "repos/{owner}/{repo}/pulls/$PR/reviews" --paginate \
-        --jq "[.[] | select(.id > $LAST_REVIEW_ID)] | last | select(. != null) | {id, state, body_head: (.body // \"\" | .[0:80])}")
-    if [ -n "$REVIEW" ]; then echo "EVENT: new-review $REVIEW"; exit 0; fi
-    sleep 90
-done
-```
-
-Note the watcher's first iteration checks immediately — if a review is already waiting unhandled
-(e.g. an approval landed while no watcher was armed), arming it wakes you right away to act on it.
-While you are awake servicing an event, the heartbeat naturally goes stale; that is fine — re-arm
-promptly when done (never leave the PR open with no watcher armed at the end of a turn).
-
-On each wake-up, handle the event and then **re-arm the watcher** (with the updated
-`LAST_REVIEW_ID`) unless the PR reached a terminal state — merged by you, or closed externally
-(`EVENT: pr-state MERGED|CLOSED`: stop, report, done). A direct follow-up message (from a human or
-an orchestrator) is handled exactly the same way as a watcher event. The event types:
-
-**Changes requested** (`new-review` with state `CHANGES_REQUESTED`, or a `COMMENTED` review whose
-body starts `VERDICT: request-changes`) — blocking inline comments:
-
-1. Fetch the review and its inline comments:
-   ```bash
-   gh api repos/{owner}/{repo}/pulls/<pr>/reviews
-   gh api repos/{owner}/{repo}/pulls/<pr>/comments
-   ```
-2. Address **every** blocking comment with commits on the same feature branch — fix it, or if you
-   believe the reviewer is wrong, don't change the code silently: reply on the comment thread with
-   your reasoning and let the next review round decide.
-3. Keep the spec in sync: if a fix changes behavior described in `specs/<branch>/spec.md`, update the
-   spec in the same push.
-4. Run the project's checks (`pnpm lint`, `pnpm format`, tests where they exist) before pushing.
-5. Push, reply to each inline comment with a one-liner on what changed, then **re-arm the watcher**
-   — the reviewer will re-review the new head and the watcher wakes you for the next verdict. Do not
-   echo diffs.
-
-**Approved (the go-ahead)** (`new-review` with state `APPROVED`, or a `COMMENTED` review whose body
-starts `VERDICT: approve`) — squash-merge and clean up:
-
-```bash
-gh pr merge <pr> --squash --delete-branch
-git checkout main && git pull
-```
-
-Verify any `Closes #<issue>` issue actually closed, then report `merged` — this is your terminal
-state; do not re-arm the watcher. Never merge before an explicit approval at the current head, and
-never dismiss or wait out a requested-changes review. (A `COMMENTED` review that carries no
-`VERDICT:` prefix is informational — note it and re-arm the watcher.)
+If you are a caller pushing a fix to an existing PR, two things are worth carrying over: classify
+reviews **body-first** — in a single-account setup GitHub forbids self-approval, so a `COMMENTED`
+review whose body starts `VERDICT: approve` IS an approval and `VERDICT: request-changes` IS a change
+request; the `state` field alone is not enough. And re-run the project's checks (the constitution's
+*Running & Verifying the App* section) before pushing.
 
 ### Error handling
 
