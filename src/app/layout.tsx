@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { getLocale, t } from "@/lib/i18n";
 import { LocaleProvider } from "@/lib/i18n/client";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,9 +28,11 @@ export default function RootLayout({
     const locale = getLocale();
 
     return (
-        <html lang={locale}>
+        <html lang={locale} suppressHydrationWarning>
             <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-                <LocaleProvider locale={locale}>{children}</LocaleProvider>
+                <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                    <LocaleProvider locale={locale}>{children}</LocaleProvider>
+                </ThemeProvider>
             </body>
         </html>
     );

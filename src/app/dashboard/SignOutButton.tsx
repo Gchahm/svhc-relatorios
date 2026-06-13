@@ -70,7 +70,7 @@ export default function SignOutButton() {
             >
                 {isLoading || isPending ? t("auth.signing_out") : t("auth.sign_out")}
             </Button>
-            {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
+            {error && <p className="text-red-500 dark:text-red-400 text-sm text-center mt-2">{error}</p>}
         </div>
     );
 }

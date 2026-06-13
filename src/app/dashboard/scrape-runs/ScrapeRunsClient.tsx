@@ -26,21 +26,30 @@ function StatusBadge({ status }: { status: string }) {
     const t = useTranslation();
     if (status === "success") {
         return (
-            <Badge className="bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
+            <Badge
+                className="bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 border-green-300 dark:border-green-800 hover:bg-green-100"
+                variant="outline"
+            >
                 {t("runs.status_success")}
             </Badge>
         );
     }
     if (status === "error") {
         return (
-            <Badge className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100" variant="outline">
+            <Badge
+                className="bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 border-red-300 dark:border-red-800 hover:bg-red-100"
+                variant="outline"
+            >
                 {t("runs.status_error")}
             </Badge>
         );
     }
     if (status === "running") {
         return (
-            <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-100" variant="outline">
+            <Badge
+                className="bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-100"
+                variant="outline"
+            >
                 {t("runs.status_running")}
             </Badge>
         );
@@ -81,7 +90,7 @@ export default function ScrapeRunsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -91,21 +100,21 @@ export default function ScrapeRunsClient() {
     return (
         <div className="flex-1 flex flex-col min-h-0 gap-4">
             {missingPeriods.length > 0 && (
-                <Card className="border-yellow-300 bg-yellow-50">
+                <Card className="border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-950/40">
                     <CardHeader className="pb-2">
-                        <CardTitle className="flex items-center gap-2 text-base text-yellow-800">
+                        <CardTitle className="flex items-center gap-2 text-base text-yellow-800 dark:text-yellow-300">
                             <AlertTriangle className="h-4 w-4" />
                             {t("runs.missing_title")}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-yellow-700 mb-2">{t("runs.missing_message")}</p>
+                        <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">{t("runs.missing_message")}</p>
                         <div className="flex flex-wrap gap-2">
                             {missingPeriods.map(period => (
                                 <Badge
                                     key={period}
                                     variant="outline"
-                                    className="border-yellow-400 text-yellow-800 bg-yellow-100"
+                                    className="border-yellow-400 dark:border-yellow-700 text-yellow-800 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/40"
                                 >
                                     {period}
                                 </Badge>

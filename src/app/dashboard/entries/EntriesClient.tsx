@@ -52,7 +52,10 @@ function MatchCell({ match }: { match: boolean | null | undefined }) {
     }
     if (match) {
         return (
-            <Badge variant="outline" className="border-green-400 text-green-700 text-[10px] px-1 py-0">
+            <Badge
+                variant="outline"
+                className="border-green-400 dark:border-green-700 text-green-700 dark:text-green-400 text-[10px] px-1 py-0"
+            >
                 ✓
             </Badge>
         );
@@ -346,7 +349,7 @@ export default function EntriesClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -439,10 +442,16 @@ export default function EntriesClient() {
                             </span>
                             {!loading && (
                                 <>
-                                    <Badge variant="outline" className="text-green-700 border-green-300">
+                                    <Badge
+                                        variant="outline"
+                                        className="text-green-700 dark:text-green-400 border-green-300 dark:border-green-800"
+                                    >
                                         {t("summary.revenue")}: {formatCurrency(totals.revenue, locale)}
                                     </Badge>
-                                    <Badge variant="outline" className="text-red-700 border-red-300">
+                                    <Badge
+                                        variant="outline"
+                                        className="text-red-700 dark:text-red-400 border-red-300 dark:border-red-800"
+                                    >
                                         {t("summary.expenses")}: {formatCurrency(totals.expenses, locale)}
                                     </Badge>
                                     <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
@@ -465,7 +474,10 @@ export default function EntriesClient() {
                                                 </Badge>
                                             )}
                                             {docSummary.dateBad > 0 && (
-                                                <Badge variant="outline" className="border-yellow-400 text-yellow-700">
+                                                <Badge
+                                                    variant="outline"
+                                                    className="border-yellow-400 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300"
+                                                >
                                                     {docSummary.dateBad} {t("match.date")}
                                                 </Badge>
                                             )}
@@ -483,7 +495,7 @@ export default function EntriesClient() {
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0 pt-0">
                     {deepLinkNotice && (
-                        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
                             <span className="flex-1">
                                 {deepLinkNotice.kind === "invalid" ? (
                                     <>{t("notice.deeplink_invalid")}</>
@@ -499,7 +511,7 @@ export default function EntriesClient() {
                                 type="button"
                                 aria-label={t("action.dismiss")}
                                 onClick={() => setDeepLinkNotice(null)}
-                                className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
+                                className="shrink-0 rounded p-0.5 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
                             >
                                 <X className="h-4 w-4" />
                             </button>
@@ -589,7 +601,7 @@ export default function EntriesClient() {
                                             key={entry.id}
                                             className={`flex items-center border-b border-border/50 hover:bg-muted/30 text-sm absolute w-full ${
                                                 analysis ? "cursor-pointer" : ""
-                                            } ${isHighlighted ? "bg-yellow-100 ring-1 ring-inset ring-yellow-400" : ""}`}
+                                            } ${isHighlighted ? "bg-yellow-100 dark:bg-yellow-900/40 ring-1 ring-inset ring-yellow-400 dark:ring-yellow-600" : ""}`}
                                             style={{
                                                 height: `${virtualRow.size}px`,
                                                 transform: `translateY(${virtualRow.start}px)`,
@@ -626,7 +638,9 @@ export default function EntriesClient() {
                                             </div>
                                             <div
                                                 className={`w-[64px] px-2 shrink-0 truncate text-xs ${
-                                                    analysis?.error ? "text-red-600" : "text-muted-foreground"
+                                                    analysis?.error
+                                                        ? "text-red-600 dark:text-red-400"
+                                                        : "text-muted-foreground"
                                                 }`}
                                                 title={docLabel || undefined}
                                             >
@@ -643,7 +657,9 @@ export default function EntriesClient() {
                                             </div>
                                             <div
                                                 className={`w-[110px] px-2 shrink-0 text-right tabular-nums ${
-                                                    entry.movementType === "D" ? "text-red-600" : "text-green-600"
+                                                    entry.movementType === "D"
+                                                        ? "text-red-600 dark:text-red-400"
+                                                        : "text-green-600 dark:text-green-400"
                                                 }`}
                                             >
                                                 {formatCurrency(entry.amount, locale)}

@@ -109,7 +109,7 @@ function RecordValues({
             return (
                 <div className="space-y-1">
                     {record.parseError && (
-                        <p className="text-xs text-red-600">
+                        <p className="text-xs text-red-600 dark:text-red-400">
                             {t("analysis.parse_error_prefix")} {record.parseError}
                         </p>
                     )}
@@ -234,7 +234,7 @@ export default function AttachmentAnalysisDetailDialog({
                     <div className="space-y-6">
                         {/* Processing error */}
                         {analysis.error && (
-                            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                            <div className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-400">
                                 <span className="font-medium">{t("analysis.processing_error")}</span> {analysis.error}
                             </div>
                         )}
@@ -287,7 +287,10 @@ export default function AttachmentAnalysisDetailDialog({
                                 <MatchPill label={t("analysis.match_vendor")} match={analysis.vendorMatch} t={t} />
                                 <MatchPill label={t("analysis.match_date")} match={analysis.dateMatch} t={t} />
                                 {reconciledAgainstPayment && (
-                                    <Badge variant="outline" className="border-blue-400 text-blue-700 text-[10px]">
+                                    <Badge
+                                        variant="outline"
+                                        className="border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-400 text-[10px]"
+                                    >
                                         {t("analysis.reconciled_vs_payment")}
                                     </Badge>
                                 )}
@@ -299,7 +302,7 @@ export default function AttachmentAnalysisDetailDialog({
                             <h3 className="text-sm font-semibold">{t("analysis.section_pages")}</h3>
                             {loading && <p className="text-sm text-muted-foreground">{t("detail.loading")}</p>}
                             {error && (
-                                <p className="text-sm text-red-600">
+                                <p className="text-sm text-red-600 dark:text-red-400">
                                     {t("detail.error_prefix")} {t("error.loading_failed")}
                                 </p>
                             )}
@@ -367,7 +370,10 @@ function MatchPill({ label, match, t }: { label: string; match: boolean | null; 
     }
     if (match) {
         return (
-            <Badge variant="outline" className="border-green-400 text-green-700 text-[10px]">
+            <Badge
+                variant="outline"
+                className="border-green-400 dark:border-green-700 text-green-700 dark:text-green-400 text-[10px]"
+            >
                 {label}: {t("analysis.match_ok")}
             </Badge>
         );

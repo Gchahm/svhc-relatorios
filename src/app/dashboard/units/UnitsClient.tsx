@@ -105,7 +105,7 @@ export default function UnitsClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>

@@ -107,7 +107,7 @@ export default function SummaryClient() {
     if (error) {
         return (
             <Card>
-                <CardContent className="py-12 text-center text-red-500">
+                <CardContent className="py-12 text-center text-red-500 dark:text-red-400">
                     {t("error.generic_prefix")}: {error}
                 </CardContent>
             </Card>
@@ -182,10 +182,16 @@ export default function SummaryClient() {
                             </span>
                             {!loading && (
                                 <>
-                                    <Badge variant="outline" className="text-green-700 border-green-300">
+                                    <Badge
+                                        variant="outline"
+                                        className="text-green-700 dark:text-green-400 border-green-300 dark:border-green-800"
+                                    >
                                         {t("summary.revenue")}: {formatCurrency(totals.revenue, locale)}
                                     </Badge>
-                                    <Badge variant="outline" className="text-red-700 border-red-300">
+                                    <Badge
+                                        variant="outline"
+                                        className="text-red-700 dark:text-red-400 border-red-300 dark:border-red-800"
+                                    >
                                         {t("summary.expenses")}: {formatCurrency(totals.expenses, locale)}
                                     </Badge>
                                     <Badge variant={totals.net >= 0 ? "secondary" : "destructive"}>
@@ -279,7 +285,9 @@ export default function SummaryClient() {
                                             </div>
                                             <div
                                                 className={`w-[120px] px-3 shrink-0 text-right tabular-nums ${
-                                                    row.movementType === "D" ? "text-red-600" : "text-green-600"
+                                                    row.movementType === "D"
+                                                        ? "text-red-600 dark:text-red-400"
+                                                        : "text-green-600 dark:text-green-400"
                                                 }`}
                                             >
                                                 {formatCurrency(row.total, locale)}

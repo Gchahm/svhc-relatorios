@@ -13,14 +13,20 @@ export function StatusBadge({ status }: { status: DocumentStatus }) {
     if (status === "over") return <Badge variant="destructive">{label}</Badge>;
     if (status === "within") {
         return (
-            <Badge variant="outline" className="border-green-400 text-green-700">
+            <Badge
+                variant="outline"
+                className="border-green-400 dark:border-green-700 text-green-700 dark:text-green-400"
+            >
                 {label}
             </Badge>
         );
     }
     if (status === "under") {
         return (
-            <Badge variant="outline" className="border-yellow-400 text-yellow-700">
+            <Badge
+                variant="outline"
+                className="border-yellow-400 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300"
+            >
                 {label}
             </Badge>
         );

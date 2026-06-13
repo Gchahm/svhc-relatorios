@@ -48,7 +48,7 @@ export default function UserMenu({ name, email }: UserMenuProps) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1.5 text-sm text-gray-600 h-8">
+                <Button variant="ghost" size="sm" className="gap-1.5 text-sm text-muted-foreground h-8">
                     <User className="h-3.5 w-3.5" />
                     {name}
                 </Button>
@@ -59,7 +59,11 @@ export default function UserMenu({ name, email }: UserMenuProps) {
                     <p className="text-xs text-muted-foreground truncate">{email}</p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut} disabled={isLoading} className="text-red-600 cursor-pointer">
+                <DropdownMenuItem
+                    onClick={handleSignOut}
+                    disabled={isLoading}
+                    className="text-red-600 dark:text-red-400 cursor-pointer"
+                >
                     <LogOut className="h-3.5 w-3.5 mr-2" />
                     {isLoading ? t("auth.signing_out") : t("auth.sign_out")}
                 </DropdownMenuItem>
