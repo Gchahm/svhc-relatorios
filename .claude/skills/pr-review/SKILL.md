@@ -5,9 +5,10 @@ description: >-
     correctness, project-convention, and security problems, post inline comments on the exact lines that
     require fixes, and submit a verdict — REQUEST_CHANGES when fixes are needed, or APPROVE with an
     explicit go-ahead to merge when the PR is clean. Idempotent per head commit: it skips a PR whose
-    current head it has already reviewed. Use when asked to "review PR #N", "re-review this PR after my
-    push", or when invoked by the pr-review-loop orchestrator.
-argument-hint: "<pr-number> [--repo owner/name]"
+    current head it has already reviewed. Always targets this repository (svhc-relatorios) — it never
+    reviews another repo. Use when asked to "review PR #N", "re-review this PR after my push", or when
+    invoked by the pr-review-loop orchestrator.
+argument-hint: "<pr-number>"
 allowed-tools: Bash, Read, Grep, Glob
 model: opus
 hooks:
@@ -26,10 +27,9 @@ one-line verdict so an orchestrator can collect it cheaply.
 
 # Input
 
-`$ARGUMENTS`: a PR number (required, first token). Optionally `--repo owner/name` to target another
-repo; otherwise use the repo of the current directory. All `gh` calls below use `{owner}/{repo}`
-placeholders, which `gh api` resolves from the current repo — add `-R <owner/name>` / explicit
-placeholders when `--repo` was passed.
+`$ARGUMENTS`: a PR number (required, first token). The skill always operates on **this repository**
+(the repo of the current directory) — there is no option to target another repo. All `gh` calls below
+use `{owner}/{repo}` placeholders, which `gh api` resolves from the current repo.
 
 # Steps
 

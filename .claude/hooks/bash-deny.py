@@ -47,6 +47,24 @@ PROFILES = {
             "the loop never reads review state (reviewDecision/reviews) — the worker watches its own PR; check only state/mergedAt",
         ),
     ],
+    "implement-orchestrator": [
+        # Like issue-orchestrator (the loop owns no code, no PR mutations, no working tree) BUT it
+        # MAY read review state, because this loop also dispatches the reviewer and must know whether
+        # the current head has been reviewed yet. So: block diffs, PR mutations, working-tree git,
+        # and POSTing reviews — but allow GET on reviews and `gh pr view`.
+        (
+            r"\bgh\s+pr\s+(diff|merge|close|review|edit)\b",
+            "the loop never reads diffs or mutates PRs — the developer worker owns its PR",
+        ),
+        (
+            r"\bgit\s+(push|commit|merge|rebase|checkout|switch|reset)\b",
+            "the loop never touches the working tree or the remote — implementation lives in the workers",
+        ),
+        (
+            _POST_REVIEWS,
+            "the loop never posts reviews — the reviewer worker does; the loop only reads review state",
+        ),
+    ],
     "reviewer": [
         (
             r"\bgh\s+pr\s+(merge|close|edit|ready)\b",

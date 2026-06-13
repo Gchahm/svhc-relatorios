@@ -12,35 +12,45 @@ Subcommands
 -----------
   next [scope-args...]            Reconcile with GitHub + decide. Prints one JSON object:
                                   {"action": <action>, "report": [<line>, ...], ...fields}.
-  dispatched --issue N --agent ID Record a freshly spawned worker as current_work.
-  resumed --agent ID              Record a resumed/respawned worker (resets the liveness clock,
+  dispatched --issue N --agent ID Record a freshly spawned developer as current_work.
+  resumed --agent ID              Record a resumed/respawned developer (resets the liveness clock,
                                   increments the restart counter).
+  review-dispatched --agent ID --head SHA
+                                  Record a reviewer the orchestrator just spawned for the PR head.
 
-Actions returned by `next`
---------------------------
+Actions returned by `next` (the DEVELOPER track) — ONE call per pass
+--------------------------------------------------------------------
   dispatch  Spawn a new `developer` worker for {issue,title} (use templates/dispatch-prompt.md).
-  resume    The current worker is not running but its issue is still open — it died; continue it
+  resume    The developer is not running but its issue is still open — it died; continue it
             (use templates/catchup-prompt.md), in place via SendMessage or via a fresh spawn.
-  wait      A worker is alive, OR the next issue is dependency-blocked — do nothing this pass.
+  wait      A developer is alive, OR the next issue is dependency-blocked — nothing to dispatch.
   done      Every scoped issue is terminal — disarm the loop (CronDelete).
   error     The current issue exceeded the restart cap — surface it; current_work is cleared so the
             next pass moves on.
 
-Any action may also carry a "stop_agent": <id> field: a worker whose issue is now closed (work
-done) but that still looks alive — i.e. it finished the merge but is stuck and never returned its
-terminal reply. The orchestrator must STOP that worker before acting (TaskStop with this id — a
-background developer spawn is a `local_agent` task whose task_id IS its agent id), so a zombie can't
-linger.
+Extra fields any action may also carry (the REVIEWER track + cleanup), handled before/around the
+developer action in the SAME pass (so the loop stays one `next` call per pass):
+  "stop_agent": <id>      A developer whose issue is now closed (work done) but still alive — i.e. it
+                          finished the merge but is stuck and never replied. TaskStop it (a background
+                          worker spawn is a `local_agent` task whose task_id IS its agent id) so the
+                          zombie can't linger.
+  "stop_reviewer": <id>   A reviewer to TaskStop: a stale reviewer on an old head, a lingering one
+                          whose head is now reviewed, or an orphaned one (issue closed / dev errored).
+  "review": {"spawn": true, "pr": N, "head": SHA, "issue": N}
+                          The PR's current head has NOT been reviewed and no reviewer is alive on it —
+                          spawn a `reviewer` worker (use templates/review-prompt.md), then record it
+                          with `review-dispatched`. GitHub is ground truth for "reviewed at head"
+                          (my last review's commit_id vs headRefOid), so this needs no completion
+                          tracking — only reviewer liveness, to avoid double-spawning.
 
 The decision tree (matches the skill's Workflow):
   current_work?
     no  -> pick next eligible issue (dependency gate + scope order) -> dispatch | wait | done
-    yes -> issue closed (PR merged)? -> clear current_work; if the worker still looks alive, return
-                                        its id as stop_agent; then dispatch the next | done | wait.
-                                        (Closed WINS over agent-alive: a stuck worker never stalls
-                                        the loop.)
-           else agent running?       -> wait
-           else (died, issue open)   -> resume   (or error past the restart cap)
+    yes -> issue closed (PR merged)? -> clear current_work; reap still-alive workers via stop_agent /
+                                        stop_reviewer; then dispatch the next | done | wait.
+                                        (Closed WINS over agent-alive: a stuck worker never stalls it.)
+           else -> reviewer track (review / stop_reviewer) + developer track (wait | resume | error),
+                   both folded onto the one returned action.
 """
 
 import argparse
@@ -113,22 +123,94 @@ def gh_issue_closed(number):
     return (data.get("state") or "").upper() == "CLOSED"
 
 
+def gh_pr_open_head(number):
+    """The PR's current head commit if it is OPEN, else None (closed/merged/gh failure)."""
+    data = gh_json(["pr", "view", str(number), "--json", "number,state,headRefOid"])
+    if not data or (data.get("state") or "").upper() != "OPEN":
+        return None
+    return data.get("headRefOid")
+
+
+def _gh_scalar(args):
+    """Run a gh command whose --jq yields a bare scalar; return the stripped string or None."""
+    try:
+        proc = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return (proc.stdout or "").strip() or None
+
+
+def gh_my_login():
+    return _gh_scalar(["api", "user", "--jq", ".login"])
+
+
+def gh_last_reviewed_commit(number, login):
+    """The head commit of my most recent review on the PR (the pr-review-loop idempotency check)."""
+    if not login:
+        return None
+    return _gh_scalar(["api", f"repos/{{owner}}/{{repo}}/pulls/{number}/reviews", "--paginate",
+                       "--jq", f'[.[] | select(.user.login=="{login}")] | last | .commit_id'])
+
+
 # ---------------------------------------------------------------- liveness
 
-def heartbeat_age(issue):
+def _heartbeat_age(name):
     try:
-        path = os.path.join(project_dir(), HEARTBEAT_DIR_REL, f"heartbeat-{issue}")
+        path = os.path.join(project_dir(), HEARTBEAT_DIR_REL, name)
         return time.time() - os.stat(path).st_mtime
     except OSError:
         return None
 
 
+def heartbeat_age(issue):
+    return _heartbeat_age(f"heartbeat-{issue}")
+
+
 def agent_running(cw):
-    """Is the current worker alive? Within the post-spawn grace window, or a fresh per-issue heartbeat."""
+    """Is the developer worker alive? Within the post-spawn grace window, or a fresh per-issue heartbeat."""
+    if cw.get("agent") is None:
+        return False  # already reaped this pass — don't keep "stopping" a cleared worker
     if time.time() - (cw.get("spawned_at") or 0) < GRACE_SECONDS:
         return True
     age = heartbeat_age(cw.get("issue"))
     return age is not None and age < HEARTBEAT_STALE_SECONDS
+
+
+def reviewer_running(cw):
+    """Is a reviewer worker alive for this PR? Grace window since spawn, or a fresh review heartbeat."""
+    if cw.get("reviewer_agent") is None:
+        return False
+    if time.time() - (cw.get("reviewer_spawned_at") or 0) < GRACE_SECONDS:
+        return True
+    age = _heartbeat_age(f"review-heartbeat-{cw.get('pr')}")
+    return age is not None and age < HEARTBEAT_STALE_SECONDS
+
+
+def compute_review(cw, rec, login):
+    """Decide the reviewer directive for the in-flight issue's PR.
+
+    Returns (review, stop_reviewer): `review` is {"spawn", "pr", "head", "issue"} when a reviewer
+    should be (re)dispatched, else None; `stop_reviewer` is an agent id to TaskStop (a stale reviewer
+    on an old head, or a lingering reviewer whose head is now reviewed), else None.
+    """
+    pr = cw.get("pr") or rec.get("pr")
+    if not pr:
+        return None, None  # developer still building — no PR to review yet
+    head = gh_pr_open_head(pr)
+    if not head:
+        return None, None  # PR not open, or gh failed — decide nothing this pass
+    needs_review = gh_last_reviewed_commit(pr, login) != head
+    alive = reviewer_running(cw)
+    rev_head = cw.get("reviewer_head")
+    if needs_review:
+        if alive and rev_head == head:
+            return None, None  # a reviewer is already on this exact head — let it finish
+        stop = cw.get("reviewer_agent") if alive else None  # stale reviewer on an old head
+        return {"spawn": True, "pr": pr, "head": head, "issue": cw["issue"]}, stop
+    # head already reviewed -> no reviewer needed; reap a lingering one
+    return None, (cw.get("reviewer_agent") if alive else None)
 
 
 # ---------------------------------------------------------------- scope helpers
@@ -222,13 +304,15 @@ def cmd_next(argv):
         if pr:
             rec["pr"] = pr["number"]
             rec["branch"] = pr["headRefName"]
-            if rec["status"] == "queued":
+            if rec["status"] in ("queued", "building"):
                 rec["status"] = "in-review"
         if n not in open_by_num and rec["status"] != "error":
             rec["status"] = "merged" if rec.get("pr") else "closed"
 
     cw = state.get("current_work")
-    stop_agent = None  # a finished worker (issue closed) still running — orchestrator must stop it
+    stop_agent = None     # a finished developer (issue closed) still running — orchestrator stops it
+    stop_reviewer = None  # a stale/lingering reviewer to TaskStop
+    review = None         # a {"spawn", "pr", "head", "issue"} reviewer directive
 
     # ---- branch 1: a worker owns an issue ----
     if cw:
@@ -238,30 +322,41 @@ def cmd_next(argv):
         if closed is None:
             closed = n not in open_by_num  # fall back to the open-list snapshot
         if closed:
-            # The issue is closed (PR merged) -> the work is DONE, regardless of the worker. This
-            # wins over the agent-alive check: a worker that finished but is stuck (never returns
-            # its terminal reply) must not stall the loop. If it still looks alive, hand its id back
-            # as stop_agent so the orchestrator stops the zombie before moving on.
+            # The issue is closed (PR merged) -> the work is DONE, regardless of the workers. This
+            # wins over the agent-alive check: a developer that finished but is stuck (never returns
+            # its terminal reply) must not stall the loop. Hand back any still-alive worker id so the
+            # orchestrator stops the zombie(s) before moving on.
             rec["status"] = "merged" if rec.get("pr") else "closed"
             if agent_running(cw):
                 stop_agent = cw.get("agent")
+            if reviewer_running(cw):
+                stop_reviewer = cw.get("reviewer_agent")
             state["current_work"] = None  # fall through to dispatch the next issue
             cw = None
-        elif agent_running(cw):
-            age = heartbeat_age(n)
-            hb = f"heartbeat {int(age)}s" if age is not None else "within grace"
-            save_state(state)
-            return emit({"action": "wait", "issue": n, "agent": cw["agent"], "pr": rec.get("pr"),
-                         "reason": f"worker alive ({hb})", "report": report_lines(state, n)})
         else:
-            # worker is not running and the issue is still open -> it died
+            # Issue still open: decide the reviewer track (independent of the developer track), then
+            # the developer track. Both directives ride on the one returned action.
+            review, stop_reviewer = compute_review(cw, rec, gh_my_login())
+            if stop_reviewer and not (review and review.get("spawn")):
+                cw["reviewer_agent"] = cw["reviewer_spawned_at"] = cw["reviewer_head"] = None
+            if agent_running(cw):
+                age = heartbeat_age(n)
+                hb = f"heartbeat {int(age)}s" if age is not None else "within grace"
+                save_state(state)
+                return emit({"action": "wait", "issue": n, "agent": cw["agent"], "pr": rec.get("pr"),
+                             "reason": f"worker alive ({hb})", "review": review,
+                             "stop_reviewer": stop_reviewer, "report": report_lines(state, n)})
             if cw.get("restarts", 0) >= MAX_RESTARTS:
                 rec["status"] = "error"
+                if reviewer_running(cw):
+                    stop_reviewer = cw.get("reviewer_agent")  # dev gave up — orphaned reviewer
                 state["current_work"] = None
                 save_state(state)
-                return emit({"action": "error", "issue": n,
+                return emit({"action": "error", "issue": n, "stop_reviewer": stop_reviewer,
                              "reason": f"exceeded restart cap ({MAX_RESTARTS}) — surfacing",
                              "report": report_lines(state, n)})
+            # developer not running and the issue is still open -> it died; resume it (and still
+            # review the open PR if its head needs it)
             save_state(state)
             return emit({"action": "resume", "issue": n,
                          "title": (open_by_num.get(n) or {}).get("title", ""),
@@ -269,6 +364,7 @@ def cmd_next(argv):
                          "pr": rec.get("pr"), "agent": cw["agent"],
                          "use_template": "catchup-prompt.md",
                          "reason": "worker not running, issue still open — died; continue it",
+                         "review": review, "stop_reviewer": stop_reviewer,
                          "report": report_lines(state, n)})
 
     # ---- branch 2: nothing in flight -> pick the next eligible issue ----
@@ -289,17 +385,18 @@ def cmd_next(argv):
         return emit({"action": "dispatch", "issue": n,
                      "title": open_by_num[n].get("title", ""),
                      "use_template": "dispatch-prompt.md", "reason": "next eligible issue",
-                     "stop_agent": stop_agent,
+                     "stop_agent": stop_agent, "stop_reviewer": stop_reviewer,
                      "report": report_lines(state, n, dispatching=n)})
 
     save_state(state)
     if all(recs[str(n)]["status"] in TERMINAL for n in scope):
         return emit({"action": "done", "reason": "every scoped issue is terminal",
-                     "stop_agent": stop_agent, "report": report_lines(state)})
+                     "stop_agent": stop_agent, "stop_reviewer": stop_reviewer,
+                     "report": report_lines(state)})
     reason = ("waiting on " + ", ".join(f"#{n}→{blk}" for n, blk in waiting)) if waiting \
         else "no eligible issue this pass"
     return emit({"action": "wait", "reason": reason, "stop_agent": stop_agent,
-                 "report": report_lines(state)})
+                 "stop_reviewer": stop_reviewer, "report": report_lines(state)})
 
 
 # ---------------------------------------------------------------- record subcommands
@@ -308,7 +405,8 @@ def cmd_dispatched(args):
     state = load_state()
     rec = state["issues"][str(args.issue)]
     state["current_work"] = {"issue": args.issue, "agent": args.agent, "spawned_at": time.time(),
-                             "branch": rec.get("branch"), "pr": rec.get("pr"), "restarts": 0}
+                             "branch": rec.get("branch"), "pr": rec.get("pr"), "restarts": 0,
+                             "reviewer_agent": None, "reviewer_spawned_at": None, "reviewer_head": None}
     rec["status"] = "in-review" if rec.get("pr") else "building"
     rec["worker"] = args.agent
     save_state(state)
@@ -324,6 +422,19 @@ def cmd_resumed(args):
     cw["spawned_at"] = time.time()
     cw["restarts"] = cw.get("restarts", 0) + 1
     state["issues"][str(cw["issue"])]["worker"] = args.agent
+    save_state(state)
+    emit({"ok": True, "current_work": cw})
+
+
+def cmd_review_dispatched(args):
+    """Record a reviewer the orchestrator just spawned for the current PR head."""
+    state = load_state()
+    cw = state.get("current_work")
+    if not cw:
+        emit({"ok": False, "reason": "no current_work for a reviewer"}); return
+    cw["reviewer_agent"] = args.agent
+    cw["reviewer_spawned_at"] = time.time()
+    cw["reviewer_head"] = args.head
     save_state(state)
     emit({"ok": True, "current_work": cw})
 
@@ -363,6 +474,7 @@ def main():
     sub.add_parser("next", add_help=False)
     d = sub.add_parser("dispatched"); d.add_argument("--issue", type=int, required=True); d.add_argument("--agent", required=True)
     r = sub.add_parser("resumed"); r.add_argument("--agent", required=True)
+    rd = sub.add_parser("review-dispatched"); rd.add_argument("--agent", required=True); rd.add_argument("--head", required=True)
 
     if len(sys.argv) >= 2 and sys.argv[1] == "next":
         cmd_next(sys.argv[2:])
@@ -372,6 +484,8 @@ def main():
         cmd_dispatched(args)
     elif args.cmd == "resumed":
         cmd_resumed(args)
+    elif args.cmd == "review-dispatched":
+        cmd_review_dispatched(args)
 
 
 if __name__ == "__main__":

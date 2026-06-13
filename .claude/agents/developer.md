@@ -42,8 +42,9 @@ D1/R2 data in `.wrangler/`, `node_modules`, `.dev.vars`. Use it to run and verif
   them in the spec. You have no human to ask.
 - Use the **`speckit`** skill for the implementation pipeline; do not hand-roll specs/plans/tasks.
 - Merging is **approval-gated** by a global hook: a PR merges only with an APPROVED review (or a
-  `VERDICT: approve` review body) at the current head commit. Do not try to circumvent it — get the
-  PR reviewed (the `pr-review-loop` posts reviews), address changes, and merge once approved.
+  `VERDICT: approve` review body) at the current head commit. Do not try to circumvent it — the
+  implement-loop spawns a `reviewer` agent that posts reviews on your PR; address its requested
+  changes, push, and merge once it approves at the current head.
 - Consult your **agent memory** (project scope) before starting, and update it after finishing with
   durable codebase learnings — recurring patterns, file locations, gotchas — so future issues build
   faster.

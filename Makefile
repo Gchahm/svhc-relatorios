@@ -1,4 +1,24 @@
-.PHONY: scrape setup analyze docs-plan apply-extractions mismatches sync-dev sync-prod
+.PHONY: scrape setup analyze docs-plan apply-extractions mismatches sync-dev sync-prod kill-port
+
+# Kill whatever process is listening on PORT (default 3000): make kill-port [PORT=3000]
+PORT ?= 3000
+kill-port:
+	@if command -v lsof >/dev/null 2>&1; then \
+		pids=$$(lsof -ti tcp:$(PORT)); \
+		if [ -n "$$pids" ]; then \
+			echo "Killing process(es) on port $(PORT): $$pids"; kill -9 $$pids; \
+		else \
+			echo "Nothing is listening on port $(PORT)"; \
+		fi; \
+	elif command -v fuser >/dev/null 2>&1; then \
+		if fuser -k $(PORT)/tcp >/dev/null 2>&1; then \
+			echo "Killed process(es) on port $(PORT)"; \
+		else \
+			echo "Nothing is listening on port $(PORT)"; \
+		fi; \
+	else \
+		echo "Neither lsof nor fuser is available; cannot inspect port $(PORT)"; exit 1; \
+	fi
 
 setup:
 	cd scripts && uv sync && uv run playwright install chromium
