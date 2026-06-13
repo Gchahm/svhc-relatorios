@@ -3,7 +3,9 @@
 
 Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
 Playwright scraping stack. Commands: docs-plan, record-classification, apply-extractions,
-mark-pending, analyze, mismatches (see specs/008-decouple-analysis-scripts/contracts/analysis-cli.md
+mark-pending, analyze, mismatches, document-evidence (the document→attachment(s) triage evidence
+resolver — see specs/051-document-evidence-resolver/contracts/document-evidence-cli.md;
+see also specs/008-decouple-analysis-scripts/contracts/analysis-cli.md
 and specs/017-classify-to-d1/contracts/record-classification-cli.md); record-verdict,
 loop-state (the self-improving loop's bookkeeping — see
 specs/007-classification-improve-loop/contracts/verdict-cli.md).
@@ -15,7 +17,7 @@ import logging
 import sys
 
 from . import run_analysis
-from .documents import build_documents
+from .documents import DocumentNotFound, build_documents, document_evidence
 from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
 from .page_classifications import record_classification
 from .verdicts import (
@@ -87,6 +89,15 @@ def main(argv=None):
     )
     # Intentionally GLOBAL — no --periodo: documents dedup across all periods.
     p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
+
+    p = sub.add_parser(
+        "document-evidence",
+        help="Resolve a document id to its source attachment(s) and print scoped findings + page_refs (read-only)",
+    )
+    # GLOBAL — no --periodo: a document is not period-scoped (it dedups across all periods).
+    p.add_argument("--id", dest="document_id", required=True, help="Document id (as shown by the UI/alert).")
+    p.add_argument("--remote", action="store_true", help="Read the REMOTE (production) D1 instead of local.")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
 
     p = sub.add_parser("analyze", help="Run financial/consistency/fraud checks; write alerts to D1")
     _add_common(p)
@@ -168,6 +179,13 @@ def main(argv=None):
     elif args.command == "build-documents":
         n_docs, n_links = build_documents(target=target)
         print(f"Built {n_docs} document(s) with {n_links} entry link(s).")
+    elif args.command == "document-evidence":
+        try:
+            result = document_evidence(args.document_id, target=target, cache_dir=args.cache_dir)
+        except DocumentNotFound:
+            print(f"error: document not found: {args.document_id}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "analyze":
         run_analysis(target=target, periods_filter=args.periodo, cache_dir=args.cache_dir)
     elif args.command == "mismatches":
