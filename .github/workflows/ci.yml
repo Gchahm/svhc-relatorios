@@ -57,5 +57,8 @@ jobs:
             - name: Python tests
               run: pnpm test:py
 
+            - name: Python coverage
+              run: pnpm test:py:cov
+
             - name: Typecheck
               run: pnpm typecheck
