@@ -1,0 +1,19 @@
+{
+  "scope": [41, 40, 44, 46, 45],
+  "issues": {
+    "41": {
+      "status": "in-review",
+      "pr": 58,
+      "branch": "041-some-feature",
+      "worker": "ac901be5e97a363dd",
+      "spawned_at": 1750000000
+    },
+    "40": {
+      "status": "queued",
+      "pr": null,
+      "branch": null,
+      "worker": null,
+      "spawned_at": null
+    }
+  }
+}
