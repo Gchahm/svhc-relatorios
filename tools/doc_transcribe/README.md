@@ -1,6 +1,9 @@
-# `doc_transcribe` — typed document-extraction schema registry (EXTRACT-001)
+# `doc_transcribe` — typed document extraction + vision transcriber (EXTRACT-001 + EXTRACT-002)
 
-The portable, project-agnostic **contract layer** for "image of a Brazilian fiscal document → typed JSON". It defines a JSON Schema per document type, a type→schema registry, and a stdlib-only validator. It is the foundation every later EXTRACT piece builds on.
+The portable, project-agnostic layer for "image of a Brazilian fiscal document → typed JSON":
+
+- **EXTRACT-001 (the contract):** a JSON Schema per document type, a type→schema registry, and a stdlib-only validator. The foundation every later EXTRACT piece builds on.
+- **EXTRACT-002 (the transcriber):** `transcribe(image, doc_type="auto")` plus a `python -m doc_transcribe` CLI that turns a page image into validated typed JSON above a pluggable backend. See [The transcriber](#the-transcriber-extract-002) below.
 
 > **Self-contained by design.** This module has **zero imports from `scripts/analysis`** (design `docs/features/false-positive-triage-agent.md` §11.6). The schemas are national-standard layouts, not SVHC-specific, so the whole module is extractable to its own repo with no untangling. The only contract between this module and the app is the typed JSON.
 
@@ -49,6 +52,46 @@ It implements **exactly** the structured-output subset the schemas use: `type` (
 
 These schemas double as the EXTRACT-002 `api` backend's wire `output_config` schema. The Anthropic structured-output feature supports objects/arrays/enums/`anyOf`/`$ref` and requires `additionalProperties:false`, but **strips/rejects** numeric/length/pattern bounds and recursion. So every schema MUST stay within that subset: no `minimum`/`maximum`/`min*`/`max*`/`pattern`/`format`/`if`/`then`/`else`/`not`/`allOf`/`oneOf`, every object declares `additionalProperties:false`, every `$ref` is a local `#/$defs/<name>` and the `$defs` graph is acyclic (no recursion). `tests/test_subset_constraints.py` enforces this automatically over every registered schema, so a future schema edit that breaks the subset fails CI rather than silently changing meaning at the wire.
 
+## The transcriber (EXTRACT-002)
+
+`transcribe()` turns a fiscal-document page image into validated typed JSON conforming to the EXTRACT-001 contract. The model call sits behind a **pluggable backend**; **schema validation lives above the backend**, so the typed-JSON guarantee never depends on which backend ran.
+
+```python
+from doc_transcribe import transcribe
+
+result = transcribe("page.png")                       # doc_type="auto", cli backend (default)
+result = transcribe("page.png", doc_type="recibo")    # force a type
+result = transcribe("page.png", backend="api")         # Anthropic API backend (optional)
+```
+
+```bash
+python -m doc_transcribe --image page.png [--type auto] [--backend cli|api] [--model <id>]
+```
+
+### Result envelope
+
+```jsonc
+{
+    "doc_type": "recibo", // canonical EXTRACT-001 type (authoritative)
+    "schema_version": "1", // == registry SCHEMA_VERSION (a model-echoed version is ignored)
+    "fields": {
+        /* the full EXTRACT-001-conformant object for the type, incl. raw_text */
+    },
+    "parse_errors": ["$.valor: ..."], // present ONLY when validation found problems
+}
+```
+
+`fields` is exactly what `validate_transcription(fields, doc_type)` validates; the transcriber stamps the authoritative canonical `doc_type`/`schema_version` onto it before validating (so a model echoing a wrong type/version can't produce an inconsistent result). A non-JSON / unparseable model response is surfaced as an `outro` best-effort object plus a `parse_errors` entry — `transcribe()` **never raises on a bad model response**; it raises `TranscribeError` only on a config/usage error (bad backend, missing optional dep/key, unreadable image).
+
+### Backends
+
+| Backend | Selector          | Needs                                     | Behavior                                                                                                                                                                                                                                                                        |
+| ------- | ----------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli`   | `"cli"` (default) | the `claude` binary on PATH (Claude Code) | Shells out to `claude -p` in its own subprocess (prompt via stdin; image read via `--add-dir`). **No `anthropic` SDK, no `ANTHROPIC_API_KEY`.** Keeps page images out of any orchestrator's context. The CLI doesn't enforce a schema — the module parses + validates above it. |
+| `api`   | `"api"`           | the `anthropic` SDK (optional) + a key    | One non-streaming `messages.create` with the type's JSON Schema as `output_config.format` (typed shape enforced **at the wire**) + an image block. Default model `claude-opus-4-8`, adaptive thinking. Lazily imports `anthropic`, so the package imports fine without it.      |
+
+Transcribe-only: the transcriber records what the page shows and does **not** compute reconciliation values (that is EXTRACT-003). It is **not** wired into `record-classification`/D1 (that adapter is EXTRACT-004). The `anthropic` SDK is an **optional extra** — `import doc_transcribe` and the `cli` backend work with it absent.
+
 ## Run the tests
 
 From the repo root (Python via `uv`):
@@ -63,12 +106,16 @@ Covers: registry resolution/fallback/aliases/`SCHEMA_VERSION`, validator positiv
 
 ```
 tools/doc_transcribe/
-├── __init__.py            # public API re-exports
+├── __init__.py            # public API re-exports (registry + validator + transcribe)
 ├── registry.py            # SCHEMA_VERSION, DOC_TYPES, ALIASES, schema_for/load_schema/...
 ├── validator.py           # stdlib validate() / validate_transcription()
+├── transcribe.py          # transcribe() — result assembly, type resolution, validate-above-backend
+├── backends.py            # Backend protocol + CliBackend (claude -p) + ApiBackend (anthropic SDK) + extract_json
+├── prompts.py             # shared per-type transcription instruction
+├── __main__.py            # CLI: python -m doc_transcribe --image <path> ...
 ├── schemas/<type>.json    # the six JSON Schemas
 ├── examples/<type>.json    # real/representative example transcriptions (test fixtures)
-└── tests/                  # unittest suite
+└── tests/                  # unittest suite (registry/validator/subset + transcribe/backends/cli)
 ```
 
 > **Directory name.** The design doc writes `tools/doc-transcribe/`; the actual directory is `tools/doc_transcribe/` (underscore) so it is a valid importable Python package. The intent and placement are unchanged.
