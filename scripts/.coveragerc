@@ -1,0 +1,29 @@
+# Coverage scope + ratchet for the analysis/scraper pure surface (TEST-002 / issue #69).
+#
+# coverage.py is run-scoped (uv run --with coverage) — NOT a project dependency.
+# Measured baseline with the full unittest suite: 80% total over the in-scope modules.
+# fail_under is set a few points below (a small margin for trivial refactors), so a real
+# coverage regression fails CI while non-functional churn does not.
+#
+# Excluded modules need a live browser / wrangler / D1 to execute (TEST-004), so unit tests
+# can't drive them: scraper/{extractors,browser,runner,config}, both __main__, and the
+# wrangler-shelling common/d1.py (not in [run] source). Auto-loaded when coverage runs with
+# CWD = scripts/ (the same CWD `pnpm test:py` uses).
+
+[run]
+source =
+    analysis
+    scraper
+omit =
+    scraper/extractors/*
+    scraper/browser.py
+    scraper/runner.py
+    scraper/config.py
+    analysis/__main__.py
+    scraper/__main__.py
+    tests/*
+
+[report]
+fail_under = 78
+show_missing = false
+skip_covered = false
