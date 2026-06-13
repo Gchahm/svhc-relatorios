@@ -136,6 +136,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 - Cloudflare D1 (`DATABASE` → `fiscal-db`), tables `document_entries` (read-only, for the (051-document-evidence-resolver)
 - Python 3.12 (the `tools/doc_transcribe/` package; run via `uv`). Stdlib-only on + Existing only — `tools/doc_transcribe` registry (`schema_for`, `canonical_type`, (052-vision-transcriber)
 - N/A — no D1/R2, no DB schema, no migration. Reads an image file from disk; writes nothing. (052-vision-transcriber)
+- Python 3.12 (analysis CLI under `scripts/analysis/`, run via `uv`) + Existing only — Python **stdlib only** for the mappers; the analysis package (053-deterministic-type-mappers)
+- None written. Reads in-memory per-page `response` dicts already loaded by the roll-up. (053-deterministic-type-mappers)
 
 - Python 3.12 (seed + integration + browser smoke, via `uv`); TypeScript 5 / Node 22 only as the build target served by `pnpm preview`. + Existing only — `scripts/common/d1.py` (`wrangler`-CLI wrapper), `scripts/common` (`det_id`, `now_ms`), Python `playwright` (`sync_api`, already a scraper dep, Chromium installed at `/opt/playwright/...`), `wrangler` (D1 migrations + R2), `@opennextjs/cloudflare` (`pnpm preview`). **No new npm or pip dependency** (`@playwright/test` deliberately not added — FR-008). (046-e2e-smoke-suite)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`) + R2 (`DOCUMENTS` → `fiscal-documents`), **local Miniflare only** (`--local`). Seed writes mirror + analysis-owned + auth tables; tests read/write via the real wrapper. No `--remote`, no production secret. (046-e2e-smoke-suite)

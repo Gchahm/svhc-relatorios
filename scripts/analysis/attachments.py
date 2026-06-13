@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from common import det_id, now_ms, d1
 from .nf_groups import group_attachments, reconcile_group
 from .page_classifications import _prune_page_classifications_sql
+from .type_mappers import to_reconciliation_fields
 from .vendor_match import is_payer_name, reconcile_vendor
 
 logger = logging.getLogger(__name__)
@@ -457,7 +458,11 @@ def nf_total_for_reconciliation(record_responses, fallback: float | None = None)
     for resp in record_responses:
         if not resp:
             continue
-        gross = _parse_brl_value(resp.get("valor_total"))
+        # Derive the reconciliation total deterministically from the (typed or legacy flat)
+        # response (feature 053 / EXTRACT-003). Idempotent on flat, so this also handles records
+        # read back from D1 by `documents.build_documents` regardless of how they were stored.
+        mapped = to_reconciliation_fields(resp)
+        gross = _parse_brl_value(mapped.get("valor_total"))
         if gross is not None and gross > 0:
             return gross
     return fallback
@@ -581,8 +586,12 @@ def build_attachment_analysis(
         if parsed is None:
             record.parse_error = error or "no extraction for page"
         else:
-            record.response = parsed
-            record.artifact_role = _map_artifact_role(parsed)
+            # Derive the flat reconciliation fields deterministically from the (typed or legacy
+            # flat) extraction — replacing the model's "which number is the total" guesswork with
+            # versioned per-type rules (feature 053 / EXTRACT-003). Idempotent on a legacy flat
+            # record, so periods classified before typed transcription are unaffected.
+            record.response = to_reconciliation_fields(parsed)
+            record.artifact_role = _map_artifact_role(record.response)
             any_success = True
         result.records.append(record)
 
