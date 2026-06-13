@@ -25,3 +25,5 @@ cloudflare-env.d.ts
 
 # Specs: feature documentation, not app source.
 specs
+
+CLAUDE.md
