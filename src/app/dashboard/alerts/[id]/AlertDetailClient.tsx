@@ -6,12 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files } from "lucide-react";
+import { ArrowLeft, ExternalLink, AlertTriangle, FileText, Paperclip, Files, Sparkles } from "lucide-react";
 import { evidenceFields, referencedDocumentId, SeverityBadge, StatusBadge } from "../alerts";
 import { useTranslation, useLocale, useAlertTypeLabel } from "@/lib/i18n/client";
 import { formatCurrency, formatDateTime } from "@/lib/i18n/formatters.client";
 import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
 import type { AttachmentAnalysisRow } from "../../entries/types";
+
+// Alert types whose finding is driven by a document/attachment total — the disputed figure is an
+// AI (vision-model) extraction, so the reviewer should know to verify it against the page (feature 048).
+const TOTAL_DRIVEN_ALERT_TYPES = new Set(["document_overpayment", "attachment_amount_mismatch", "duplicate_billing"]);
 
 interface AttachedDocument {
     id: string;
@@ -276,6 +280,11 @@ export default function AlertDetailClient({ alertId }: { alertId: string }) {
                                     <Field key={f.key} label={f.label} value={f.value} />
                                 ))}
                             </div>
+                        )}
+                        {TOTAL_DRIVEN_ALERT_TYPES.has(alert.type) && (
+                            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Sparkles className="h-3.5 w-3.5 shrink-0" /> {t("detail.ai_extracted_note")}
+                            </p>
                         )}
                         {docId && (
                             <Link

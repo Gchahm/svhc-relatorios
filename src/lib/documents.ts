@@ -22,3 +22,64 @@ export function documentStatus(sumEntries: number, totalValue: number | null): D
     if (diff <= ABS_TOL || diff / totalValue < REL_TOL) return "within";
     return sumEntries > totalValue ? "over" : "under";
 }
+
+/**
+ * Where a document's reconciliation total (`documents.total_value`) came from. Lets the document
+ * detail UI explain a figure ("R$800 from page p3, invoice gross") instead of presenting it as a
+ * mystery — feature 048.
+ *
+ * - `gross`  — the invoice GROSS `valor_total` extracted from a specific page (`sourcePageLabel`).
+ * - `rollup` — the analysis roll-up `extracted_amount` fallback (no confident page gross).
+ * - `none`   — no AI total could be derived.
+ */
+export type TotalSource = "gross" | "rollup" | "none";
+
+export interface ReconciliationTotal {
+    value: number | null;
+    source: TotalSource;
+    sourcePageLabel: string | null;
+}
+
+export interface ExtractionPage {
+    pageLabel: string | null;
+    /** The page's extracted `valor_total` — a number, a BRL string ("R$ 800,00"), null, or junk. */
+    valorTotal: unknown;
+}
+
+// DRIFT GUARD (feature 048): this selection MUST mirror `nf_total_for_reconciliation` in
+// `scripts/analysis/attachments.py` (prefer the first confident invoice gross `valor_total`, else
+// the rolled-up `extracted_amount`, else none) and the BRL parsing of `_parse_brl_value` in the
+// same file. The pipeline computes `documents.total_value` with that rule, so the UI attribution
+// here and the persisted value would silently disagree if one side changed without the other.
+// Change this and you MUST update `attachments.py` (and vice versa).
+
+/** Parse a Brazilian currency value (number or string) to a finite float, mirroring `_parse_brl_value`. */
+function parseBrlValue(value: unknown): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    let text = String(value).trim().replace(/R\$/g, "").trim();
+    text = text.replace(/[^\d,.]/g, "");
+    if (text.includes(",")) text = text.replace(/\./g, "").replace(",", ".");
+    if (text === "") return null;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * The reconciliation total for ONE analysis: the first page (in the given order) whose `valor_total`
+ * parses to a finite value `> 0` wins as `gross`; otherwise the finite `rollup` (`extracted_amount`)
+ * as `rollup`; otherwise `none`. `pages` MUST be ordered the way the total is attributed (by page
+ * index ascending). Mirrors `nf_total_for_reconciliation`.
+ */
+export function selectReconciliationTotal(pages: ExtractionPage[], rollup: number | null): ReconciliationTotal {
+    for (const page of pages) {
+        const gross = parseBrlValue(page.valorTotal);
+        if (gross !== null && gross > 0) {
+            return { value: gross, source: "gross", sourcePageLabel: page.pageLabel };
+        }
+    }
+    if (rollup !== null && Number.isFinite(rollup)) {
+        return { value: rollup, source: "rollup", sourcePageLabel: null };
+    }
+    return { value: null, source: "none", sourcePageLabel: null };
+}

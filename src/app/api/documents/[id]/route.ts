@@ -13,7 +13,7 @@ import {
     attachmentAnalyses,
     attachmentAnalysisRecords,
 } from "@/db/fiscal.schema";
-import { documentStatus } from "@/lib/documents";
+import { documentStatus, selectReconciliationTotal, type ExtractionPage } from "@/lib/documents";
 import { parsePage } from "@/lib/r2";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { headers } from "next/headers";
@@ -103,6 +103,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         .select({
             attachmentId: documentEntries.sourceAttachmentId,
             analysisId: attachmentAnalyses.id,
+            extractedAmount: attachmentAnalyses.extractedAmount,
             filePath: attachments.filePath,
             entryId: documentEntries.entryId,
             period: accountabilityReports.period,
@@ -130,6 +131,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
               .select({
                   analysisId: attachmentAnalysisRecords.attachmentAnalysisId,
                   pageLabel: attachmentAnalysisRecords.pageLabel,
+                  pageIndex: attachmentAnalysisRecords.pageIndex,
                   artifactRole: attachmentAnalysisRecords.artifactRole,
                   response: attachmentAnalysisRecords.response,
               })
@@ -137,23 +139,70 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
               .where(inArray(attachmentAnalysisRecords.attachmentAnalysisId, analysisIds))
         : [];
 
-    // Index records by (analysisId, pageLabel) with their parsed CNPJ / number.
+    // Index records by (analysisId, pageLabel) with their parsed CNPJ / number, and collect each
+    // analysis's pages (ordered by page index, carrying the raw `valor_total`) so the total
+    // provenance can be attributed exactly as `nf_total_for_reconciliation` does (feature 048).
     const recordByPage = new Map<string, { artifactRole: string | null; cnpj: string | null; number: string | null }>();
+    const pagesByAnalysis = new Map<string, Array<{ pageIndex: number; page: ExtractionPage }>>();
     for (const r of recordRows) {
         let cnpj: string | null = null;
         let number: string | null = null;
+        let valorTotal: unknown = null;
         if (r.response) {
             try {
                 const v = JSON.parse(r.response) as Record<string, unknown>;
                 cnpj = typeof v.cnpj_emitente === "string" ? v.cnpj_emitente : null;
                 number = typeof v.numero_documento === "string" ? v.numero_documento : null;
+                valorTotal = v.valor_total ?? null;
             } catch {
                 // unparseable page response — leave as nulls (still labeled by role below)
             }
         }
         if (r.pageLabel)
             recordByPage.set(`${r.analysisId}|${r.pageLabel}`, { artifactRole: r.artifactRole, cnpj, number });
+        const list = pagesByAnalysis.get(r.analysisId) ?? [];
+        list.push({ pageIndex: r.pageIndex ?? 0, page: { pageLabel: r.pageLabel, valorTotal } });
+        pagesByAnalysis.set(r.analysisId, list);
     }
+
+    // Full attachment-analysis rows (same projection as GET /api/alerts/[id]) so the document
+    // detail page can open the existing AttachmentAnalysisDetailDialog directly (feature 048).
+    // Entry context comes from the attachment's OWN entry (attachments.entry_id).
+    const analysisRows = analysisIds.length
+        ? await db
+              .select({
+                  id: attachmentAnalyses.id,
+                  attachmentId: attachmentAnalyses.attachmentId,
+                  analyzedAt: attachmentAnalyses.analyzedAt,
+                  documentType: attachmentAnalyses.documentType,
+                  extractedAmount: attachmentAnalyses.extractedAmount,
+                  amountMatch: attachmentAnalyses.amountMatch,
+                  extractedCnpj: attachmentAnalyses.extractedCnpj,
+                  issuerName: attachmentAnalyses.issuerName,
+                  vendorMatch: attachmentAnalyses.vendorMatch,
+                  extractedDate: attachmentAnalyses.extractedDate,
+                  dateMatch: attachmentAnalyses.dateMatch,
+                  documentNumber: attachmentAnalyses.documentNumber,
+                  serviceDescription: attachmentAnalyses.serviceDescription,
+                  error: attachmentAnalyses.error,
+                  entryId: sql<string>`${entries.id}`.as("entry_id"),
+                  entryDate: entries.date,
+                  entryDescription: entries.description,
+                  entryAmount: entries.amount,
+                  entryMovementType: entries.movementType,
+                  vendorName: vendors.name,
+                  subcategoryName: subcategories.name,
+                  categoryName: categories.name,
+              })
+              .from(attachmentAnalyses)
+              .innerJoin(attachments, eq(attachmentAnalyses.attachmentId, attachments.id))
+              .innerJoin(entries, eq(attachments.entryId, entries.id))
+              .leftJoin(subcategories, eq(entries.subcategoryId, subcategories.id))
+              .leftJoin(categories, eq(subcategories.categoryId, categories.id))
+              .leftJoin(vendors, eq(entries.vendorId, vendors.id))
+              .where(inArray(attachmentAnalyses.id, analysisIds))
+        : [];
+    const analysisById = new Map(analysisRows.map(a => [a.id, a]));
 
     const docCnpj = digitsOnly(doc.issuerCnpj);
     const docNumber = doc.documentNumber;
@@ -197,8 +246,41 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
             period: s.period,
             documentPageLabel,
             pages: pages.map(p => ({ ...p, isDocument: p.pageLabel === documentPageLabel })),
+            analysis: analysisById.get(s.analysisId) ?? null,
         };
     });
+
+    // Total provenance: which analysis/page/field supplied `documents.total_value`. The pipeline
+    // sets total_value = MAX confident reconciliation total across the document's analyses
+    // (documents.py), so attribute it to the analysis whose `selectReconciliationTotal` value is the
+    // maximum. `null` when the document has no analyzed attachment at all (FR-002/FR-006).
+    const totalProvenance = (() => {
+        if (distinctSources.length === 0) return null;
+        const perAnalysis = distinctSources.map(s => {
+            const ordered = (pagesByAnalysis.get(s.analysisId) ?? [])
+                .slice()
+                .sort((a, b) => a.pageIndex - b.pageIndex)
+                .map(x => x.page);
+            const sel = selectReconciliationTotal(ordered, s.extractedAmount ?? null);
+            return { source: s, sel };
+        });
+        const withValue = perAnalysis.filter(p => p.sel.value !== null);
+        const winner =
+            withValue.length > 0
+                ? withValue.reduce((best, cur) =>
+                      (cur.sel.value ?? -Infinity) > (best.sel.value ?? -Infinity) ? cur : best
+                  )
+                : perAnalysis[0];
+        return {
+            source: winner.sel.source,
+            value: winner.sel.value,
+            analysisId: winner.source.analysisId,
+            attachmentId: winner.source.attachmentId,
+            entryId: winner.source.entryId,
+            period: winner.source.period,
+            sourcePageLabel: winner.sel.sourcePageLabel,
+        };
+    })();
 
     // Related documents: other real documents linked to any of this document's entries (self excluded).
     // Their sumEntries/status are computed over each related document's OWN full link set, so the badge
@@ -256,6 +338,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         totalValue: doc.totalValue,
         sumEntries,
         status: documentStatus(sumEntries, doc.totalValue),
+        totalProvenance,
         entries: entryRows,
         imageSources,
         relatedDocuments,

@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { documentStatus } from "./documents.ts";
+import { documentStatus, selectReconciliationTotal } from "./documents.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = resolve(here, "../../scripts/analysis/reconciliation_contract.json");
@@ -53,4 +53,61 @@ test("documentStatus matches the shared contract (FR-004/FR-005)", () => {
             `${c.name}: sum=${c.sum} total=${c.total} -> documentStatus=${got} but fixture expects ${c.status}`
         );
     }
+});
+
+// --- selectReconciliationTotal (feature 048) ---
+// Mirrors `nf_total_for_reconciliation` in scripts/analysis/attachments.py: prefer the first
+// confident page gross `valor_total`, else the roll-up, else none. Drives the document detail
+// total-provenance line (FR-002/FR-003).
+
+test("gross valor_total wins over the roll-up fallback (FR-003)", () => {
+    const got = selectReconciliationTotal([{ pageLabel: "p3", valorTotal: 800 }], 320);
+    assert.deepEqual(got, { value: 800, source: "gross", sourcePageLabel: "p3" });
+});
+
+test("first confident gross in page order wins", () => {
+    const got = selectReconciliationTotal(
+        [
+            { pageLabel: "p1", valorTotal: 0 },
+            { pageLabel: "p2", valorTotal: 500 },
+            { pageLabel: "p3", valorTotal: 900 },
+        ],
+        null
+    );
+    assert.deepEqual(got, { value: 500, source: "gross", sourcePageLabel: "p2" });
+});
+
+test("zero/negative/missing gross is skipped, falls back to roll-up", () => {
+    const got = selectReconciliationTotal(
+        [
+            { pageLabel: "p1", valorTotal: 0 },
+            { pageLabel: "p2", valorTotal: -10 },
+            { pageLabel: "p3", valorTotal: null },
+        ],
+        320
+    );
+    assert.deepEqual(got, { value: 320, source: "rollup", sourcePageLabel: null });
+});
+
+test("no gross and no roll-up yields none", () => {
+    const got = selectReconciliationTotal([{ pageLabel: "p1", valorTotal: null }], null);
+    assert.deepEqual(got, { value: null, source: "none", sourcePageLabel: null });
+});
+
+test("BRL string gross is parsed (comma decimal, R$ prefix)", () => {
+    const got = selectReconciliationTotal([{ pageLabel: "p1", valorTotal: "R$ 1.234,56" }], null);
+    assert.deepEqual(got, { value: 1234.56, source: "gross", sourcePageLabel: "p1" });
+});
+
+test("junk gross string is rejected, falls back", () => {
+    const got = selectReconciliationTotal([{ pageLabel: "p1", valorTotal: "n/a" }], 50);
+    assert.deepEqual(got, { value: 50, source: "rollup", sourcePageLabel: null });
+});
+
+test("max-across-analyses attribution: caller picks the largest per-analysis total", () => {
+    // The document total = MAX confident reconciliation total across its analyses (documents.py).
+    const a = selectReconciliationTotal([{ pageLabel: "p1", valorTotal: 320 }], null);
+    const b = selectReconciliationTotal([{ pageLabel: "p2", valorTotal: 800 }], null);
+    const winner = [a, b].reduce((best, cur) => ((cur.value ?? -Infinity) > (best.value ?? -Infinity) ? cur : best));
+    assert.deepEqual(winner, { value: 800, source: "gross", sourcePageLabel: "p2" });
 });
