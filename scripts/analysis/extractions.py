@@ -53,6 +53,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_CACHE_DIR = "../.cache/analysis"
 
 
+def staged_attachment_ids(staging_rows) -> set[str]:
+    """Set of attachment ids that have at least one ``page_classifications`` staging row.
+
+    Pure helper for the feature-050 staging-driven selection in ``apply_extractions``: a group
+    is rolled up iff its REPRESENTATIVE attachment id is in this set. ``staging_rows`` is the
+    period's loaded ``page_classifications`` list (``PeriodData.raw["page_classifications"]``) —
+    the same in-memory source ``build_plan``'s ``recorded`` flag and ``D1ExtractionProvider`` use,
+    so the check needs no extra D1 read. Any row counts as "staged" (including an ``{"error": ...}``
+    result — the page was visited and a result was recorded); only the absence of all rows skips a
+    group. Rows missing an ``attachment_id`` are ignored.
+    """
+    return {r["attachment_id"] for r in (staging_rows or []) if r.get("attachment_id")}
+
+
 def build_plan(
     periods,
     refs,
@@ -205,10 +219,25 @@ def apply_extractions(
     classification is recorded as a per-page error and does not abort the attachment.
 
     The per-page extractions come from D1, not a cache file, so a re-run depends only on
-    D1 state (clearing the cache cannot lose recorded vision work). There are no id
-    arguments: the set of attachments processed is exactly the **pending** set
-    (``classified_at IS NULL``), controlled in D1 via ``mark-pending``. So a scoped re-run
-    is "mark those attachments pending, then run this" — deterministic and file-free.
+    D1 state (clearing the cache cannot lose recorded vision work).
+
+    **Staging-driven selection (feature 050 / issue #84).** Apply rolls up **only** the groups
+    whose **representative** attachment has at least one recorded ``page_classifications`` staging
+    row; a group whose representative has none is **skipped** entirely (representative + siblings),
+    leaving its existing analysis intact and the attachment pending. This is both the safety guard
+    and the scoping mechanism:
+
+    - *Safety*: a pending attachment whose staging was already pruned (feature 035) or whose vision
+      step crashed before recording is never visited, so its good analysis is never overwritten with
+      an all-empty roll-up (the former hazard — project memory ``pending-without-staging-destructive``).
+    - *Scoping*: you select an attachment for apply **by recording its staging** (``record-classification``).
+      "Reclassify exactly attachment X" = record X's staging → apply; nothing else is touched. The
+      manual "isolate the pending set" workaround is retired.
+
+    The vision/plan phases are unchanged: ``docs-plan`` (``build_plan``), the loader's pending query,
+    ``mark-pending``, ``classify-period``, and ``improve-classification`` still use the **pending** set
+    (``classified_at IS NULL``); only apply's group selection differs. The staging-presence signal is
+    read from the period's already-loaded ``page_classifications`` list (no extra D1 read).
 
     Apply reads **no image bytes** itself (per-page extractions come from D1, page labels
     are parsed from ``file_path`` tokens, and grouping prefers the persisted
@@ -239,9 +268,25 @@ def apply_extractions(
         period = env["period"]
         # Per-page extractions for this period come from the D1 staging table (loaded into
         # the period's raw dict), keyed by (attachment_id, page_label) — no cache file.
-        provider = D1ExtractionProvider(periods[period].raw.get("page_classifications", []))
+        staging_rows = periods[period].raw.get("page_classifications", [])
+        provider = D1ExtractionProvider(staging_rows)
+        # Staging-driven selection (feature 050 / issue #84): apply rolls up ONLY the groups
+        # whose representative attachment has at least one recorded staging row. The presence
+        # of any row (including an {"error": ...} result) counts — only the absence of all rows
+        # skips the group. This is both the safety guard (a pending bystander whose staging was
+        # already pruned, or whose vision crashed before recording, is never visited, so its good
+        # analysis is never overwritten with an empty roll-up) and the scoping mechanism
+        # (recording a representative's staging is how you select its group for apply). The check
+        # is keyed on the group REPRESENTATIVE — siblings own no staging and inherit via fan-out.
+        staged_ids = staged_attachment_ids(staging_rows)
         results: list[AttachmentAnalysisResult] = []
         for group in env["groups"]:
+            if group["representative_attachment_id"] not in staged_ids:
+                logger.debug(
+                    "Skipping group %s (representative %s has no staging rows; left pending)",
+                    group["group_key"], group["representative_attachment_id"],
+                )
+                continue
             gsize = group["group_size"]
             sibling_sum = group["sibling_sum"]
             members = group["members"]
@@ -285,7 +330,10 @@ def apply_extractions(
                 results.append(sib)
                 _merge_and_write(sib, target=target)
 
-        logger.info("Applied %d analysis row(s) for %s", len(results), period)
+        if results:
+            logger.info("Applied %d analysis row(s) for %s", len(results), period)
+        else:
+            logger.info("No staged groups to apply for %s (nothing recorded; left pending)", period)
         all_results.extend(results)
 
     if not all_results:

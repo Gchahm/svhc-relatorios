@@ -167,7 +167,14 @@ closes** — a total-provenance line ("página p1 · valor total da nota — ext
 "Ver extração da IA" dialog. The UI change makes the misread *visible*; it does **not** correct the
 stored data — that requires the reclassification flow above.
 
-### Problem 2 — Could not scope `apply-extractions` to a single attachment ⚠️ (biggest hazard)
+### Problem 2 — Could not scope `apply-extractions` to a single attachment ⚠️ (biggest hazard) — RESOLVED (feature 050 / issue #84)
+
+> **Resolved.** `apply-extractions` is now **staging-driven**: it rolls up only the shared-NF groups
+> whose **representative** has `page_classifications` staging rows. A pending attachment with no staging
+> is **skipped** (left intact), never overwritten with an empty analysis. The manual "isolate the pending
+> set" workaround below is **no longer needed** — recording an attachment's staging *is* how you scope a
+> reclassify to it. The historical analysis is kept below for context.
+
 `apply-extractions` only takes `--periodo` / `--min-amount` / `--limit` — **no per-attachment flag**
 (work selection is DB-controlled via the pending set, by design). After `mark-pending`, the period had
 **three** pending attachments, not one:
@@ -230,5 +237,7 @@ build-documents → analyze` sequence is run with `--remote`.
 - One **legitimate** alert remains on this entry: `attachment_vendor_mismatch` — the ledger vendor is
   "TRES T" while the NF issuer is "THIAGO PEREIRA". That is a real name discrepancy, separate from the
   amount issue, and was intentionally left as a finding.
-- Consider hardening `apply-extractions` against the Problem-2 empty-overwrite hazard.
+- ~~Consider hardening `apply-extractions` against the Problem-2 empty-overwrite hazard.~~ **Done** —
+  feature 050 / issue #84 made `apply-extractions` staging-driven (skips groups whose representative has
+  no staging), eliminating the empty-overwrite hazard and the manual pending-set isolation step.
 - To propagate this fix to production, re-run the fix sequence with `--remote`.
