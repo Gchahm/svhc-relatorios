@@ -54,6 +54,11 @@ __pycache__/
 *.pyc
 .venv/
 
+# Coverage data (coverage.py is run-scoped; the report is printed, the data file is ephemeral)
+.coverage
+.coverage.*
+htmlcov/
+
 # Scraper data
 scripts/data/
 
