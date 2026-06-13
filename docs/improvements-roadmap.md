@@ -2,7 +2,7 @@
 
 _Last updated: 2026-06-12. Source of truth: the repo's GitHub issues (the `IMP-*` series and the
 Phase 1–3 fraud-detection tickets). Statuses below reflect GitHub at the time of writing; the
-`speckit-issue-loop` works the open set one issue at a time._
+`implement-loop` works the open set one issue at a time._
 
 ## Where each ticket sits
 

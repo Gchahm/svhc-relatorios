@@ -7,7 +7,7 @@ description: >-
     explicit go-ahead to merge when the PR is clean. Idempotent per head commit: it skips a PR whose
     current head it has already reviewed. Always targets this repository (svhc-relatorios) — it never
     reviews another repo. Use when asked to "review PR #N", "re-review this PR after my push", or when
-    invoked by the pr-review-loop orchestrator.
+    invoked by the implement-loop's `reviewer` agent.
 argument-hint: "<pr-number>"
 allowed-tools: Bash, Read, Grep, Glob
 model: opus

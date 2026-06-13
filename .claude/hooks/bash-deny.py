@@ -4,9 +4,8 @@
 Reads the hook payload JSON on stdin and exits 2 (block, reason on stderr feeds back to the
 model) when the Bash command matches a pattern the given --profile must never run; exits 0
 (allow) otherwise. Wired into skill frontmatter `hooks:` blocks — see:
-  pr-review-loop      --profile review-orchestrator
-  speckit-issue-loop  --profile issue-orchestrator
-  pr-review           --profile reviewer
+  implement-loop  --profile implement-orchestrator
+  pr-review       --profile reviewer
 """
 
 import argparse
@@ -21,32 +20,6 @@ _POST_REVIEWS = (
 )
 
 PROFILES = {
-    "review-orchestrator": [
-        (
-            r"\bgh\s+pr\s+(diff|merge|close|review|edit)\b",
-            "the loop never reviews or mutates PRs — delegate to a pr-review worker (Agent tool / SendMessage)",
-        ),
-        (r"\bgit\s+push\b", "the loop never pushes"),
-        (_POST_REVIEWS, "posting reviews/comments is the pr-review worker's job"),
-    ],
-    "issue-orchestrator": [
-        (
-            r"\bgh\s+pr\s+(diff|merge|close|review|edit)\b",
-            "the loop never reads diffs or mutates PRs — the issue's worker owns its PR",
-        ),
-        (
-            r"\bgit\s+(push|commit|merge|rebase|checkout|switch|reset)\b",
-            "the loop never touches the working tree or the remote — implementation lives in the issue workers",
-        ),
-        (
-            r"(?s)\bgh\s+api\b(?=[^\n]*\bpulls/[^\s]*/(?:reviews|comments)\b)",
-            "the loop never reads or writes review state — the worker watches its own PR",
-        ),
-        (
-            r"(?si)\bgh\s+pr\s+(view|list)\b(?=[^\n]*review)",
-            "the loop never reads review state (reviewDecision/reviews) — the worker watches its own PR; check only state/mergedAt",
-        ),
-    ],
     "implement-orchestrator": [
         # Like issue-orchestrator (the loop owns no code, no PR mutations, no working tree) BUT it
         # MAY read review state, because this loop also dispatches the reviewer and must know whether

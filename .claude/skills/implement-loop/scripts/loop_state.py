@@ -4,9 +4,10 @@
 The loop orchestrator (a cheap model) calls this once per pass to learn the ONE action to take, so
 the decision logic — scope/dependency ordering, worker liveness, completion detection — lives in
 code, not in the model's head. All state lives in `.cache/implement-loop/state.json`; THIS SCRIPT IS
-ITS ONLY WRITER. GitHub is the source of truth for issue/PR state and is read **read-only** here
-(never review state — that is the worker's business, and the issue-orchestrator Bash guard forbids
-it).
+ITS ONLY WRITER. GitHub is the source of truth for issue/PR state and is read **read-only** here —
+including the last review's commit_id vs the PR head, to decide reviewer dispatch (the loop's Bash
+guard is `implement-orchestrator`, which permits reading reviews but blocks merges/pushes/diffs/
+posting reviews).
 
 Subcommands
 -----------
