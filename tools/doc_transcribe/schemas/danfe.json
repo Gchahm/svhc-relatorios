@@ -1,0 +1,86 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "DANFE / NF-e typed transcription",
+    "description": "Full typed transcription of a Brazilian NF-e (Nota Fiscal Eletronica) / DANFE page. National SEFAZ standard layout.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["danfe"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": {
+            "type": "string",
+            "description": "Full verbatim text transcribed from the page (evidence floor)."
+        },
+        "chave_acesso": {
+            "type": ["string", "null"],
+            "description": "44-digit access key, transcribed as a string (digits only or grouped)."
+        },
+        "numero": { "type": ["string", "null"], "description": "Numero da NF-e." },
+        "serie": { "type": ["string", "null"], "description": "Serie." },
+        "natureza_operacao": { "type": ["string", "null"] },
+        "data_emissao": { "type": ["string", "null"], "description": "Data de emissao as printed (e.g. DD/MM/YYYY)." },
+        "protocolo_autorizacao": { "type": ["string", "null"] },
+        "emitente": { "anyOf": [{ "$ref": "#/$defs/parte_emitente" }, { "type": "null" }] },
+        "destinatario": { "anyOf": [{ "$ref": "#/$defs/parte_destinatario" }, { "type": "null" }] },
+        "itens": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+        "totais": { "anyOf": [{ "$ref": "#/$defs/totais" }, { "type": "null" }] },
+        "duplicatas": { "type": "array", "items": { "$ref": "#/$defs/duplicata" } }
+    },
+    "$defs": {
+        "parte_emitente": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"], "description": "Razao social do emitente/remetente." },
+                "cnpj": { "type": ["string", "null"] },
+                "ie": { "type": ["string", "null"], "description": "Inscricao estadual." },
+                "endereco": { "type": ["string", "null"] }
+            }
+        },
+        "parte_destinatario": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"] },
+                "cnpj_cpf": { "type": ["string", "null"] },
+                "endereco": { "type": ["string", "null"] }
+            }
+        },
+        "item": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "codigo": { "type": ["string", "null"] },
+                "descricao": { "type": ["string", "null"] },
+                "ncm": { "type": ["string", "null"] },
+                "cfop": { "type": ["string", "null"] },
+                "unidade": { "type": ["string", "null"] },
+                "quantidade": { "type": ["number", "null"] },
+                "valor_unitario": { "type": ["number", "null"] },
+                "valor_total": { "type": ["number", "null"] }
+            }
+        },
+        "totais": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "valor_produtos": { "type": ["number", "null"] },
+                "base_calculo_icms": { "type": ["number", "null"] },
+                "valor_icms": { "type": ["number", "null"] },
+                "valor_frete": { "type": ["number", "null"] },
+                "valor_desconto": { "type": ["number", "null"] },
+                "valor_total_nota": { "type": ["number", "null"], "description": "vNF — the invoice gross total." }
+            }
+        },
+        "duplicata": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "numero": { "type": ["string", "null"] },
+                "vencimento": { "type": ["string", "null"] },
+                "valor": { "type": ["number", "null"] }
+            }
+        }
+    }
+}

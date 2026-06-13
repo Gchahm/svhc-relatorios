@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Comprovante de pagamento typed transcription",
+    "description": "Full typed transcription of a Brazilian payment proof (PIX / TED / DOC / boleto pago).",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["comprovante_pagamento"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": { "type": "string", "description": "Full verbatim text transcribed from the page." },
+        "tipo": { "enum": ["pix", "ted", "doc", "boleto", "outro", null], "description": "Meio de pagamento." },
+        "data": { "type": ["string", "null"], "description": "Data/hora do pagamento." },
+        "pagador": { "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }] },
+        "recebedor": {
+            "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }],
+            "description": "Beneficiario/favorecido (issuer for reconciliation)."
+        },
+        "valor": { "type": ["number", "null"], "description": "Valor pago." },
+        "identificador": {
+            "type": ["string", "null"],
+            "description": "Autenticacao / end-to-end id / id da transacao."
+        },
+        "instituicao": { "type": ["string", "null"], "description": "Banco/instituicao que processou." }
+    },
+    "$defs": {
+        "parte": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"] },
+                "cnpj_cpf": { "type": ["string", "null"] },
+                "instituicao": { "type": ["string", "null"] }
+            }
+        }
+    }
+}

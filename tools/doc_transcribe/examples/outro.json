@@ -1,0 +1,7 @@
+{
+    "doc_type": "outro",
+    "schema_version": "1",
+    "raw_text": "PREFEITURA MUNICIPAL DE SAO VICENTE\nGUIA DE RECOLHIMENTO - TAXA DE FISCALIZACAO\nContribuinte: SAO VICENTE HOME CLUB\nInscricao: 1234567\nExercicio: 2025\nValor Principal: R$ 1.200,00\nVencimento: 10/12/2025",
+    "descricao": "Guia de recolhimento de taxa municipal de fiscalizacao",
+    "valores_identificados": [{ "rotulo": "Valor Principal", "valor": 1200.0 }]
+}

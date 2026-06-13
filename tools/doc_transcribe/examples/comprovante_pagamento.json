@@ -1,0 +1,20 @@
+{
+    "doc_type": "comprovante_pagamento",
+    "schema_version": "1",
+    "raw_text": "COMPROVANTE DE TRANSFERENCIA - PIX\nData/Hora: 03/12/2025 09:15:42\nValor: R$ 320,00\nPagador: SAO VICENTE HOME CLUB  CNPJ 98.765.432/0001-00  Banco Itau\nRecebedor/Favorecido: MANUTENCAO PREDIAL SV LTDA  CNPJ 11.222.333/0001-44  Banco Bradesco\nIdentificador (E2E): E12345678202512030915abcdef0123456789\nInstituicao: Banco Itau Unibanco S.A.",
+    "tipo": "pix",
+    "data": "03/12/2025 09:15:42",
+    "pagador": {
+        "nome": "SAO VICENTE HOME CLUB",
+        "cnpj_cpf": "98.765.432/0001-00",
+        "instituicao": "Banco Itau"
+    },
+    "recebedor": {
+        "nome": "MANUTENCAO PREDIAL SV LTDA",
+        "cnpj_cpf": "11.222.333/0001-44",
+        "instituicao": "Banco Bradesco"
+    },
+    "valor": 320.0,
+    "identificador": "E12345678202512030915abcdef0123456789",
+    "instituicao": "Banco Itau Unibanco S.A."
+}

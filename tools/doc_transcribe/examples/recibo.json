@@ -1,0 +1,11 @@
+{
+    "doc_type": "recibo",
+    "schema_version": "1",
+    "raw_text": "RECIBO No 045\nRecebi(emos) de SAO VICENTE HOME CLUB, CNPJ 98.765.432/0001-00,\na importancia de R$ 500,00 (quinhentos reais)\nreferente a servico de jardinagem do mes de novembro/2025.\nSao Vicente, 02/12/2025.\nJOSE DA SILVA JARDINAGEM ME  CNPJ 22.333.444/0001-55",
+    "numero": "045",
+    "data": "02/12/2025",
+    "pagador": { "nome": "SAO VICENTE HOME CLUB", "cnpj_cpf": "98.765.432/0001-00" },
+    "recebedor": { "nome": "JOSE DA SILVA JARDINAGEM ME", "cnpj_cpf": "22.333.444/0001-55" },
+    "valor": 500.0,
+    "referente_a": "servico de jardinagem do mes de novembro/2025"
+}

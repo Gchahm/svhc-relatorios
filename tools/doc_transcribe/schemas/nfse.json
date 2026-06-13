@@ -1,0 +1,70 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "NFS-e / DANFSe typed transcription",
+    "description": "Full typed transcription of a Brazilian Nota Fiscal de Servico Eletronica (NFS-e / DANFSe) page.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["nfse"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": { "type": "string", "description": "Full verbatim text transcribed from the page." },
+        "numero": { "type": ["string", "null"], "description": "Numero da NFS-e." },
+        "codigo_verificacao": { "type": ["string", "null"] },
+        "data_emissao": { "type": ["string", "null"] },
+        "municipio_prestacao": { "type": ["string", "null"] },
+        "prestador": { "anyOf": [{ "$ref": "#/$defs/prestador" }, { "type": "null" }] },
+        "tomador": { "anyOf": [{ "$ref": "#/$defs/tomador" }, { "type": "null" }] },
+        "discriminacao_servico": { "type": ["string", "null"] },
+        "valores": { "anyOf": [{ "$ref": "#/$defs/valores" }, { "type": "null" }] },
+        "retencoes": { "anyOf": [{ "$ref": "#/$defs/retencoes" }, { "type": "null" }] }
+    },
+    "$defs": {
+        "prestador": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"], "description": "Razao social do prestador (issuer)." },
+                "cnpj": { "type": ["string", "null"] },
+                "im": { "type": ["string", "null"], "description": "Inscricao municipal." },
+                "endereco": { "type": ["string", "null"] }
+            }
+        },
+        "tomador": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"] },
+                "cnpj_cpf": { "type": ["string", "null"] },
+                "endereco": { "type": ["string", "null"] }
+            }
+        },
+        "valores": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "valor_servico": { "type": ["number", "null"] },
+                "deducoes": { "type": ["number", "null"] },
+                "base_calculo": { "type": ["number", "null"] },
+                "aliquota_iss": { "type": ["number", "null"] },
+                "valor_iss": { "type": ["number", "null"] },
+                "valor_liquido": {
+                    "type": ["number", "null"],
+                    "description": "Valor liquido — what reconciliation uses."
+                }
+            }
+        },
+        "retencoes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "irrf": { "type": ["number", "null"] },
+                "inss": { "type": ["number", "null"] },
+                "csll": { "type": ["number", "null"] },
+                "pis": { "type": ["number", "null"] },
+                "cofins": { "type": ["number", "null"] },
+                "iss": { "type": ["number", "null"] }
+            }
+        }
+    }
+}

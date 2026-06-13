@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Outro (generic fallback) typed transcription",
+    "description": "Generic fallback for an unknown/unconfident document type. Captures the full raw page text plus best-effort labeled values. Never blocks: only raw_text is required.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["outro"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": {
+            "type": "string",
+            "description": "Full verbatim text transcribed from the page (always present)."
+        },
+        "descricao": { "type": ["string", "null"], "description": "Best-effort one-line description of the document." },
+        "valores_identificados": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/valor_rotulado" },
+            "description": "Best-effort labeled values found on the page."
+        }
+    },
+    "$defs": {
+        "valor_rotulado": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "rotulo": { "type": ["string", "null"], "description": "Label/field name as printed." },
+                "valor": { "type": ["number", "null"] }
+            }
+        }
+    }
+}

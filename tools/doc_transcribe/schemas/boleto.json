@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Boleto bancario typed transcription",
+    "description": "Full typed transcription of a Brazilian boleto bancario page.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["boleto"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": { "type": "string", "description": "Full verbatim text transcribed from the page." },
+        "beneficiario": { "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }] },
+        "pagador": { "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }] },
+        "banco": { "type": ["string", "null"] },
+        "valor_documento": { "type": ["number", "null"], "description": "Valor do documento." },
+        "data_vencimento": { "type": ["string", "null"] },
+        "data_documento": { "type": ["string", "null"] },
+        "nosso_numero": { "type": ["string", "null"] },
+        "numero_documento": { "type": ["string", "null"] },
+        "linha_digitavel": { "type": ["string", "null"] },
+        "codigo_barras": { "type": ["string", "null"] }
+    },
+    "$defs": {
+        "parte": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"] },
+                "cnpj_cpf": { "type": ["string", "null"] }
+            }
+        }
+    }
+}
