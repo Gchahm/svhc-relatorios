@@ -15,6 +15,7 @@
         "typecheck": "tsc --noEmit",
         "test": "pnpm run test:ts && pnpm run test:py",
         "test:ts": "node --test \"src/**/*.test.mjs\"",
+        "test:ts:cov": "node --test --experimental-test-coverage --test-coverage-exclude='**/*.test.mjs' --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90 \"src/**/*.test.mjs\"",
         "test:py": "cd scripts && uv run python -m unittest discover -s tests -t .",
         "test:py:cov": "cd scripts && uv run --with coverage python -m coverage run -m unittest discover -s tests -t . && uv run --with coverage python -m coverage report",
         "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",

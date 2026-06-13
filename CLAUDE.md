@@ -125,6 +125,9 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
 
 ## Active Technologies
 
+- TypeScript 5 / React 19 / Next.js 15 (App Router). Test runner is Node 22 + **Existing only** — Node built-in `node:test` / `node:assert`; the (045-ts-test-harness)
+- N/A — test-only feature. Reads no data, writes nothing, no D1 schema/migration. (045-ts-test-harness)
+
 - Python 3.12 (analysis/scraper under `scripts/`, run via `uv`); the test runner + Existing only — Python stdlib (`unittest`), `scripts/common` (`det_id`, (044-python-coverage-tests)
 - N/A — tests read no D1/R2 and write nothing; the coverage run reads no DB. (044-python-coverage-tests)
 

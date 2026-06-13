@@ -5,42 +5,9 @@ import { useTranslation } from "@/lib/i18n/client";
 import { formatCurrency } from "@/lib/i18n/formatters.client";
 import type { SupportedLocale, DeepCatalogKey } from "@/lib/i18n/catalog";
 
-/**
- * Entry ids an alert concerns, parsed from its (untyped JSON) metadata. Covers both the
- * per-attachment mismatch alerts (single `entry_id`) and the entry-level alerts that store
- * an `entry_ids` array (duplicate_billing, duplicate_entry, negative_credit,
- * large_expense_no_attachment). Period/category-level alerts have neither → no links.
- * Parses defensively: any malformed/absent metadata yields no links rather than throwing.
- */
-export function affectedEntryIds(metadata: string | null): string[] {
-    if (!metadata) return [];
-    try {
-        const meta = JSON.parse(metadata) as { entry_ids?: unknown; entry_id?: unknown };
-        if (Array.isArray(meta.entry_ids)) {
-            return meta.entry_ids.filter((v): v is string => typeof v === "string");
-        }
-        if (typeof meta.entry_id === "string") return [meta.entry_id];
-        return [];
-    } catch {
-        return [];
-    }
-}
-
-/** Deep link to the entries page focused on one entry, with the detail dialog auto-opened. */
-export function entryHref(period: string, entryId: string): string {
-    return `/dashboard/entries?period=${encodeURIComponent(period)}&entry=${encodeURIComponent(entryId)}`;
-}
-
-/** The document an alert references (document_overpayment), for a cross-link to its detail page. */
-export function referencedDocumentId(metadata: string | null): string | null {
-    if (!metadata) return null;
-    try {
-        const meta = JSON.parse(metadata) as { document_id?: unknown };
-        return typeof meta.document_id === "string" ? meta.document_id : null;
-    } catch {
-        return null;
-    }
-}
+// Pure metadata helpers live in a sibling `.ts` so they're unit-testable (feature 045 / TEST-003).
+// Re-exported here to keep this module's public surface unchanged.
+export { affectedEntryIds, entryHref, referencedDocumentId } from "./alerts-helpers";
 
 // Metadata keys rendered elsewhere (entry links / document link), excluded from the generic grid.
 const HANDLED_KEYS = new Set(["entry_ids", "entry_id", "document_id"]);

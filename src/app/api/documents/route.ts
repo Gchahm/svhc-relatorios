@@ -1,19 +1,17 @@
 import { initAuth } from "@/auth";
 import { getDb } from "@/db";
 import { documents, documentEntries, entries } from "@/db/fiscal.schema";
-import { documentStatus } from "@/lib/documents";
+import { isAuthorized, UNAUTHORIZED_STATUS } from "@/lib/auth-access";
+import { shapeDocumentRow } from "./shape";
 import { eq, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-const ALLOWED_ROLES = ["admin", "member"];
-
 export async function GET() {
     const authInstance = await initAuth();
     const session = await authInstance.api.getSession({ headers: await headers() });
-    const userRole = (session?.user as { role?: string } | undefined)?.role;
-    if (!session || !userRole || !ALLOWED_ROLES.includes(userRole)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    if (!isAuthorized(session)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: UNAUTHORIZED_STATUS });
     }
 
     const db = await getDb();
@@ -37,10 +35,5 @@ export async function GET() {
         .groupBy(documents.id)
         .orderBy(documents.issuerName, documents.documentNumber);
 
-    const result = rows.map(r => ({
-        ...r,
-        status: documentStatus(r.sumEntries, r.totalValue),
-    }));
-
-    return NextResponse.json(result);
+    return NextResponse.json(rows.map(shapeDocumentRow));
 }

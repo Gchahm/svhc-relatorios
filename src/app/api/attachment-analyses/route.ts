@@ -9,18 +9,17 @@ import {
     vendors,
     accountabilityReports,
 } from "@/db/fiscal.schema";
+import { isAuthorized, UNAUTHORIZED_STATUS } from "@/lib/auth-access";
+import { attachmentAnalysesPeriodScoped } from "./shape";
 import { eq, desc, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 
-const ALLOWED_ROLES = ["admin", "member"];
-
 export async function GET(request: NextRequest) {
     const authInstance = await initAuth();
     const session = await authInstance.api.getSession({ headers: await headers() });
-    const userRole = (session?.user as { role?: string } | undefined)?.role;
-    if (!session || !userRole || !ALLOWED_ROLES.includes(userRole)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    if (!isAuthorized(session)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: UNAUTHORIZED_STATUS });
     }
 
     // Optional period scoping: when present, restrict to analyses whose entry belongs to the period.
@@ -62,7 +61,7 @@ export async function GET(request: NextRequest) {
         .leftJoin(subcategories, eq(entries.subcategoryId, subcategories.id))
         .leftJoin(categories, eq(subcategories.categoryId, categories.id))
         .leftJoin(vendors, eq(entries.vendorId, vendors.id))
-        .where(period ? eq(accountabilityReports.period, period) : undefined)
+        .where(attachmentAnalysesPeriodScoped(period) ? eq(accountabilityReports.period, period!) : undefined)
         .orderBy(desc(attachmentAnalyses.analyzedAt));
 
     return NextResponse.json(rows);

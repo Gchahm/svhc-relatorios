@@ -8,6 +8,7 @@
 import React, { createContext, useContext } from "react";
 import type { SupportedLocale, DeepCatalogKey } from "./catalog";
 import { catalog } from "./catalog";
+import { alertTypeLabelFor } from "./alert-type-label";
 
 /**
  * LocaleContext for client-side locale management
@@ -128,18 +129,10 @@ export function useTranslation() {
  * Mirrors the server `getAlertTypeLabel` from `@/lib/i18n` for client components.
  */
 export function useAlertTypeLabel(): (type: string) => string {
-    const t = useTranslation();
     const context = useContext(LocaleContext);
     const locale = context?.locale ?? "pt-BR";
-    return (type: string): string => {
-        if (!type) return "";
-        const types = catalog[locale].alert.types as Record<string, string>;
-        if (type in types) {
-            return t(`alert.types.${type}` as DeepCatalogKey);
-        }
-        const spaced = type.replace(/_/g, " ");
-        return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-    };
+    // Delegates to the pure, unit-tested `alertTypeLabelFor` (feature 045 / TEST-003).
+    return (type: string): string => alertTypeLabelFor(type, locale);
 }
 
 /**

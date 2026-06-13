@@ -12,7 +12,8 @@ import { CategoryTree } from "@/components/filters/CategoryTree";
 import { SortableHeader, useSort } from "@/components/filters/SortableHeader";
 import { Receipt, X } from "lucide-react";
 import AttachmentAnalysisDetailDialog from "./AttachmentAnalysisDetailDialog";
-import { resolveDeepLink, shortenEntryId } from "./deepLink";
+import { shortenEntryId } from "./deepLink";
+import { deepLinkView } from "./deeplinkView";
 import type { Entry, AttachmentAnalysisRow } from "./types";
 import { useTranslation, useLocale } from "@/lib/i18n/client";
 import { formatCurrency, formatDate } from "@/lib/i18n/formatters.client";
@@ -281,16 +282,23 @@ export default function EntriesClient() {
             search.length > 0 ||
             selectedDocTypes.length > 0 ||
             selectedDocMatchStatus.length > 0;
-        const resolution = resolveDeepLink({
+        const analysis = analysisByEntry.get(deepLinkEntry);
+        // Pure outcome→action mapping (feature 045 / TEST-003). The period-load gate above already
+        // ensures the data is for the deep-link period, so selectPeriod is a no-op here (selected
+        // === param) — the view drives recovery / highlight / dialog / notice / consumption.
+        const view = deepLinkView({
             entryId: deepLinkEntry,
+            paramPeriod: selectedPeriod,
+            selectedPeriod,
             hasActiveFilter,
             presentUnfiltered: entries.some(e => e.id === deepLinkEntry),
             filteredIndex: filtered.findIndex(e => e.id === deepLinkEntry),
+            hasAnalysis: analysis !== undefined,
         });
 
         // Filter-recovery is transitional: clear the filters and let the effect re-run (filtered
         // changes) to find the now-visible row. Don't consume the link or strip the URL yet.
-        if (resolution.outcome === "recovered-from-filter") {
+        if (view.clearFilters) {
             setSelectedSubcategories([]);
             setSearch("");
             setSelectedDocTypes([]);
@@ -301,16 +309,15 @@ export default function EntriesClient() {
         // Terminal outcomes consume the link and strip the params so a refresh won't re-trigger.
         deepLinkHandledRef.current = key;
         const loadedPeriod = selectedPeriod;
-        if (resolution.outcome === "found") {
-            virtualizer.scrollToIndex(resolution.index, { align: "center" });
+        if (view.highlightIndex !== undefined) {
+            virtualizer.scrollToIndex(view.highlightIndex, { align: "center" });
             setHighlightedEntryId(deepLinkEntry);
             // Open the validation dialog when an analysis exists for the entry (FR-008); when the
             // entry has no analysis we still scrolled/highlighted above — no dialog, no notice.
-            const analysis = analysisByEntry.get(deepLinkEntry);
-            if (analysis) setSelectedAnalysis(analysis);
-        } else {
+            if (view.openDialog && analysis) setSelectedAnalysis(analysis);
+        } else if (view.notice) {
             // "not-found" or "invalid" — surface a non-blocking notice instead of failing silently.
-            setDeepLinkNotice({ kind: resolution.outcome, entryId: deepLinkEntry, period: loadedPeriod });
+            setDeepLinkNotice({ kind: view.notice.kind, entryId: deepLinkEntry, period: loadedPeriod });
         }
         // Strip the consumed entry/period params from the URL so a refresh doesn't re-trigger the
         // deep-link behavior (FR-007); selected period is preserved in component state (A4).

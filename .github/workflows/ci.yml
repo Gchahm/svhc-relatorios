@@ -54,6 +54,9 @@ jobs:
             - name: TypeScript tests
               run: pnpm test:ts
 
+            - name: TypeScript coverage
+              run: pnpm test:ts:cov
+
             - name: Python tests
               run: pnpm test:py
 
