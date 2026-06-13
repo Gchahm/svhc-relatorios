@@ -1,0 +1,37 @@
+{
+    "doc_type": "nfse",
+    "schema_version": "1",
+    "raw_text": "NOTA FISCAL DE SERVICOS ELETRONICA - NFS-e\nNumero da Nota 0000123  Codigo de Verificacao A1B2-C3D4\nData e Hora de Emissao 05/12/2025 14:32\nMunicipio de Prestacao: Sao Vicente/SP\nPRESTADOR DE SERVICOS: MANUTENCAO PREDIAL SV LTDA  CNPJ 11.222.333/0001-44  Inscricao Municipal 987654\nTOMADOR DE SERVICOS: SAO VICENTE HOME CLUB  CNPJ 98.765.432/0001-00\nDISCRIMINACAO DOS SERVICOS: Servico de manutencao de portao eletronico\nVALOR DO SERVICO R$ 320,00  DEDUCOES R$ 0,00  BASE DE CALCULO R$ 320,00  ALIQUOTA 5,00%  VALOR ISS R$ 16,00\nVALOR LIQUIDO DA NOTA R$ 320,00\nRETENCOES: IRRF 0,00 INSS 0,00 CSLL 0,00 PIS 0,00 COFINS 0,00 ISS 0,00",
+    "numero": "0000123",
+    "codigo_verificacao": "A1B2-C3D4",
+    "data_emissao": "05/12/2025",
+    "municipio_prestacao": "Sao Vicente/SP",
+    "prestador": {
+        "nome": "MANUTENCAO PREDIAL SV LTDA",
+        "cnpj": "11.222.333/0001-44",
+        "im": "987654",
+        "endereco": null
+    },
+    "tomador": {
+        "nome": "SAO VICENTE HOME CLUB",
+        "cnpj_cpf": "98.765.432/0001-00",
+        "endereco": null
+    },
+    "discriminacao_servico": "Servico de manutencao de portao eletronico",
+    "valores": {
+        "valor_servico": 320.0,
+        "deducoes": 0.0,
+        "base_calculo": 320.0,
+        "aliquota_iss": 5.0,
+        "valor_iss": 16.0,
+        "valor_liquido": 320.0
+    },
+    "retencoes": {
+        "irrf": 0.0,
+        "inss": 0.0,
+        "csll": 0.0,
+        "pis": 0.0,
+        "cofins": 0.0,
+        "iss": 0.0
+    }
+}

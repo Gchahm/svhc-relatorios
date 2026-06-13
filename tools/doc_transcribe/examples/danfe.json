@@ -1,0 +1,43 @@
+{
+    "doc_type": "danfe",
+    "schema_version": "1",
+    "raw_text": "DANFE - DOCUMENTO AUXILIAR DA NOTA FISCAL ELETRONICA\nNF-e No 000.006.227 Serie 1\nNATUREZA DA OPERACAO: VENDA DE MERCADORIA\nCHAVE DE ACESSO 3525 0612 3456 7800 0199 5500 1000 0062 2710 0000 6227\nPROTOCOLO DE AUTORIZACAO DE USO: 135250000000001\nEMITENTE: AGUA MARINHA PISCINAS LTDA  CNPJ 12.345.678/0001-99  IE 123.456.789.110\nRua das Piscinas, 100 - Santos/SP\nDESTINATARIO: SAO VICENTE HOME CLUB  CNPJ 98.765.432/0001-00\nAv. Presidente Wilson, 1000 - Sao Vicente/SP\nDADOS DOS PRODUTOS/SERVICOS\nCOD 001 CLORO GRANULADO 10KG  NCM 28011000 CFOP 5102  UN CX  QTD 2,0000  VL UNIT 1.395,0000  VL TOTAL 2.790,00\nCALCULO DO IMPOSTO\nBASE DE CALCULO ICMS 2.790,00  VALOR ICMS 502,20  VALOR DOS PRODUTOS 2.790,00  VALOR FRETE 0,00  VALOR TOTAL DA NOTA 2.790,00\nFATURA/DUPLICATA: 001 VENC 30/12/2025 VALOR 2.790,00",
+    "chave_acesso": "35250612345678000199550010000062271000006227",
+    "numero": "000006227",
+    "serie": "1",
+    "natureza_operacao": "VENDA DE MERCADORIA",
+    "data_emissao": "01/12/2025",
+    "protocolo_autorizacao": "135250000000001",
+    "emitente": {
+        "nome": "AGUA MARINHA PISCINAS LTDA",
+        "cnpj": "12.345.678/0001-99",
+        "ie": "123.456.789.110",
+        "endereco": "Rua das Piscinas, 100 - Santos/SP"
+    },
+    "destinatario": {
+        "nome": "SAO VICENTE HOME CLUB",
+        "cnpj_cpf": "98.765.432/0001-00",
+        "endereco": "Av. Presidente Wilson, 1000 - Sao Vicente/SP"
+    },
+    "itens": [
+        {
+            "codigo": "001",
+            "descricao": "CLORO GRANULADO 10KG",
+            "ncm": "28011000",
+            "cfop": "5102",
+            "unidade": "CX",
+            "quantidade": 2.0,
+            "valor_unitario": 1395.0,
+            "valor_total": 2790.0
+        }
+    ],
+    "totais": {
+        "valor_produtos": 2790.0,
+        "base_calculo_icms": 2790.0,
+        "valor_icms": 502.2,
+        "valor_frete": 0.0,
+        "valor_desconto": null,
+        "valor_total_nota": 2790.0
+    },
+    "duplicatas": [{ "numero": "001", "vencimento": "30/12/2025", "valor": 2790.0 }]
+}

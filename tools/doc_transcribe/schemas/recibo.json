@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Recibo typed transcription",
+    "description": "Full typed transcription of a Brazilian recibo (receipt) page.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["doc_type", "schema_version", "raw_text"],
+    "properties": {
+        "doc_type": { "enum": ["recibo"] },
+        "schema_version": { "enum": ["1"] },
+        "raw_text": { "type": "string", "description": "Full verbatim text transcribed from the page." },
+        "numero": { "type": ["string", "null"] },
+        "data": { "type": ["string", "null"] },
+        "pagador": { "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }] },
+        "recebedor": {
+            "anyOf": [{ "$ref": "#/$defs/parte" }, { "type": "null" }],
+            "description": "Quem recebe (issuer for reconciliation)."
+        },
+        "valor": { "type": ["number", "null"] },
+        "referente_a": { "type": ["string", "null"], "description": "Descricao do que se refere o recibo." }
+    },
+    "$defs": {
+        "parte": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "nome": { "type": ["string", "null"] },
+                "cnpj_cpf": { "type": ["string", "null"] }
+            }
+        }
+    }
+}
