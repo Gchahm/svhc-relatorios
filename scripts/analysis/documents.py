@@ -227,6 +227,76 @@ def build_documents(target: Target = "local") -> tuple[int, int]:
     return len(docs), len(links)
 
 
+class DocumentNotFound(LookupError):
+    """Raised when a document id has no row in ``documents`` (TRIAGE-002 / issue #85)."""
+
+
+def resolve_document_attachment_ids(document_id: str, target: Target = "local") -> list[str]:
+    """Resolve a document id to its distinct source attachment ids (read-only).
+
+    A document is global and N:N with entries via ``document_entries``; each link row carries
+    ``source_attachment_id`` provenance — the attachment that produced it (feature 020). Correction
+    happens at the attachment level, so the triage agent needs the document's source attachments.
+
+    Returns the **sorted, distinct, non-NULL** ``source_attachment_id`` set for ``document_id``.
+    Raises :class:`DocumentNotFound` when the id has no ``documents`` row (so an unknown id is a
+    clear error, never a misleading empty result — FR-005). An existing document with no resolvable
+    source attachments returns ``[]`` (FR-006). Issues only ``SELECT``s — mutates nothing (FR-004).
+    """
+    quoted = "'" + str(document_id).replace("'", "''") + "'"
+    exists = d1.query(f"SELECT id FROM documents WHERE id = {quoted}", target=target)
+    if not exists:
+        raise DocumentNotFound(document_id)
+    rows = d1.query(
+        "SELECT DISTINCT source_attachment_id FROM document_entries "
+        f"WHERE document_id = {quoted} AND source_attachment_id IS NOT NULL",
+        target=target,
+    )
+    return sorted(r["source_attachment_id"] for r in rows)
+
+
+def document_evidence(
+    document_id: str,
+    target: Target = "local",
+    *,
+    cache_dir: str | None = None,
+) -> dict:
+    """One-shot triage evidence for a document id: resolved attachments + scoped findings.
+
+    Maps the document id to its source attachment ids (:func:`resolve_document_attachment_ids`),
+    then delegates to the existing ``summarize_mismatches`` engine scoped to those attachments, so
+    the per-finding shape + ``page_refs`` (materialized image ``read_path`` s) are identical to the
+    ``mismatches`` command — no drift (FR-003). Read-only (the only side effect is the image
+    materialization ``summarize_mismatches`` already performs into the ephemeral local cache).
+
+    Returns ``{"document_id", "attachment_ids", "findings"}``. When the document resolves to no
+    source attachments the findings list is empty (FR-006/FR-008) — the summary is scoped to the
+    empty attachment set, never to "all attachments".
+    """
+    # Imported here to avoid a module import cycle (``extractions`` imports from several analysis
+    # modules; ``documents`` is the entity owner and must stay importable independently).
+    from .extractions import DEFAULT_CACHE_DIR, summarize_mismatches
+
+    attachment_ids = resolve_document_attachment_ids(document_id, target=target)
+    # No source attachments ⇒ nothing to triage. Short-circuit: ``summarize_mismatches`` treats a
+    # falsy ``attachment_ids`` as "no scope" and would return EVERY period's findings, so never call
+    # it with an empty list (FR-006/FR-008).
+    findings: list[dict] = (
+        summarize_mismatches(
+            target=target,
+            cache_dir=cache_dir or DEFAULT_CACHE_DIR,
+            attachment_ids=attachment_ids,
+        )
+        if attachment_ids
+        else []
+    )
+    return {
+        "document_id": document_id,
+        "attachment_ids": attachment_ids,
+        "findings": findings,
+    }
+
+
 def _load_documents_with_links(target: Target) -> list[dict]:
     """Each document with its linked entries' live amounts + periods (global)."""
     documents = d1.query("SELECT * FROM documents", target=target)
