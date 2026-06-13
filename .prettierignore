@@ -4,6 +4,7 @@ yarn.lock
 bun.lock
 bun.lockb
 .next
+.next.broken.*
 .open-next
 node_modules
 dist

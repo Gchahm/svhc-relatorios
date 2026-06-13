@@ -1,0 +1,61 @@
+name: CI
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+
+# Verification only — never write to the repo, never deploy.
+permissions:
+    contents: read
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    verify:
+        name: Lint, format, tests, typecheck
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Setup Node 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Setup uv + Python 3.12
+              uses: astral-sh/setup-uv@v5
+              with:
+                  python-version: "3.12"
+                  enable-cache: true
+                  cache-dependency-glob: scripts/uv.lock
+
+            # --- Quality gates (each a separate, visible step) ---
+
+            - name: Lint
+              run: pnpm lint
+
+            - name: Format check
+              run: pnpm format:check
+
+            - name: TypeScript tests
+              run: pnpm test:ts
+
+            - name: Python tests
+              run: pnpm test:py
+
+            - name: Typecheck
+              run: pnpm typecheck
