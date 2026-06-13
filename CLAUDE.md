@@ -125,6 +125,8 @@ Glob`. Deciding true-vs-false on a mismatch, and any fix, are the **review** and
   `record-verdict` CLI.
 
 ## Active Technologies
+- TypeScript 5 / React 19 / Next.js 15 (App Router); Node 22 for the test runner + Existing only — Drizzle ORM (D1), better-auth, shadcn/ui (card, badge, button, dialog), lucide-react, the I18N-001 catalog (`@/lib/i18n`), `@tanstack/react-virtual` (already in lists). No new npm/pip dependency. (048-doc-vision-provenance)
+- Cloudflare D1 (`DATABASE` → `fiscal-db`), tables `documents`, `document_entries`, `entries`, `attachments`, `attachment_analyses`, `attachment_analysis_records`, plus the entry-context joins — all **read-only** here. Page images in R2 via the existing image routes. No schema change, no migration. (048-doc-vision-provenance)
 
 - Python 3.12 (seed + integration + browser smoke, via `uv`); TypeScript 5 / Node 22 only as the build target served by `pnpm preview`. + Existing only — `scripts/common/d1.py` (`wrangler`-CLI wrapper), `scripts/common` (`det_id`, `now_ms`), Python `playwright` (`sync_api`, already a scraper dep, Chromium installed at `/opt/playwright/...`), `wrangler` (D1 migrations + R2), `@opennextjs/cloudflare` (`pnpm preview`). **No new npm or pip dependency** (`@playwright/test` deliberately not added — FR-008). (046-e2e-smoke-suite)
 - Cloudflare D1 (`DATABASE` → `fiscal-db`) + R2 (`DOCUMENTS` → `fiscal-documents`), **local Miniflare only** (`--local`). Seed writes mirror + analysis-owned + auth tables; tests read/write via the real wrapper. No `--remote`, no production secret. (046-e2e-smoke-suite)

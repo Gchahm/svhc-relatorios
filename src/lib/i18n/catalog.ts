@@ -408,6 +408,15 @@ export type CatalogShape = {
         col_type: string;
         col_total: string;
         col_status: string;
+        total_provenance_label: string;
+        total_from_page: string;
+        total_field_gross: string;
+        total_field_rollup: string;
+        total_no_ai: string;
+        view_extraction: string;
+        view_extraction_title: string;
+        no_extraction: string;
+        ai_extracted_note: string;
     };
     analysis: {
         dialog_title: string;
@@ -859,6 +868,15 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             col_type: "Tipo",
             col_total: "Total",
             col_status: "Status",
+            total_provenance_label: "Origem do total",
+            total_from_page: "página {page} · {field}",
+            total_field_gross: "valor total da nota (extraído por IA)",
+            total_field_rollup: "estimativa consolidada (extraída por IA)",
+            total_no_ai: "sem total extraído pela IA",
+            view_extraction: "Ver extração da IA",
+            view_extraction_title: "Ver o objeto extraído pela IA: campos por página e imagem",
+            no_extraction: "Sem extração da IA para este anexo",
+            ai_extracted_note: "Valor extraído por IA das páginas do anexo — confira na imagem.",
         },
         analysis: {
             dialog_title: "Análise do anexo",
@@ -1302,6 +1320,15 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             col_type: "Type",
             col_total: "Total",
             col_status: "Status",
+            total_provenance_label: "Total source",
+            total_from_page: "page {page} · {field}",
+            total_field_gross: "invoice gross (AI-extracted)",
+            total_field_rollup: "roll-up estimate (AI-extracted)",
+            total_no_ai: "no AI-extracted total",
+            view_extraction: "View AI extraction",
+            view_extraction_title: "View the AI-extracted object: per-page fields and image",
+            no_extraction: "No AI extraction for this attachment",
+            ai_extracted_note: "Value AI-extracted from the attachment pages — verify against the image.",
         },
         analysis: {
             dialog_title: "Attachment Analysis",

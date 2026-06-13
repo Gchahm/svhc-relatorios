@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ExternalLink, FileText, ImageOff } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, ImageOff, Sparkles } from "lucide-react";
 import { StatusBadge } from "../StatusBadge";
 import PageImageViewer from "../../entries/PageImageViewer";
+import AttachmentAnalysisDetailDialog from "../../entries/AttachmentAnalysisDetailDialog";
+import type { AttachmentAnalysisRow } from "../../entries/types";
 import type { DocumentStatus } from "@/lib/documents";
 import { useTranslation, useLocale } from "@/lib/i18n/client";
 import { formatCurrency } from "@/lib/i18n/formatters.client";
@@ -41,6 +44,17 @@ interface ImageSource {
     period: string;
     documentPageLabel: string | null;
     pages: SourcePage[];
+    analysis: AttachmentAnalysisRow | null;
+}
+
+interface TotalProvenance {
+    source: "gross" | "rollup" | "none";
+    value: number | null;
+    analysisId: string | null;
+    attachmentId: string | null;
+    entryId: string | null;
+    period: string | null;
+    sourcePageLabel: string | null;
 }
 
 interface RelatedDocument {
@@ -63,6 +77,7 @@ interface DocumentDetail {
     totalValue: number | null;
     sumEntries: number;
     status: DocumentStatus;
+    totalProvenance: TotalProvenance | null;
     entries: LinkedEntry[];
     imageSources: ImageSource[];
     relatedDocuments: RelatedDocument[];
@@ -120,6 +135,8 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // The AI extraction (attachment analysis) open in the reused entries-view dialog.
+    const [selectedAnalysis, setSelectedAnalysis] = useState<AttachmentAnalysisRow | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -217,6 +234,48 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
                         <Field label={t("detail.field_sum_entries")} value={fmtCurrency(detail.sumEntries)} />
                         <Field label={t("detail.field_linked_entries")} value={String(detail.entries.length)} />
                     </div>
+                    {/* Total provenance: where the AI read the headline total (feature 048), so a
+                        figure that disagrees with the page image is explainable in one click. */}
+                    {(() => {
+                        const prov = detail.totalProvenance;
+                        const openAnalysis = () => {
+                            const src = prov?.analysisId
+                                ? detail.imageSources.find(s => s.analysisId === prov.analysisId)
+                                : undefined;
+                            if (src?.analysis) setSelectedAnalysis(src.analysis);
+                        };
+                        const canOpen = !!(
+                            prov?.analysisId &&
+                            detail.imageSources.find(s => s.analysisId === prov.analysisId)?.analysis
+                        );
+                        let text: string;
+                        if (prov && prov.source === "gross") {
+                            text = t("detail.total_from_page")
+                                .replace("{page}", prov.sourcePageLabel ?? "—")
+                                .replace("{field}", t("detail.total_field_gross"));
+                        } else if (prov && prov.source === "rollup") {
+                            text = t("detail.total_field_rollup");
+                        } else {
+                            text = t("detail.total_no_ai");
+                        }
+                        return (
+                            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                                <span className="uppercase tracking-wide">{t("detail.total_provenance_label")}:</span>
+                                {canOpen ? (
+                                    <button
+                                        type="button"
+                                        onClick={openAnalysis}
+                                        className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                                    >
+                                        {text}
+                                    </button>
+                                ) : (
+                                    <span>{text}</span>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </CardContent>
             </Card>
 
@@ -273,8 +332,23 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
                     <CardContent className="space-y-3">
                         {detail.imageSources.map(source => (
                             <div key={source.analysisId} className="space-y-2 rounded-md border p-3">
-                                <div className="text-xs text-muted-foreground">
-                                    {t("detail.from_entry")} <span className="tabular-nums">{source.period}</span>
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="text-xs text-muted-foreground">
+                                        {t("detail.from_entry")} <span className="tabular-nums">{source.period}</span>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={!source.analysis}
+                                        onClick={() => source.analysis && setSelectedAnalysis(source.analysis)}
+                                        title={
+                                            source.analysis
+                                                ? t("detail.view_extraction_title")
+                                                : t("detail.no_extraction")
+                                        }
+                                    >
+                                        <Sparkles className="h-3.5 w-3.5" /> {t("detail.view_extraction")}
+                                    </Button>
                                 </div>
                                 {source.pages.length === 0 ? (
                                     <div className="flex h-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/30 text-muted-foreground">
@@ -412,6 +486,13 @@ export default function DocumentDetailClient({ documentId }: { documentId: strin
                     )}
                 </CardContent>
             </Card>
+
+            {/* Reused entries-view AI-extraction dialog: roll-up + per-page extracted fields next to
+                the page image, so a reviewer can see exactly what the vision model read (feature 048). */}
+            <AttachmentAnalysisDetailDialog
+                analysis={selectedAnalysis}
+                onOpenChange={open => !open && setSelectedAnalysis(null)}
+            />
         </div>
     );
 }
