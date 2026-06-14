@@ -16,6 +16,8 @@ D1-backed extraction provider. Stdlib only.
 
 from __future__ import annotations
 
+import json
+
 from common import d1, det_id, now_ms
 from common.d1 import Target
 
@@ -154,6 +156,86 @@ def page_classification_id(attachment_id: str, page_label: str) -> str:
     same row (idempotent upsert; latest extraction wins).
     """
     return det_id("page_classification", attachment_id, page_label)
+
+
+def _q(value: str) -> str:
+    """Single-quote a value for inline SQL (``'`` → ``''``)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def staging_rows_from_records(attachment_id: str, records: list[dict]) -> list[dict]:
+    """Reconstruct an attachment's ``page_classifications`` staging rows from its stored records.
+
+    Pure transform (no I/O): maps each persisted ``page_extraction`` record dict — as queried from
+    ``attachment_analysis_records`` (carrying ``page_label``, ``page_index``, ``response`` (a dict, a
+    JSON string, or ``None``), ``parse_error``) — to a staging-table row shaped exactly like
+    ``record_classification`` writes (id keyed on ``(attachment_id, page_label)``; ``response`` decoded
+    to a dict or ``None``; ``parse_error`` → ``error``; fresh ``recorded_at``). Rows without a
+    ``page_label`` are skipped (they cannot key a staging row).
+
+    This is the durable transcription → staging bridge shared by the data-correction snapshot
+    (feature 054) and the ``re-derive`` command (feature 056): the staging table is pruned after apply
+    (feature 035), but the verbatim per-page transcription survives in ``attachment_analysis_records.response``,
+    so restoring it as staging and re-applying re-derives the prior ``attachment_analyses`` byte-for-byte
+    (with the CURRENT mappers — which is exactly what ``re-derive`` exploits after a mapper fix).
+    """
+    out: list[dict] = []
+    for r in records or []:
+        page_label = r.get("page_label")
+        if not page_label:
+            continue
+        resp = r.get("response")
+        if isinstance(resp, str) and resp:
+            try:
+                resp = json.loads(resp)
+            except json.JSONDecodeError:
+                resp = None
+        out.append(
+            {
+                "id": page_classification_id(attachment_id, page_label),
+                "attachment_id": attachment_id,
+                "page_label": page_label,
+                "page_index": r.get("page_index"),
+                "response": resp if isinstance(resp, dict) else None,
+                "error": r.get("parse_error"),
+                "recorded_at": now_ms(),
+            }
+        )
+    return out
+
+
+def load_stored_records(attachment_id: str, target: Target = "local") -> list[dict]:
+    """Read an attachment's persisted ``page_extraction`` records (the durable transcription).
+
+    Joins ``attachment_analysis_records`` to the attachment's ``attachment_analyses`` row and returns
+    the per-page ``page_label``/``page_index``/``response``/``parse_error`` — the input to
+    :func:`staging_rows_from_records`. The durable copy of each page's transcription (feature 035
+    prunes the live staging after apply), so this is the source ``re-derive`` and the correction
+    snapshot read.
+    """
+    return d1.query(
+        "SELECT rec.page_label AS page_label, rec.page_index AS page_index, "
+        "rec.response AS response, rec.parse_error AS parse_error "
+        "FROM attachment_analysis_records rec "
+        "JOIN attachment_analyses an ON rec.attachment_analysis_id = an.id "
+        f"WHERE an.attachment_id = {_q(attachment_id)} AND rec.analysis_type = 'page_extraction'",
+        target=target,
+    )
+
+
+def clear_classified_stamp(attachment_id: str, target: Target = "local") -> None:
+    """Clear ONLY ``attachment_state.classified_at`` (re-queue the attachment for apply).
+
+    Unlike ``mark_pending``, this does NOT delete the attachment's ``page_classifications`` staging
+    rows — the staging we just wrote (a correction snapshot, or a re-derived transcription) IS the
+    input apply must roll up. (``mark_pending`` folds a staging DELETE into its batch, which would wipe
+    those rows.) The feature-050 staging-driven apply selects from the *pending* plan, so the stamp
+    must be NULL for the attachment to be visited.
+    """
+    d1.execute_sql(
+        f"UPDATE attachment_state SET classified_at = NULL WHERE attachment_id = {_q(attachment_id)};",
+        target=target,
+    )
 
 
 def record_classification(

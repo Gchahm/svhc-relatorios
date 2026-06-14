@@ -38,7 +38,13 @@ from common import d1, det_id, now_ms
 from common.d1 import Target
 
 from .extractions import DEFAULT_CACHE_DIR, apply_extractions, summarize_mismatches
-from .page_classifications import record_classification, validate_page_fields
+from .page_classifications import (
+    clear_classified_stamp,
+    load_stored_records,
+    record_classification,
+    staging_rows_from_records,
+    validate_page_fields,
+)
 from .verdicts import mismatch_key
 
 logger = logging.getLogger(__name__)
@@ -228,40 +234,12 @@ def _snapshot_staging(attachment_id: str, target: Target) -> list[dict]:
     those as staging and re-applying re-derives the prior ``attachment_analyses`` byte-for-byte
     (research D3). Each row is shaped to the staging contract (id keyed on ``(attachment_id,
     page_label)`` so the restore overwrites the right rows). Empty list ⇒ the page set carried no
-    parseable extraction (its exact prior state)."""
-    from .page_classifications import page_classification_id
+    parseable extraction (its exact prior state).
 
-    rows = d1.query(
-        "SELECT rec.page_label AS page_label, rec.page_index AS page_index, "
-        "rec.response AS response, rec.parse_error AS parse_error "
-        "FROM attachment_analysis_records rec "
-        "JOIN attachment_analyses an ON rec.attachment_analysis_id = an.id "
-        f"WHERE an.attachment_id = {_q(attachment_id)} AND rec.analysis_type = 'page_extraction'",
-        target=target,
-    )
-    out: list[dict] = []
-    for r in rows:
-        page_label = r.get("page_label")
-        if not page_label:
-            continue
-        resp = r.get("response")
-        if isinstance(resp, str) and resp:
-            try:
-                resp = json.loads(resp)
-            except json.JSONDecodeError:
-                resp = None
-        out.append(
-            {
-                "id": page_classification_id(attachment_id, page_label),
-                "attachment_id": attachment_id,
-                "page_label": page_label,
-                "page_index": r.get("page_index"),
-                "response": resp if isinstance(resp, dict) else None,
-                "error": r.get("parse_error"),
-                "recorded_at": now_ms(),
-            }
-        )
-    return out
+    The D1 read + the pure record→staging transform live in ``page_classifications`` (the
+    ``load_stored_records`` / ``staging_rows_from_records`` seam, feature 056) so this snapshot and the
+    ``re-derive`` command share ONE implementation."""
+    return staging_rows_from_records(attachment_id, load_stored_records(attachment_id, target))
 
 
 def _current_page_fields(snapshot: list[dict], page_label: str) -> dict | None:
@@ -295,25 +273,11 @@ def _restore_staging(attachment_id: str, snapshot: list[dict], target: Target) -
         return False
 
 
-def _clear_classified_stamp(attachment_id: str, target: Target) -> None:
-    """Clear ONLY ``attachment_state.classified_at`` (re-queue the attachment for apply).
-
-    Unlike ``mark_pending``, this does NOT delete the attachment's ``page_classifications`` staging
-    rows — the corrected/restored staging we just wrote IS the input apply must roll up. (mark_pending
-    folds a staging DELETE into its batch, which would wipe the very rows we are about to apply.) The
-    feature-050 staging-driven apply selects from the *pending* plan, so the stamp must be NULL for the
-    attachment to be visited."""
-    d1.execute_sql(
-        f"UPDATE attachment_state SET classified_at = NULL WHERE attachment_id = {_q(attachment_id)};",
-        target=target,
-    )
-
-
 def _propagate(attachment_id: str, period: str | None, target: Target, cache_dir: str) -> None:
     """Re-derive the analysis for the corrected attachment's NF group + refresh documents/alerts.
 
     Precondition: the corrected/restored ``page_classifications`` staging rows are ALREADY written.
-    Clears the classified stamp (staging untouched — see ``_clear_classified_stamp``) so the attachment
+    Clears the classified stamp (staging untouched — see ``clear_classified_stamp``) so the attachment
     enters the pending plan, then runs the feature-050 staging-driven ``apply_extractions`` (rolls up
     ONLY groups whose representative has staging rows — i.e. exactly this corrected group), then
     ``run_analysis`` (which itself rebuilds the global ``documents`` entity before writing alerts).
@@ -326,7 +290,7 @@ def _propagate(attachment_id: str, period: str | None, target: Target, cache_dir
     from . import run_analysis  # local import: run_analysis lives in the package __init__
 
     periods_filter = [period] if period else None
-    _clear_classified_stamp(attachment_id, target)
+    clear_classified_stamp(attachment_id, target)
     with contextlib.redirect_stdout(sys.stderr):
         apply_extractions(target=target, periods_filter=periods_filter, cache_dir=cache_dir)
         run_analysis(target=target, periods_filter=periods_filter, cache_dir=cache_dir)
