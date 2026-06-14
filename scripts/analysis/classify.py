@@ -116,6 +116,7 @@ def classify_period(
     cache_dir: str = DEFAULT_CACHE_DIR,
     min_amount: float | None = None,
     limit: int | None = None,
+    attachment_ids: list[str] | None = None,
     backend: str = "cli",
     model: str | None = None,
     transcribe_page=None,
@@ -126,6 +127,11 @@ def classify_period(
     Builds the pending plan (``build_plan``), materializes the period's page images, and for each
     page with ``recorded == False`` transcribes it (serially) and records the typed result (or an
     ``{"error": ...}`` row) to ``page_classifications``. Does NOT run apply/analyze.
+
+    ``attachment_ids`` scopes the run to those attachments: only plan groups whose representative
+    OR a member matches one of the ids are transcribed (the rest of the pending set is left
+    untouched). It intersects the pending set — an id that is not pending contributes no pages, so
+    ``mark-pending`` it first to force a fresh read. Empty/None ⇒ the whole pending set (default).
 
     ``transcribe_page`` is injectable for testing: a callable ``transcribe_page(read_path) ->
     fields-dict | {"error": ...}`` that raises :class:`ClassifyConfigError` on a config error. The
@@ -154,12 +160,19 @@ def classify_period(
 
     envelopes = build_plan(periods, refs, cache_dir=cache_dir, min_amount=min_amount, limit=limit)
 
+    wanted = set(attachment_ids or [])
+
     recorded = errors = skipped = 0
     affected_periods: set[str] = set()
     for env in envelopes:
         period = env["period"]
         for group in env["groups"]:
             attachment_id = group["representative_attachment_id"]
+            if wanted and not (
+                attachment_id in wanted
+                or any(m.get("attachment_id") in wanted for m in group.get("members", []))
+            ):
+                continue
             for page in group["pages"]:
                 if page.get("recorded"):
                     skipped += 1

@@ -108,6 +108,41 @@ class ClassifyHappyPathTest(unittest.TestCase):
         rec.assert_not_called()
 
 
+class ClassifyAttachmentScopeTest(unittest.TestCase):
+    @staticmethod
+    def _two_attachments():
+        """One period, two pending single-page attachments with distinct content hashes."""
+        e1, e2 = entry("e1", amount=100.0), entry("e2", amount=200.0)
+        a1 = attachment("a1", "e1", file_path="2025-12/x_p1.png", content_hash="h1")
+        a2 = attachment("a2", "e2", file_path="2025-12/y_p1.png", content_hash="h2")
+        pd = make_period("2025-12", entries=[e1, e2], attachments=[a1, a2])
+        return {"2025-12": pd}, make_refs()
+
+    def test_attachment_id_scopes_to_named_attachment(self):
+        periods, refs = self._two_attachments()
+        load, mat = _patch_io(periods, refs)
+        with load, mat, mock.patch.object(classify_mod, "record_classification") as rec:
+            result = classify_period(
+                "local", ["2025-12"], attachment_ids=["a2"],
+                transcribe_page=lambda rp: _typed(), typed_validator=lambda payload, dt: [],
+            )
+        # Only a2 is transcribed; a1 is left untouched (not skipped — never visited).
+        self.assertEqual(result["recorded"], 1)
+        self.assertEqual(rec.call_count, 1)
+        self.assertEqual(rec.call_args.args[0], "a2")
+
+    def test_no_attachment_ids_classifies_whole_pending_set(self):
+        periods, refs = self._two_attachments()
+        load, mat = _patch_io(periods, refs)
+        with load, mat, mock.patch.object(classify_mod, "record_classification") as rec:
+            result = classify_period(
+                "local", ["2025-12"],
+                transcribe_page=lambda rp: _typed(), typed_validator=lambda payload, dt: [],
+            )
+        self.assertEqual(result["recorded"], 2)
+        self.assertEqual({c.args[0] for c in rec.call_args_list}, {"a1", "a2"})
+
+
 class ClassifyErrorHandlingTest(unittest.TestCase):
     def test_per_page_failure_records_error_row_and_continues(self):
         periods, refs = _periods_with(2)
