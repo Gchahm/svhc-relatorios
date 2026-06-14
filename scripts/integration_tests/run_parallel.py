@@ -101,15 +101,28 @@ def run_worker(persist_dir: str, modules: list[str]) -> int:
         return 2
 
     # Import lazily so the parent's discovery doesn't pay the seed-module import cost.
-    from . import _harness as h
+    from common import d1
+    from e2e import seed as seed_module
 
-    # Seed ONCE for this worker's DB (migrate + synthetic + R2). Subsequent per-module
-    # setUpClass seed_once() calls are cheap idempotent re-seeds (migration skipped).
-    h.seed_once()
-
+    # Apply migrations ONCE for this worker's DB (the schema is stable); rows are reset to the
+    # clean seed baseline BEFORE EACH module so modules sharing this worker's DB cannot
+    # contaminate each other. A whole-DB re-seed (not the scoped _harness.restore, which only
+    # touches the synthetic period's analysis-owned rows) is required because a module may
+    # mutate rows the scoped restore does not cover — e.g. add an attachment_state row for a
+    # seed-pending attachment (INSERT OR REPLACE can't delete an ADDED row), prune documents, or
+    # hard-delete mirror rows (reconcile cascade). Re-seeding from scratch heals all of those.
     loader = unittest.TestLoader()
     overall_ok = True
+    migrated = False
     for module in modules:
+        # Reset to baseline. First module: full seed incl. migrations. Subsequent: drop the
+        # synthetic period clean + re-seed rows/docs/alerts/images (migrations already applied).
+        if not migrated:
+            seed_module.seed(apply_migrations=True)
+            migrated = True
+        else:
+            _reset_db(d1, seed_module)
+
         suite = loader.loadTestsFromName(module)
         start = time.monotonic()
         runner = unittest.TextTestRunner(verbosity=2, stream=sys.stderr)
@@ -130,6 +143,46 @@ def run_worker(persist_dir: str, modules: list[str]) -> int:
             flush=True,
         )
     return 0 if overall_ok else 1
+
+
+def _reset_db(d1, seed_module) -> None:
+    """Reset this worker's DB to the clean seed baseline WITHOUT re-migrating.
+
+    Deletes every row from every table the seed touches (schema-only DB), then re-seeds the
+    synthetic period incl. documents + alerts + R2 images. This is a true clean slate — it heals
+    rows a prior module ADDED (which an INSERT OR REPLACE re-seed cannot remove), DELETED (mirror
+    hard-deletes), or pruned (documents). R2 objects are deterministic by key, so the re-seed's
+    INSERT-or-overwrite restores them; stray objects a module created are harmless (tests assert
+    presence of known keys, never absence). Migrations are NOT reapplied (schema is stable),
+    keeping the reset cheap relative to a full dir wipe.
+    """
+    # DELETE child→parent. attachment_state is not in TABLE_ORDER (raw-SQL owned), so include it.
+    delete_order = [
+        "data_corrections",
+        "alerts",
+        "document_entries",
+        "documents",
+        "attachment_analysis_records",
+        "attachment_analyses",
+        "page_classifications",
+        "attachment_state",
+        "approvers",
+        "category_subtotals",
+        "attachments",
+        "entries",
+        "accountability_reports",
+        "subcategories",
+        "units",
+        "vendors",
+        "categories",
+        "scrape_runs",
+    ]
+    stmts = "PRAGMA defer_foreign_keys = ON;\n" + "".join(
+        f"DELETE FROM {t};\n" for t in delete_order
+    )
+    d1.execute_sql(stmts, target="local")
+    # Re-seed the full synthetic baseline (no migrations; rows + documents + alerts + images).
+    seed_module.seed(apply_migrations=False)
 
 
 # --------------------------------------------------------------------------- parent mode
