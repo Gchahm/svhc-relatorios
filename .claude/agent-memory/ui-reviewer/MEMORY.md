@@ -43,5 +43,15 @@ and starts on :3001). The preview server started by `pnpm preview` defaults to :
   The `DialogDescription` component exists in shadcn/ui but is not used anywhere. Pre-existing.
 - **Synthetic seed records are legacy flat** — the `analysis_records.response` in `scripts/e2e/synthetic.py`
   uses `tipo_documento`/`numero`/`cnpj`/`valor_total` (no top-level `doc_type`), so `isTyped()` returns
-  false for all seeded records. The typed render path (feature 055) cannot be exercised with the
+  false for all seeded records. The typed render path (feature 055/057) cannot be exercised with the
   current synthetic seed — add a typed record to `synthetic.py` if you need live typed-path coverage.
+- **feature 057 typed-path unit tests are in `src/app/dashboard/entries/typed-transcription.test.mjs`** —
+  81 unit tests cover all 6 doc types, provenance map, alias resolution, and robustness. Run with
+  `pnpm test:ts`. The browser smoke S3a/S3b covers the flat-path no-regression guard for the same dialog.
+- **`extraKeys` in flat records render verbatim** — keys not in `KNOWN_FIELDS` (like `numero`/`cnpj`
+  from the seeded synthetic records, vs `numero_documento`/`cnpj_emitente` in KNOWN_FIELDS) appear
+  as verbatim label strings in the per-page section. This is intentional behavior, not a bug.
+- **`pnpm dev` on :3000 may have stale `.next` cache** — the dev server may show 404 for chunks;
+  use the wrangler/Cloudflare Workers build on :8787 (or :3001 via `pnpm e2e:smoke`) for reliable
+  auth and correct UI behavior. The :3000 404 errors for static assets appear in the console but
+  are caused by the stale Next.js build, not application code.

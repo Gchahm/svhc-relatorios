@@ -96,8 +96,10 @@ def run(base_url: str) -> None:
             # Verify the AttachmentAnalysisDetailDialog renders the per-page flat record section
             # without console errors. The seeded E1 attachment has one flat page_extraction record
             # (keys: tipo_documento, numero, cnpj, valor_total — no top-level `doc_type`, so the
-            # legacy path is taken). Checks: dialog is open, all three sections present, the per-page
-            # card with KNOWN_FIELD labels is visible (valor_total → "BRUTO"), no blank/crash panel.
+            # legacy flat path is taken; the feature-057 typed path must NOT activate). Checks:
+            # dialog is open, all three sections present, the per-page card with KNOWN_FIELD labels
+            # is visible (valor_total → "BRUTO"), no blank/crash panel.
+            # See also S3b which guards the feature-057 (EXTRACT-006) catalog key resolution.
             dialog = page.locator("[role=dialog]")
             dialog.wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
             # All three dialog sections must be present (h3 headings are locale-neutral anchors
@@ -119,6 +121,40 @@ def run(base_url: str) -> None:
             # The dialog must still be open (not crashed/navigated away during the flat render).
             if dialog.count() == 0:
                 raise SmokeError("S3a: dialog disappeared unexpectedly during flat record render")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("[role=dialog]", state="hidden", timeout=_NAV_TIMEOUT_MS)
+
+            # ── S3b: feature 057 (EXTRACT-006) typed-path guard on existing flat records ──
+            # Open the E1 dialog again and verify the feature-057 dual-path guard:
+            #   • No raw catalog key strings appear in the dialog DOM (tsection_*/provenance_*
+            #     must be resolved to pt-BR labels, never shown verbatim).
+            #   • The isTyped() discriminator does NOT fire for the seeded flat record
+            #     (no "Transcrição completa" span — this must hold even after the 057 code
+            #     is live, i.e. the new branches in RecordValues do not activate for legacy flat).
+            #   • The dialog remains open and the per-page card is still visible (no regression
+            #     introduced by importing buildTypedSections/provenanceRoleLabel).
+            page.goto(
+                f"{base_url}/dashboard/entries?period={PERIOD}&entry={e1_entry}",
+                wait_until="networkidle",
+            )
+            page.wait_for_selector("[role=dialog]", timeout=_NAV_TIMEOUT_MS)
+            dialog = page.locator("[role=dialog]")
+            dialog.wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+            # Wait for the async per-page record to load.
+            dialog.get_by_text("BRUTO", exact=False).first.wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+            # No raw catalog key strings must appear inside the dialog.
+            dialog_html = dialog.inner_html()
+            for forbidden in ("tsection_", "provenance_", "analysis.full_transcription"):
+                if forbidden in dialog_html:
+                    raise SmokeError(
+                        f"S3b: raw catalog key fragment '{forbidden}' found verbatim in dialog DOM (i18n leak)"
+                    )
+            # The typed-transcription code path (feature 057) must not activate on flat records.
+            if dialog.get_by_text("Transcrição completa", exact=False).count() != 0:
+                raise SmokeError(
+                    "S3b: 'Transcrição completa' (typed transcription) appeared for a legacy flat record "
+                    "— isTyped() discriminator is firing incorrectly or flat-to-typed fallback is broken"
+                )
             page.keyboard.press("Escape")
             page.wait_for_selector("[role=dialog]", state="hidden", timeout=_NAV_TIMEOUT_MS)
 
