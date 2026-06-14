@@ -26,8 +26,10 @@ in ``attachments.content_hash`` (written at scrape time), so there is no longer 
 ``.page_classifications`` (``record_classification`` / ``D1ExtractionProvider``).
 """
 
+import contextlib
 import json
 import logging
+import sys
 from pathlib import Path
 
 from common import d1
@@ -46,7 +48,13 @@ from .attachments import (
 from .images import attachments_needing_hash_backfill, materialize_period_images
 from .loader import load_all_periods
 from .mismatches import KIND_AMOUNT, KIND_DATE, KIND_PAGE_ERROR, KIND_VENDOR, detect_attachment_mismatches
-from .page_classifications import D1ExtractionProvider
+from .nf_groups import group_attachments
+from .page_classifications import (
+    D1ExtractionProvider,
+    clear_classified_stamp,
+    load_stored_records,
+    staging_rows_from_records,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +348,125 @@ def apply_extractions(
         logger.info("No extractions applied")
         return
     summarize_results(all_results)
+
+
+def _redrive_scope(periods, attachment_ids: list[str] | None) -> dict[str, set[str]]:
+    """Resolve the in-scope attachment ids per period, expanded to full shared-NF groups.
+
+    Candidates are the attachments already CLASSIFIED (carrying a persisted ``attachment_analyses``
+    row) within the loaded ``periods``; when ``attachment_ids`` is given they are intersected with it.
+    Each candidate is then expanded to its whole shared-NF **group** (via ``group_attachments`` on the
+    period's page-bearing attachments) so the group re-derives together — the staging-driven apply is
+    group-keyed, so the representative + siblings must all be enrolled for the group amount
+    reconciliation + sibling fan-out to be correct (FR-006). Returns ``{period: {attachment_id, …}}``.
+
+    Pure (no I/O): reads only the already-loaded period data. Grouping keys off
+    ``attachments.content_hash`` (mirror-owned, unchanged by re-derive), so the groups match exactly
+    what the original ``apply-extractions`` produced.
+    """
+    id_filter = set(attachment_ids) if attachment_ids else None
+    scope: dict[str, set[str]] = {}
+    for period, pd in periods.items():
+        classified = {a["attachment_id"] for a in pd.raw.get("attachment_analyses", [])}
+        if not classified:
+            continue
+        candidates = classified if id_filter is None else (classified & id_filter)
+        if not candidates:
+            continue
+        with_path = [d for d in pd.attachments if d.get("file_path")]
+        path_ids = {d["id"] for d in with_path}
+        in_scope: set[str] = set()
+        for members in group_attachments(with_path).values():
+            member_ids = {m["id"] for m in members}
+            if member_ids & candidates:
+                in_scope |= member_ids
+        # A candidate with no file_path (no group membership) still re-derives on its own.
+        in_scope |= {c for c in candidates if c not in path_ids}
+        if in_scope:
+            scope[period] = in_scope
+    return scope
+
+
+def re_derive(
+    target: Target = "local",
+    periods_filter: list[str] | None = None,
+    *,
+    attachment_ids: list[str] | None = None,
+    cache_dir: str = DEFAULT_CACHE_DIR,
+) -> dict:
+    """Re-run the deterministic mappers over STORED transcriptions to rebuild ``attachment_analyses``.
+
+    The image-free propagation path parallel to ``apply-extractions`` (design §10.5 / EXTRACT-005):
+    when a finding traces to the deterministic mapper picking the wrong field (not a transcription
+    error), you fix the mapper once and ``re-derive`` from the **stored** typed transcriptions — no
+    image reads, no vision cost — correcting every affected document at once.
+
+    Mechanism (reuses the existing primitives, inventing no parallel roll-up): for each in-scope
+    attachment, reconstruct its ``page_classifications`` staging rows from the durable per-page
+    transcription in ``attachment_analysis_records.response`` (the ``load_stored_records`` /
+    ``staging_rows_from_records`` seam — the same source the correction snapshot uses, since feature
+    035 prunes the live staging after apply), clear its ``attachment_state.classified_at`` (staging
+    untouched), then run the feature-050 staging-driven ``apply_extractions`` (rolls up ONLY groups
+    whose representative has staging — i.e. exactly the in-scope groups) followed by ``run_analysis``
+    (which rebuilds the global ``documents`` entity and refreshes alerts atomically per period). Because
+    the roll-up runs through the unchanged apply path, the result is byte-for-byte consistent with a
+    normal apply and idempotent under unchanged mappers.
+
+    **Image-free (FR-003):** re-derive itself reads no image bytes; the reused ``apply_extractions``
+    only materializes images to backfill a NULL ``content_hash``, and already-classified attachments are
+    already hashed, so the steady-state run makes zero R2 image reads.
+
+    **Safe (FR-008):** an attachment whose stored records carry no parseable ``response`` produces no
+    staging row, so the staging-driven apply never visits it — its existing analysis is never
+    overwritten with an empty roll-up.
+
+    Scope: ``periods_filter`` (period(s)) and/or ``attachment_ids`` (intersected within the period(s));
+    no flags ⇒ every classified attachment across all periods. Returns a summary dict
+    ``{re_derived, skipped_no_transcription, periods, remote}``.
+    """
+    periods, _refs = load_all_periods(target, periods_filter)
+    if not periods:
+        logger.info("No periods to re-derive")
+        return {"re_derived": 0, "skipped_no_transcription": 0, "periods": [], "remote": target == "remote"}
+
+    scope = _redrive_scope(periods, attachment_ids)
+
+    re_derived = 0
+    skipped = 0
+    affected_periods: set[str] = set()
+    for period, ids in scope.items():
+        for attachment_id in sorted(ids):
+            rows = staging_rows_from_records(attachment_id, load_stored_records(attachment_id, target))
+            # A page set with no parseable response (only error/empty records) yields no staged page —
+            # do NOT touch the attachment (FR-008: never overwrite a good analysis with an empty one).
+            if not any(r.get("response") for r in rows):
+                skipped += 1
+                continue
+            d1.upsert_tables({"page_classifications": rows}, target=target)
+            clear_classified_stamp(attachment_id, target)
+            re_derived += 1
+            affected_periods.add(period)
+
+    if re_derived:
+        # Local import: run_analysis lives in the package __init__ (avoids an import cycle), same as
+        # corrections._propagate. Redirect the apply/analyze stdout summaries to stderr so the
+        # command's JSON result on stdout stays parseable.
+        from . import run_analysis
+
+        periods_arg = sorted(affected_periods)
+        with contextlib.redirect_stdout(sys.stderr):
+            apply_extractions(target=target, periods_filter=periods_arg, cache_dir=cache_dir)
+            run_analysis(target=target, periods_filter=periods_arg, cache_dir=cache_dir)
+        logger.info("Re-derived %d attachment(s) across %d period(s)", re_derived, len(affected_periods))
+    else:
+        logger.info("Nothing to re-derive (no in-scope attachment has a parseable stored transcription)")
+
+    return {
+        "re_derived": re_derived,
+        "skipped_no_transcription": skipped,
+        "periods": sorted(affected_periods),
+        "remote": target == "remote",
+    }
 
 
 def mark_pending(

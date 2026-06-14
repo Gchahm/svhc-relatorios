@@ -3,6 +3,8 @@
 
 Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
 Playwright scraping stack. Commands: docs-plan, record-classification, apply-extractions,
+re-derive (image-free systematic re-run of the deterministic mappers over stored transcriptions —
+see specs/056-re-derive-command/contracts/re-derive-cli.md),
 mark-pending, analyze, mismatches, document-evidence (the document→attachment(s) triage evidence
 resolver — see specs/051-document-evidence-resolver/contracts/document-evidence-cli.md;
 see also specs/008-decouple-analysis-scripts/contracts/analysis-cli.md
@@ -19,7 +21,7 @@ import sys
 from . import run_analysis
 from .corrections import apply_correction, list_corrections, undo_correction
 from .documents import DocumentNotFound, build_documents, document_evidence
-from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
+from .extractions import apply_extractions, mark_pending, plan_extractions, re_derive, summarize_mismatches
 from .page_classifications import record_classification
 from .verdicts import (
     DEFAULT_MAX_ITERATIONS,
@@ -63,6 +65,17 @@ def main(argv=None):
     # Same DB-controlled selection as docs-plan (the pending set); mark-pending controls scope.
     p.add_argument("--min-amount", type=float, help="Only apply pending attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of pending attachments to apply.")
+
+    p = sub.add_parser(
+        "re-derive",
+        help="Re-run the deterministic mappers over STORED transcriptions to rebuild attachment_analyses (image-free)",
+    )
+    # Image-free systematic-fix path (EXTRACT-005): no --min-amount/--limit (those are vision-cost
+    # filters). Scope is period and/or attachment id (intersected), or global (no flags).
+    p.add_argument("--periodo", type=str, nargs="*", help="Periods in YYYY-MM (default: all).")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Restrict to these attachment ids (whole group re-derives).")
+    p.add_argument("--remote", action="store_true", help="Read/write the REMOTE (production) D1/R2 instead of local.")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
 
     p = sub.add_parser(
         "record-classification",
@@ -176,6 +189,14 @@ def main(argv=None):
             min_amount=args.min_amount,
             limit=args.limit,
         )
+    elif args.command == "re-derive":
+        result = re_derive(
+            target=target,
+            periods_filter=args.periodo,
+            attachment_ids=args.attachment_id,
+            cache_dir=args.cache_dir,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "record-classification":
         raw = args.payload_json
         if raw is None or raw == "-":
