@@ -25,9 +25,12 @@ python -m analysis reclassify --attachment-id <id> [--pages <json> | -] [--cache
 1. Read `--pages` (string or stdin); parse JSON. Non-JSON or non-object ⇒ `error:` to stderr, exit 1.
 2. Resolve the attachment's `period` (read-only, via the existing `_attachment_context`). Unknown
    attachment ⇒ `error: unknown attachment <id>` to stderr, exit 1.
-3. Validate EACH page payload with `validate_page_fields` (the `record-classification` contract gate,
-   typed/flat per feature 055). Any failure ⇒ `error: page <label> rejected: <reason>` to stderr, exit 1,
-   **write nothing** (validate all before recording any).
+3. Validate EACH page payload with `validate_page_fields` (the structural `page_classifications`
+   contract gate — same call `apply-correction` uses). Note: like `apply_correction`, `reclassify` does
+   NOT inject `typed_gate.validate_typed`, so a **typed** payload (carrying `doc_type`) is accepted
+   structurally but is NOT schema-validated against the EXTRACT-001 type schema; only the
+   `record-classification` CLI threads the typed validator. Any failure ⇒ `error: page <label> rejected:
+   <reason>` to stderr, exit 1, **write nothing** (validate all before recording any).
 4. Empty `--pages` object ⇒ `no-op` result (nothing recorded, nothing propagated), exit 0.
 5. Record each page via `record_classification(attachment_id, page_label, fields, target)`.
 6. Propagate (the existing `_propagate` ordering, scoped to the attachment's period):

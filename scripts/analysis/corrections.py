@@ -338,7 +338,9 @@ def reclassify(
     helper adds ergonomics, not a safety mechanism.
 
     ``corrected_pages`` maps ``{page_label: fields-object}``; each is validated against the frozen
-    ``page_classifications`` contract (the same gate ``record-classification`` uses). EVERY page is
+    ``page_classifications`` contract via ``validate_page_fields`` (the same structural gate
+    ``apply_correction`` uses — like it, ``reclassify`` does not inject ``typed_gate.validate_typed``, so a
+    typed payload is checked structurally but not against the EXTRACT-001 schema). EVERY page is
     validated BEFORE any is recorded, so a rejection writes nothing (raises ``ValueError``). An empty
     ``corrected_pages`` is a ``no-op`` (nothing recorded, nothing propagated). An unknown attachment
     raises ``ValueError``.

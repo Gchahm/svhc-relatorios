@@ -214,9 +214,11 @@ NOT recorded is untouched (staging-driven `apply` safety).
   that records the supplied corrected per-page extraction(s) as `page_classifications` staging, then
   propagates in the pinned order: staging-driven `apply-extractions` → `build-documents` → `analyze`,
   scoped to the attachment's period.
-- **FR-014**: `reclassify` MUST validate each supplied page payload against the existing
-  `page_classifications` contract (the same `validate_page_fields` gate as `record-classification`) and
-  write nothing on a validation failure.
+- **FR-014**: `reclassify` MUST validate each supplied page payload via `validate_page_fields` (the same
+  structural `page_classifications` contract gate `apply-correction` uses) and write nothing on a
+  validation failure. Like `apply-correction`, it does not thread the typed (`typed_gate.validate_typed`)
+  schema validator, so a typed payload is checked structurally but not against the EXTRACT-001 schema —
+  only the `record-classification` CLI does full typed validation.
 - **FR-015**: `reclassify` MUST default to LOCAL D1 and write REMOTE only with an explicit `--remote`
   flag (decision Q5 — never an implicit production write).
 - **FR-016**: `reclassify` MUST accept the `--pages` payload as a JSON string or via stdin (`-` / omitted)
