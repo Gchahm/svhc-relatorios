@@ -6,3 +6,4 @@
 - [summarize_mismatches empty scope](summarize-mismatches-empty-scope.md) — a falsy attachment_ids/entry_ids ([] or None) means "no scope = ALL findings"; short-circuit to [] yourself when a computed id set is empty
 - [EXTRACT-002 vision transcriber](extract002-vision-transcriber.md) — transcribe() seam in tools/doc_transcribe: pluggable cli/api backend, validate-above-backend, claude -p prompt via stdin, anthropic optional/lazy
 - [typed-vs-flat record contract](typed-vs-flat-record-contract.md) — analysis roll-up reads FLAT response keys everywhere; typed JSON (doc_type-nested) bridged by scripts/analysis/type_mappers.to_reconciliation_fields (idempotent on flat); EXTRACT-003
+- [re-derive from stored records](re-derive-from-stored-records.md) — EXTRACT-005 image-free re-run: reconstruct staging from attachment_analysis_records.response → staging-driven apply; shared helpers in page_classifications.py; seed round-trip needs mark-pending+record+apply first
