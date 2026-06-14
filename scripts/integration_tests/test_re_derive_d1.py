@@ -21,22 +21,21 @@ from analysis.page_classifications import record_classification
 from . import _harness as h
 
 
-def _flat(**over) -> dict:
-    """A valid legacy-flat per-page record (the frozen ``record-classification`` contract)."""
-    base = {
-        "papel_artefato": "invoice",
-        "tipo_documento": "NF",
-        "valor_total": 250.00,
-        "valor_liquido": None,
-        "valor_pago": None,
-        "cnpj_emitente": "11222333000181",
-        "nome_emitente": "EXEMPLO Fornecedor B",
+def _flat(*, numero_documento="NF-1002", valor_total=250.00) -> dict:
+    """A valid typed EXTRACT-001 danfe per-page transcription (EXTRACT-007 typed-only contract).
+
+    Knob names (``numero_documento``/``valor_total``) are kept for the existing call sites; they map
+    onto the typed danfe ``numero`` / ``totais.valor_total_nota``.
+    """
+    return {
+        "doc_type": "danfe",
+        "schema_version": "1",
+        "raw_text": f"DANFE {numero_documento} EXEMPLO",
+        "numero": numero_documento,
         "data_emissao": "05/01/2099",
-        "numero_documento": "NF-1002",
-        "descricao_servico": "EXEMPLO servico",
+        "emitente": {"nome": "EXEMPLO Fornecedor B", "cnpj": "11222333000181"},
+        "totais": {"valor_total_nota": valor_total},
     }
-    base.update(over)
-    return base
 
 
 def _analysis_no_ts(attachment_id: str) -> dict | None:

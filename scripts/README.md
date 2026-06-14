@@ -67,8 +67,10 @@ against the ledger, and surfaces mismatches / fraud signals. It writes the resul
 scrape / download-docs  →  [1] docs-plan  →  [2] classify  →  [3] apply-extractions  →  [4] analyze  →  [5] mismatches
 ```
 
-Steps 1, 3, 4 and 5 are deterministic CLI commands (stdlib only, no browser). Step 2 is the only
-vision step and runs inside Claude Code via skills/agent — the old local VLM (`mlx_vlm`) is retired.
+All five steps are plain CLI commands run from the shell — no browser, no interactive skill. Steps 1,
+3, 4 and 5 are deterministic (stdlib only). Step 2 (`classify`) is the only vision step: it is headless,
+shelling out to `doc_transcribe` (which calls `claude -p` or the Anthropic API) per page. The old local
+VLM (`mlx_vlm`) and the interactive `classify-period`/`classify-doc-page` skills are retired.
 
 ### 1. `docs-plan` — pick the work and group shared invoices
 
@@ -86,15 +88,26 @@ reconciliation — and writes **no manifest file**. The work set is whatever is 
 (`classified_at IS NULL`); there are no id flags — to (re)classify a subset, mark it pending in D1 with
 `mark-pending` (below).
 
-### 2. `classify` — read each page image into structured fields (vision)
+### 2. `classify` — read each page image into structured fields (headless vision)
 
-Inside Claude Code, invoke the **`classify-period`** skill for a period (or subset). It runs
-`docs-plan` itself, then fans each representative page out to the **`classify-doc-page`** skill,
-which views one image and **records its fields directly to D1** via the `record-classification`
-CLI (one row per page in the `page_classifications` table — gross / net / paid amounts, CNPJ,
-issuer, date, document number, service, and the artifact role; no `.classify.json` file). The
-**`analyze-docs` agent** wraps this whole analysis in an isolated context and hands a caller back
-only the summary (step 5). This is the only non-deterministic step.
+```bash
+cd scripts
+uv run python -m analysis classify --periodo 2025-12 [--min-amount N] [--limit N] [--backend cli|api] [--model …]
+```
+
+A single headless CLI command. It builds the same **pending** plan `docs-plan` produces, materializes
+the images from R2, and for each pending non-`recorded` page runs `tools/doc_transcribe` **as a
+subprocess** (`python -m doc_transcribe --image <read_path> --type auto`), takes the typed
+**EXTRACT-001** `fields` object it returns, and records it to the `page_classifications` staging table
+via `record-classification` (one row per page). Pages are processed **serially**. The `--backend`
+selects how `doc_transcribe` reaches a model: `cli` (default — shells out to `claude -p`, needs the
+`claude` binary on PATH) or `api` (the Anthropic SDK); `--model` overrides the model.
+
+**Error handling.** A **config** error — the subprocess exits non-zero (e.g. `claude` not on PATH) —
+**stops** the run with a clear message (no silent fallback). A per-page **transcription** failure
+(subprocess exits 0 but returns `parse_errors` / no usable fields) records an `{"error": …}` row for
+that page and **continues**. This is the only non-deterministic step; it replaces the retired
+interactive `classify-period`/`classify-doc-page` skills and the `analyze-docs` agent.
 
 ### 3. `apply-extractions` — merge classifications into the ledger data
 
@@ -173,9 +186,9 @@ uv run python -m analysis mismatches --periodo 2025-12 [--attachment-id <ids…>
 
 Prints a compact JSON list of classification mismatches — `amount` / `vendor` / `date` /
 `page-error` / `document_overpayment` — each joined with the ledger-vs-extracted values. Read-only (no
-writes). This is exactly what the `analyze-docs` agent returns to its caller. The per-attachment
-detection here is the **same** `detect_attachment_mismatches` the `analyze` step uses for its
-per-attachment alerts (single source of truth).
+writes). This is the terse summary that closes out a `classify → apply-extractions → analyze →
+mismatches` run. The per-attachment detection here is the **same** `detect_attachment_mismatches` the
+`analyze` step uses for its per-attachment alerts (single source of truth).
 
 Per-page classifications are stored in D1 (`page_classifications`), not in the cache; the
 `.cache/analysis/` dir holds only materialized page images + the loop's verdicts file (gitignored,
@@ -199,10 +212,11 @@ uv run python -m scraper scrape --periodo 2025-12 --download-docs --remote
 ```bash
 cd scripts
 
-# 1. Plan + classify the attachments (steps 1-2). In Claude Code, invoke the
-#    classify-period skill for the period; it runs docs-plan (materializing images
-#    from R2, printing the plan to stdout) and records each page's extraction to D1
-#    (page_classifications). (To analyze a subset, `mark-pending` those attachments first.)
+# 1. Classify the attachments (steps 1-2 in one headless command). It builds the
+#    pending plan, materializes images from R2, and shells out to doc_transcribe per
+#    page, recording each typed extraction to D1 (page_classifications). (To analyze a
+#    subset, `mark-pending` those attachments first.)
+uv run python -m analysis classify --periodo 2025-12
 
 # 2. Merge classifications, run checks, get the summary (steps 3-5) — all write to D1
 uv run python -m analysis apply-extractions --periodo 2025-12

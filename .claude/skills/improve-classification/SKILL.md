@@ -7,10 +7,12 @@ allowed-tools: Task, Bash, Read, Glob, Skill
 
 # Purpose
 
-Drive the classification improvement loop and **coordinate only**. You delegate every heavy step to a
-context-isolated worker and read back only terse JSON; you read the deterministic loop state from the
-`loop-state` CLI rather than tracking it yourself. You **never** open page images, read diffs, run the
-classification yourself, or merge a fix. Keeping your own context flat is a hard requirement (SC-002).
+Drive the classification improvement loop and **coordinate only**. You run the vision step as a plain
+headless CLI command (`classify`, which transcribes pending pages via the `doc_transcribe` subprocess —
+no page images enter your context), delegate review/fix to context-isolated workers, and read back only
+terse JSON; you read the deterministic loop state from the `loop-state` CLI rather than tracking it
+yourself. You **never** open page images, read diffs, or merge a fix. Keeping your own context flat is a
+hard requirement (SC-002).
 
 # Input
 
@@ -19,8 +21,9 @@ classification yourself, or merge a fix. Keeping your own context flat is a hard
 - `--max-iterations N` — override the iteration cap (default 3). `--no-progress-window` (default 2)
   may also be forwarded to `loop-state`.
 - `--remote` — run the whole loop against the production D1 + R2 (default local). Forward it to the
-  `analyze-docs` delegation, `mark-pending`, and every `loop-state` command. (`record-verdict` writes
-  only the local cache file and takes no `--remote`.)
+  `classify` / `apply-extractions` / `analyze` / `mismatches` commands (step 1), `mark-pending`, and
+  every `loop-state` command. (`record-verdict` writes only the local cache file and takes no
+  `--remote`.)
 
 There is **no id-scoping argument**: which attachments get (re)classified is controlled in the
 database (the pending set, `attachments.classified_at IS NULL`). You re-queue work between iterations
@@ -33,12 +36,23 @@ and images in R2; the verdicts/loop-state working file lives in the local cache 
 
 Track only the current `iteration` (starts at 1). Everything else comes from `loop-state` and D1 state.
 
-### 1. Analyze (delegate)
+### 1. Analyze (run the CLI steps directly)
 
-Delegate to the **`analyze-docs`** agent (via the Task tool) for the **period** (pass `--remote` if
-applicable; never id flags). It classifies the period's *pending* attachments, merges, runs checks, and
-returns ONLY a terse mismatch summary. Keep that summary; do not expand it. (On iteration 1 the pending
-set is everything; on later iterations it is exactly the attachments you re-queued in step 5.)
+Run the vision + analysis pipeline for the **period** as plain bash (pass `--remote` if applicable;
+never id flags). `classify` is headless — it transcribes each pending page via the `doc_transcribe`
+subprocess, so **no page images enter your context**:
+
+```bash
+cd scripts && uv run python -m analysis classify --periodo <period> [--remote] \
+  && uv run python -m analysis apply-extractions --periodo <period> [--remote] \
+  && uv run python -m analysis analyze --periodo <period> [--remote] \
+  && uv run python -m analysis mismatches --periodo <period> [--remote]
+```
+
+Keep ONLY the terse `mismatches` JSON; do not expand it. (On iteration 1 the pending set is everything;
+on later iterations it is exactly the attachments you re-queued in step 5.) A `classify` config error
+(e.g. the `claude` binary missing for the `cli` backend) stops the run with a clear message — fix the
+prerequisite and re-run; do not work around it.
 
 ### 2. Loop state
 
@@ -102,9 +116,9 @@ anything.
 
 # Boundaries (non-negotiable)
 
-- **Delegation only**: vision, review, and fix each run in their own worker (Task tool). You handle
-  ids + terse JSON; you never read page images, run `classify-*`/`apply-extractions`, or inspect
-  diffs yourself.
+- **Coordinate only**: the vision step is the headless `classify` CLI command (no page images in your
+  context); review and fix each run in their own worker (Task tool). You handle ids + terse JSON; you
+  never read page images or inspect diffs yourself.
 - **Scoped re-runs via D1**: after iteration 1, re-queue only `affected_attachment_ids` with
   `mark-pending`, then re-run the period; never widen the scope by re-classifying already-classified
   attachments. The pending set in D1 is the scope.

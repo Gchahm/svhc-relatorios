@@ -14,18 +14,18 @@ from analysis import corrections
 from analysis.corrections import reclassify
 
 
-def _fields(**over):
+def _fields(valor_total=320, **over):
+    # A typed NFS-e transcription (EXTRACT-007 typed-only contract). The reconciliation total is the
+    # net (valores.valor_liquido); ``valor_total`` is the test knob mapped onto it.
     base = {
-        "papel_artefato": "nfse",
-        "tipo_documento": "NFS-e",
-        "valor_total": 320,
-        "valor_liquido": 320,
-        "valor_pago": 320,
-        "cnpj_emitente": "11222333000181",
-        "nome_emitente": "EXEMPLO LTDA",
+        "doc_type": "nfse",
+        "schema_version": "1",
+        "raw_text": "NFS-e EXEMPLO ...",
+        "numero": "123",
         "data_emissao": "2099-01-10",
-        "numero_documento": "123",
-        "descricao_servico": "servico",
+        "prestador": {"nome": "EXEMPLO LTDA", "cnpj": "11222333000181"},
+        "valores": {"valor_servico": valor_total, "deducoes": 0, "valor_liquido": valor_total},
+        "discriminacao_servico": "servico",
     }
     base.update(over)
     return base
@@ -56,8 +56,8 @@ class ReclassifyTest(unittest.TestCase):
     def test_invalid_page_rejects_before_recording_anything(self):
         # validate_page_fields returns an error string for p2 -> the whole call must write nothing,
         # even though p1 is valid (validate ALL before recording ANY).
-        def fake_validate(fields):
-            return None if fields.get("valor_total") == 320 else "bad"
+        def fake_validate(fields, *, typed_validator=None):
+            return None if fields.get("valores", {}).get("valor_liquido") == 320 else "bad"
 
         pages = {"p1": _fields(valor_total=320), "p2": _fields(valor_total=999)}
         with mock.patch.object(corrections, "_attachment_context", return_value=("2099-01", "h")), mock.patch.object(

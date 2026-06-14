@@ -1,17 +1,16 @@
-"""Agent-driven attachment extraction: plan -> (Claude vision) -> apply.
+"""Attachment extraction: plan -> (headless transcription) -> apply.
 
-This module replaces the local-VLM extraction step. The flow is three touchpoints
-around a Claude vision skill (`.claude/skills/classify-doc-page`, usually driven
-per period by `.claude/skills/classify-period`):
+This module replaces the local-VLM extraction step. The flow is three touchpoints around the headless
+``classify`` command (``scripts/analysis/classify.py``), which transcribes each page via the
+``tools/doc_transcribe`` subprocess (feature 066 / EXTRACT-007):
 
 1. ``plan_extractions`` selects + groups the attachments to analyze (reusing
-   ``select_work``) and **prints** the work plan as JSON to stdout — the
-   ``classify-period`` skill parses that, no file is written. Each plan page carries a
-   ``recorded`` flag (whether its extraction is already in D1) so the skill can
-   re-dispatch only the pages still missing one.
-2. The vision skill views each representative page image and **records** that page's
-   parsed fields (or ``{"error": ...}``) directly to the D1 ``page_classifications``
-   staging table, via the ``record-classification`` CLI (feature 017 — there is no
+   ``select_work``) and **prints** the work plan as JSON to stdout. Each plan page carries a
+   ``recorded`` flag (whether its extraction is already in D1) so ``classify`` can transcribe only
+   the pages still missing one.
+2. The ``classify`` command transcribes each representative page image into a typed EXTRACT-001
+   payload and **records** it (or ``{"error": ...}``) directly to the D1 ``page_classifications``
+   staging table, via :func:`page_classifications.record_classification` (feature 017 — there is no
    ``.classify.json`` file).
 3. ``apply_extractions`` re-derives the identical plan from D1 (the plan is a pure
    function of D1 + materialized images via ``build_plan``), reads each page's recorded
@@ -21,9 +20,8 @@ per period by `.claude/skills/classify-period`):
 
 The plan is derived from the database (feature 016): the shared-NF grouping key lives
 in ``attachments.content_hash`` (written at scrape time), so there is no longer a
-``<period>.extract-todo.json`` manifest. The per-page classification contract is
-``.claude/skills/classify-doc-page``; the staging-table seam is
-``.page_classifications`` (``record_classification`` / ``D1ExtractionProvider``).
+``<period>.extract-todo.json`` manifest. The staging-table seam is
+``page_classifications`` (``record_classification`` / ``D1ExtractionProvider``).
 """
 
 import contextlib
@@ -107,7 +105,7 @@ def build_plan(
 
     envelopes: list[dict] = []
     for period, groups in by_period.items():
-        # Pages already recorded in the staging table (so classify-period can re-dispatch
+        # Pages already recorded in the staging table (so classify can transcribe
         # only the ones still missing — the DB-derived completeness check). Keyed by
         # (attachment_id, page_label), matching the record/lookup key.
         recorded_keys = {
@@ -171,11 +169,11 @@ def plan_extractions(
     """Print the DB-derived work plan to stdout (no manifest file).
 
     Materializes the period's page images from R2 into the cache (so each page's
-    ``read_path`` points at a local file the vision skill can read and grouping can hash
+    ``read_path`` points at a local file the transcriber can read and grouping can hash
     legacy rows), derives the plan of **pending** attachments via ``build_plan``, and
-    prints it as a JSON list of per-period envelopes to **stdout** — which the
-    ``classify-period`` skill parses. All human/progress text goes to the log (stderr),
-    keeping stdout pure JSON. Returns the envelopes too (for in-process callers/tests).
+    prints it as a JSON list of per-period envelopes to **stdout**. All human/progress text goes to
+    the log (stderr), keeping stdout pure JSON. Returns the envelopes too (for in-process
+    callers/tests).
     """
     periods, refs = load_all_periods(target, periods_filter)
     if not periods:
@@ -185,7 +183,7 @@ def plan_extractions(
 
     # Bring the period's images local (R2 -> cache) so read_paths/grouping work.
     # docs-plan is read-only: it does NOT backfill content_hash (a D1 write would stream
-    # the wrangler banner onto stdout and corrupt the JSON the skill parses). The backfill
+    # the wrangler banner onto stdout and corrupt the JSON a parser reads). The backfill
     # happens in apply-extractions instead.
     materialize_period_images(periods, cache_dir, target, backfill_hash=False)
 
@@ -200,10 +198,10 @@ def plan_extractions(
 
     logger.info(
         "Planned %d group(s), %d representative page(s) across %d period(s). "
-        "Next: classify each page (classify-doc-page records each to D1), then apply-extractions.",
+        "Next: run `classify` (transcribes each page to D1), then apply-extractions.",
         total_groups, total_pages, len(envelopes),
     )
-    # stdout is pure JSON so the classify-period skill can parse it directly.
+    # stdout is pure JSON so a caller can parse it directly.
     print(json.dumps(envelopes, ensure_ascii=False, indent=2))
     return envelopes
 
@@ -243,7 +241,7 @@ def apply_extractions(
       manual "isolate the pending set" workaround is retired.
 
     The vision/plan phases are unchanged: ``docs-plan`` (``build_plan``), the loader's pending query,
-    ``mark-pending``, ``classify-period``, and ``improve-classification`` still use the **pending** set
+    ``mark-pending``, ``classify``, and ``improve-classification`` still use the **pending** set
     (``classified_at IS NULL``); only apply's group selection differs. The staging-presence signal is
     read from the period's already-loaded ``page_classifications`` list (no extra D1 read).
 

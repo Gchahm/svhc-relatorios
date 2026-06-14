@@ -62,7 +62,7 @@ Steps 1 (evidence) and 2 (judge) already exist as the **`review-mismatch`** patt
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | Scoped, read-only finding summary **with page image `read_path`s**         | `summarize_mismatches(..., attachment_ids=, entry_ids=)` → CLI `mismatches --attachment-id/--entry-id`; materializes images from R2 | ✅ yes — this is the evidence feed                                   |
 | Per-finding visual judgment (true/false/transient/page-error + root cause) | `review-mismatch` agent                                                                                                             | ✅ yes — judgment pattern                                            |
-| Per-page correction primitive                                              | `classify-doc-page` skill + `record-classification --attachment-id --page --json`                                                   | ✅ yes                                                               |
+| Per-page correction primitive                                              | the headless `classify` step + `record-classification --attachment-id --page --json`                                                | ✅ yes                                                               |
 | Re-queue an attachment                                                     | `mark-pending --attachment-id …` (clears `attachment_state.classified_at` **and** its staging rows)                                 | ✅ yes                                                               |
 | Roll-up + write analysis (atomic)                                          | `apply-extractions` → `_merge_and_write`                                                                                            | ⚠️ scoping + safety gaps (§4)                                        |
 | Rebuild global documents entity                                            | `build-documents` (global, idempotent, prunes stale)                                                                                | ✅ yes                                                               |
@@ -109,7 +109,7 @@ This is why it **eliminates the manual isolation step entirely**: in the manual 
 had to have its stamp restored _only because_ `apply` walked the pending plan. Staging-driven `apply` never
 visits it. The problem stops existing rather than needing a workaround.
 
-`docs-plan`, the loader pending query, `mark-pending`, `classify-period`, and `improve-classification` keep
+`docs-plan`, the loader pending query, `mark-pending`, the headless `classify` step, and `improve-classification` keep
 using `classified_at IS NULL` for the **vision** phase — unchanged. Only `apply`'s group selection changes
 (localized to `apply_extractions` in `scripts/analysis/extractions.py`).
 
@@ -176,7 +176,8 @@ requirement.
   To fix an _amount_ misread, the agent MUST keep those stable so `total_value` is corrected **in place**;
   changing them re-keys the document (prunes the old, spawns a new). Only change them when the _number/CNPJ
   itself_ is the misread. (Runbook Problem #4.)
-- **Image budget → fan-out.** A context exhausts ~18 page images (memory `analyze-docs-batch-size`). A batch
+- **Image budget → fan-out.** A context exhausts ~18 page images (memory `analyze-docs-batch-size`; note the
+  headless `classify` step no longer charges an in-context image budget — it shells out to `doc_transcribe`). A batch
   orchestrator must fan out **one sub-agent per document** (like improve-classification fans out
   `review-mismatch`), not view all pages in one context.
 - **`--remote` threading.** Every step has `--remote`; the agent must thread it end-to-end or it silently
@@ -301,7 +302,7 @@ and guardrails. **§10** is a larger companion refactor that multiplies the valu
 
 ### 10.1 The problem with today's extraction
 
-The vision step (`classify-doc-page`) is asked to both **read** the page _and_ **interpret** it — to decide
+The vision step (the headless `classify` step) is asked to both **read** the page _and_ **interpret** it — to decide
 "which number is the total," "which party is the issuer." It outputs a flat ~10-field object
 (`valor_total`, `cnpj_emitente`, …). Two failure modes follow directly:
 
@@ -486,8 +487,8 @@ balance), `claude-haiku-4-5` (cheapest bulk, backstopped by the deterministic va
 uses whatever model the Claude Code session is configured with.
 
 This **replaces** today's in-context vision (the orchestrating Claude Code agent reading the image with its
-`Read` tool — portable only inside Claude Code, and charges the orchestrator's image budget). `classify-doc-page`
-either wraps this module or is retired in its favor; the orchestrator stops doing vision itself.
+`Read` tool — portable only inside Claude Code, and charges the orchestrator's image budget). The headless `classify`
+step wraps this module; the orchestrator stops doing vision itself.
 
 ### 11.4 What's reusable vs project-specific
 

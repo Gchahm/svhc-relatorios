@@ -293,11 +293,15 @@ def build_dataset() -> dict[str, list[dict]]:
                         "page_index": 0,
                         "page_label": "p1",
                         "artifact_role": "invoice",
+                        # Typed EXTRACT-001 danfe payload (EXTRACT-007 typed-only contract).
                         "response": {
-                            "tipo_documento": doc_type,
+                            "doc_type": "danfe",
+                            "schema_version": "1",
+                            "raw_text": f"DANFE {number} EXEMPLO",
                             "numero": number,
-                            "cnpj": cnpj,
-                            "valor_total": total,
+                            "data_emissao": "05/01/2099",
+                            "emitente": {"nome": issuer, "cnpj": cnpj},
+                            "totais": {"valor_total_nota": total},
                         },
                         "parse_error": None,
                         "analyzed_at": ts,
@@ -315,7 +319,17 @@ def build_dataset() -> dict[str, list[dict]]:
             "attachment_id": e4_aid,
             "page_label": "p1",
             "page_index": 0,
-            "response": json.dumps({"tipo_documento": "NF", "numero": "NF-9999", "valor_total": 50.0}),
+            "response": json.dumps(
+                {
+                    "doc_type": "danfe",
+                    "schema_version": "1",
+                    "raw_text": "DANFE NF-9999 EXEMPLO",
+                    "numero": "NF-9999",
+                    "data_emissao": "05/01/2099",
+                    "emitente": {"nome": "EXEMPLO Fornecedor", "cnpj": CNPJ_A},
+                    "totais": {"valor_total_nota": 50.0},
+                }
+            ),
             "error": None,
             "recorded_at": ts,
         }

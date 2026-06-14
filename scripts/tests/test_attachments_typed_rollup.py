@@ -117,12 +117,12 @@ class TypedRollupTest(unittest.TestCase):
         ]
         self.assertEqual(nf_total_for_reconciliation(responses), 150.0)
 
-    def test_mixed_typed_and_flat_group(self):
-        # One typed danfe page + one legacy flat invoice page (no doc_type), distinct numbers →
-        # _sum_distinct_invoices sums both grosses (the existing multi-invoice path is unchanged).
+    def test_multi_typed_invoice_group_sums(self):
+        # Two typed danfe pages with distinct numbers → _sum_distinct_invoices sums both grosses
+        # (the existing multi-invoice path; EXTRACT-007 is typed-only so both pages are typed).
         pages = {
             "p1": {"doc_type": "danfe", "totais": {"valor_total_nota": 60.0}, "numero": "A"},
-            "p2": {"papel_artefato": "invoice", "valor_total": "40,00", "numero_documento": "B"},
+            "p2": {"doc_type": "danfe", "totais": {"valor_total_nota": 40.0}, "numero": "B"},
         }
         res = build_attachment_analysis(
             "x/e_p1.png;x/e_p2.png", 100.0, None, "2025-12", "a1", "e1", provider_from(pages)

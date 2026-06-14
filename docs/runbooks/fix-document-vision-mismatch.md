@@ -26,7 +26,7 @@ flowchart LR
     DOC["documents.total_value<br/>= MAX confident total<br/>across the key's analyses"]
     UI["/dashboard/documents/[id]"]
 
-    IMG -->|"vision read<br/>(classify-doc-page)"| REC
+    IMG -->|"vision read<br/>(classify → doc_transcribe)"| REC
     REC -->|"apply-extractions<br/>roll-up"| ROLL
     REC -->|"prefer first page<br/>valor_total &gt; 0"| NFT
     ROLL -->|"fallback: extracted_amount"| NFT
@@ -115,11 +115,13 @@ uv run python -m analysis mark-pending --attachment-id 37d6643b-0aef-5add-a9d9-c
 # 2. (after isolating the pending set — see Problem #2) confirm scope
 uv run python -m analysis docs-plan --periodo 2026-01    # plan must list ONLY 37d6643b
 
-# 3. record the corrected per-page extractions (this IS the classify-doc-page step)
+# 3. record the corrected per-page extractions (this IS the per-page payload `classify`
+#    records — now the TYPED EXTRACT-001 shape: a dict carrying a valid `doc_type` +
+#    schema-validated `fields`, NOT the legacy flat ~10-field object; the gate rejects flat)
 uv run python -m analysis record-classification --attachment-id 37d6643b-… --page p1 --page-index 0 \
-  --json '{"papel_artefato":"nfse","valor_total":320.00,"valor_liquido":320.00,"cnpj_emitente":"42.913.360/0001-00","nome_emitente":"THIAGO PEREIRA","data_emissao":"31/12/2025","numero_documento":"212",…}'
+  --json '{"doc_type":"nfse","schema_version":1,"fields":{"valor_total":320.00,"valor_liquido":320.00,"cnpj_emitente":"42.913.360/0001-00","nome_emitente":"THIAGO PEREIRA","data_emissao":"31/12/2025","numero_documento":"212",…}}'
 uv run python -m analysis record-classification --attachment-id 37d6643b-… --page p2 --page-index 1 \
-  --json '{"papel_artefato":"payment_proof","valor_total":320.00,"valor_pago":320.00,…}'
+  --json '{"doc_type":"payment_proof","schema_version":1,"fields":{"valor_total":320.00,"valor_pago":320.00,…}}'
 
 # 4. roll up → rebuild the global documents entity → refresh alerts
 uv run python -m analysis apply-extractions --periodo 2026-01
@@ -128,9 +130,11 @@ uv run python -m analysis analyze --periodo 2026-01
 ```
 
 > **Note on "recording" vs "re-running vision":** the values were recorded from a careful high-resolution
-> read of the page image (exactly what the `classify-doc-page` skill does — view one page, write its
-> extraction via `record-classification`). Because the ground truth (320) was verified at the pixel level,
-> hand-recording is _more_ reliable here than a blind re-run that might repeat the same misread.
+> read of the page image — the same per-page typed payload the headless `classify` step records (it shells
+> out to `doc_transcribe` and writes the result via `record-classification`). Because the ground truth (320)
+> was verified at the pixel level, hand-recording is _more_ reliable here than a blind re-run that might
+> repeat the same misread. The payload is the typed EXTRACT-001 shape (`{doc_type, schema_version, fields}`),
+> identical to what `classify` writes.
 
 **Result:** `total_value` 800 → **320**; roll-up 320; both pages 320; issuer fixed to THIAGO PEREIRA
 (was the _tomador_ "JOAO ANTONIO"); status `within`; the amount-mismatch alert cleared.
@@ -145,7 +149,7 @@ affected attachment → re-run the period:
 
 ```mermaid
 flowchart LR
-    AN["analyze-docs<br/>(vision + mismatches)"] --> RV["review-mismatch<br/>verdict: true / false / transient / page-error"]
+    AN["classify → apply-extractions<br/>→ analyze → mismatches"] --> RV["review-mismatch<br/>verdict: true / false / transient / page-error"]
     RV -->|"false (system fault)"| FX["fix-mismatch<br/>(speckit PR, human-gated)"]
     RV -->|"affected ids"| MP["mark-pending + re-run period"]
     FX --> MP

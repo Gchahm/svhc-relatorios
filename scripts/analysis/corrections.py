@@ -47,6 +47,18 @@ from .page_classifications import (
 )
 from .verdicts import mismatch_key
 
+
+def _typed_validator():
+    """The EXTRACT-001 schema validator (lazy import — keeps this module import-clean of ``tools/``).
+
+    Injected into the correction primitives' ``validate_page_fields`` / ``record_classification`` calls
+    so a corrected page is schema-validated through the SAME typed-only gate ``record-classification``
+    enforces (EXTRACT-007 / FR-010).
+    """
+    from .typed_gate import validate_typed
+
+    return validate_typed
+
 logger = logging.getLogger(__name__)
 
 TABLE = "data_corrections"
@@ -337,13 +349,12 @@ def reclassify(
     is already non-destructive (an attachment left pending with no staging is simply skipped), so this
     helper adds ergonomics, not a safety mechanism.
 
-    ``corrected_pages`` maps ``{page_label: fields-object}``; each is validated against the frozen
-    ``page_classifications`` contract via ``validate_page_fields`` (the same structural gate
-    ``apply_correction`` uses — like it, ``reclassify`` does not inject ``typed_gate.validate_typed``, so a
-    typed payload is checked structurally but not against the EXTRACT-001 schema). EVERY page is
-    validated BEFORE any is recorded, so a rejection writes nothing (raises ``ValueError``). An empty
-    ``corrected_pages`` is a ``no-op`` (nothing recorded, nothing propagated). An unknown attachment
-    raises ``ValueError``.
+    ``corrected_pages`` maps ``{page_label: fields-object}``; each is a typed EXTRACT-001 payload
+    validated against the typed-only ``page_classifications`` gate via ``validate_page_fields`` with the
+    injected ``typed_gate.validate_typed`` schema validator (EXTRACT-007 / FR-010 — the same gate
+    ``apply_correction`` and ``record-classification`` enforce). EVERY page is validated BEFORE any is
+    recorded, so a rejection writes nothing (raises ``ValueError``). An empty ``corrected_pages`` is a
+    ``no-op`` (nothing recorded, nothing propagated). An unknown attachment raises ``ValueError``.
 
     Returns ``{"result", "attachment_id", "period", "pages", "remote"}``.
     """
@@ -355,14 +366,15 @@ def reclassify(
     if period is None:
         raise ValueError(f"unknown attachment {attachment_id}")
 
+    validator = _typed_validator()
     # Validate ALL pages before recording ANY (write-nothing-on-failure — FR-014).
     for page_label, fields in corrected_pages.items():
-        err = validate_page_fields(fields)
+        err = validate_page_fields(fields, typed_validator=validator)
         if err is not None:
             raise ValueError(f"page {page_label!r} rejected: {err}")
 
     for page_label, fields in corrected_pages.items():
-        record_classification(attachment_id, page_label, fields, target=target)
+        record_classification(attachment_id, page_label, fields, target=target, typed_validator=validator)
     _propagate(attachment_id, period, target, cache_dir)
 
     logger.info("reclassify %s: recorded %d page(s) + propagated", attachment_id, len(corrected_pages))
@@ -382,8 +394,9 @@ def apply_correction(
 ) -> dict:
     """Record + apply one data correction to one attachment, gated by verify-after.
 
-    ``corrected_pages`` maps ``{page_label: fields-object}`` (each validated against the frozen
-    ``page_classifications`` contract). Flow (contract ``corrections-cli.md``):
+    ``corrected_pages`` maps ``{page_label: fields-object}`` (each a typed EXTRACT-001 payload,
+    schema-validated against the typed-only ``page_classifications`` gate via the injected
+    ``typed_gate.validate_typed`` — EXTRACT-007 / FR-010). Flow (contract ``corrections-cli.md``):
 
     1. Resolve the affected scope (attachment + shared-NF siblings) + the attachment's period.
     2. BEFORE findings over that scope; fail-closed if ``target_finding_key`` is absent → result
@@ -400,8 +413,9 @@ def apply_correction(
     if not corrected_pages:
         return {"result": "no-op", "batch_id": None, "attachment_id": attachment_id,
                 "target_finding": target_finding_key, "corrections": [], "reason": "no corrected pages supplied"}
+    validator = _typed_validator()
     for page_label, fields in corrected_pages.items():
-        err = validate_page_fields(fields)
+        err = validate_page_fields(fields, typed_validator=validator)
         if err is not None:
             raise ValueError(f"corrected page {page_label!r} rejected: {err}")
 
@@ -431,7 +445,7 @@ def apply_correction(
 
     # (4) Apply the corrected staging then propagate.
     for page_label, fields in corrected_pages.items():
-        record_classification(attachment_id, page_label, fields, target=target)
+        record_classification(attachment_id, page_label, fields, target=target, typed_validator=validator)
     _propagate(attachment_id, period, target, cache_dir)
 
     # (5) AFTER findings + verify-after.

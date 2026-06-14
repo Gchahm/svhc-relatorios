@@ -1,4 +1,4 @@
-"""Feature 055 / EXTRACT-004: typed-record persistence against real local D1.
+"""Feature 055 / EXTRACT-004 + EXTRACT-007: typed-record persistence against real local D1.
 
 Drives the real ``record-classification`` gate (with the EXTRACT-001 ``typed_gate`` validator) and
 ``apply-extractions`` over the feature-046 synthetic seed, asserting:
@@ -6,7 +6,8 @@ Drives the real ``record-classification`` gate (with the EXTRACT-001 ``typed_gat
 - a valid TYPED payload is recorded and, after roll-up, the ``attachment_analysis_records.response``
   carries the typed JSON verbatim (``doc_type``/``schema_version`` present) and the
   ``attachment_analyses`` reconciliation total = the per-type mapper value (nfse net);
-- a LEGACY FLAT payload rolls up unchanged (no ``doc_type`` stored);
+- a LEGACY FLAT payload (no ``doc_type``) is REJECTED at the typed-only gate and writes no staging row
+  (EXTRACT-007 / FR-008);
 - a SCHEMA-INVALID typed payload is rejected at the gate and writes no staging row.
 
 E4 is the seeded PENDING single-entry attachment (its own shared-NF representative, page ``p1``), so
@@ -35,6 +36,7 @@ NFSE_TYPED = {
     "valores": {"valor_servico": 50.0, "deducoes": 0.0, "valor_liquido": 50.0},
 }
 
+# A legacy flat payload (no doc_type) — the retired contract; used only to assert it is REJECTED.
 FLAT = {
     "papel_artefato": "nfse",
     "tipo_documento": "nfse",
@@ -104,15 +106,15 @@ class TestTypedRecordD1(unittest.TestCase):
             "11.222.333/0001-44",
         )
 
-    def test_legacy_flat_payload_rolls_up_unchanged(self):
-        _record(self.e4_att, FLAT)
-        apply_extractions("local", [self.period])
+    def test_legacy_flat_payload_rejected_no_staging_write(self):
+        # EXTRACT-007 typed-only: a flat payload (no doc_type) is rejected at the gate, nothing written.
+        mark_pending("local", attachment_ids=[self.e4_att])
+        self.assertEqual(h.count("page_classifications", f"attachment_id = '{self.e4_att}'"), 0)
 
-        stored = self._e4_record_response()
-        self.assertNotIn("doc_type", stored)  # legacy flat stored as-is
-        self.assertEqual(stored["valor_total"], 50.0)
-        amt = h.scalar(f"SELECT extracted_amount FROM attachment_analyses WHERE attachment_id = '{self.e4_att}'")
-        self.assertEqual(float(amt), 50.0)
+        with self.assertRaises(ValueError):
+            _record(self.e4_att, FLAT)
+
+        self.assertEqual(h.count("page_classifications", f"attachment_id = '{self.e4_att}'"), 0)
 
     def test_schema_invalid_typed_rejected_no_staging_write(self):
         # Clear E4 staging so we can assert NOTHING is written by an invalid record.

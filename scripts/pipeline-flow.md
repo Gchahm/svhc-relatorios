@@ -5,20 +5,18 @@ For command reference and usage, see [`scripts/README.md`](./README.md).
 
 ## What runs where
 
-| Step                                                                                  | Runs in                                                      | Entry point                                                |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
-| Scrape ledger + download attachments                                                  | **Your machine** (Python + Playwright, run from `scripts/`)  | `python -m scraper scrape --download-docs [--remote]`      |
-| Backfill missing attachment images                                                    | Your machine                                                 | `python -m scraper download-docs [--remote]`               |
-| Plan extraction work (DB-derived, printed to stdout)                                  | Your machine                                                 | `python -m analysis docs-plan [--remote]`                  |
-| Read ONE page image → fields, record to D1                                            | **Claude Code** (vision skill) + `record-classification` CLI | `classify-doc-page` skill                                  |
-| Orchestrate per-page classification                                                   | Claude Code                                                  | `classify-period` skill (runs `docs-plan`, fans out pages) |
-| Merge classifications → roll-up + reconcile                                           | Your machine                                                 | `python -m analysis apply-extractions [--remote]`          |
-| Run checks → write alerts (incl. per-attachment mismatch alerts, clickable in the UI) | Your machine                                                 | `python -m analysis analyze [--remote]`                    |
-| Terse mismatch summary                                                                | Your machine                                                 | `python -m analysis mismatches [--remote]`                 |
-| One-shot vision+analysis wrapper                                                      | Claude Code                                                  | `analyze-docs` agent                                       |
-| Judge a mismatch true/false                                                           | Claude Code                                                  | `review-mismatch` agent                                    |
-| Fix a false mismatch → PR                                                             | Claude Code                                                  | `fix-mismatch` agent (human-gated PR)                      |
-| Drive the whole loop                                                                  | Claude Code                                                  | `improve-classification` skill                             |
+| Step                                                                                  | Runs in                                                     | Entry point                                                                 |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Scrape ledger + download attachments                                                  | **Your machine** (Python + Playwright, run from `scripts/`) | `python -m scraper scrape --download-docs [--remote]`                       |
+| Backfill missing attachment images                                                    | Your machine                                                | `python -m scraper download-docs [--remote]`                                |
+| Plan extraction work (DB-derived, printed to stdout)                                  | Your machine                                                | `python -m analysis docs-plan [--remote]`                                   |
+| Classify pages (headless vision) → record to D1                                       | Your machine                                                | `python -m analysis classify [--remote]` (drives `doc_transcribe` per page) |
+| Merge classifications → roll-up + reconcile                                           | Your machine                                                | `python -m analysis apply-extractions [--remote]`                           |
+| Run checks → write alerts (incl. per-attachment mismatch alerts, clickable in the UI) | Your machine                                                | `python -m analysis analyze [--remote]`                                     |
+| Terse mismatch summary                                                                | Your machine                                                | `python -m analysis mismatches [--remote]`                                  |
+| Judge a mismatch true/false                                                           | Claude Code                                                 | `review-mismatch` agent                                                     |
+| Fix a false mismatch → PR                                                             | Claude Code                                                 | `fix-mismatch` agent (human-gated PR)                                       |
+| Drive the whole loop                                                                  | Claude Code                                                 | `improve-classification` skill                                              |
 
 **Key seams**
 
@@ -38,6 +36,8 @@ flowchart TD
         scrape["scraper scrape --download-docs<br/>(scraper/runner.py + Playwright)"]
         ddocs["scraper download-docs<br/>(backfill missing images)"]
         plan["analysis docs-plan<br/>(extractions.build_plan:<br/>select_work + nf_groups,<br/>prints plan JSON to stdout)"]
+        classify["analysis classify<br/>(headless vision: per pending page,<br/>shells out to doc_transcribe,<br/>records typed fields to D1)"]
+        dtrans["doc_transcribe (subprocess)<br/>python -m doc_transcribe<br/>--image read_path --type auto"]
         apply["analysis apply-extractions<br/>(attachments.build_attachment_analysis:<br/>roll-up + reconcile + sibling fan-out)"]
         builddocs["analysis build-documents<br/>(documents.build_documents:<br/>global dedup by (number, cnpj) + links)"]
         analyze["analysis analyze<br/>(build-documents + checks:<br/>consistency / trends / advanced /<br/>document_overpayment)"]
@@ -45,10 +45,7 @@ flowchart TD
         d1wrap{{"scripts/common/d1.py<br/>wrangler CLI wrapper"}}
     end
 
-    subgraph CLAUDE["Claude Code — vision skills + agents"]
-        classifyP["classify-period skill"]
-        classifyD["classify-doc-page skill<br/>reads ONE page image,<br/>records it to D1"]
-        adocs["analyze-docs agent"]
+    subgraph CLAUDE["Claude Code — review/fix agents + loop"]
         improve["improve-classification skill (loop)"]
         review["review-mismatch agent"]
         fix["fix-mismatch agent"]
@@ -76,11 +73,11 @@ flowchart TD
     d1wrap <-->|"r2 object put/get"| r2
 
     plan -->|materialize R2 to cache| d1wrap
-    plan -->|plan JSON on stdout| classifyP
-    classifyP -->|runs| plan
-    classifyP --> classifyD
-    imgs --> classifyD
-    classifyD -->|record-classification| d1wrap
+    classify -->|runs build_plan + materializes images| d1wrap
+    imgs --> classify
+    classify -->|"--image read_path --type auto (subprocess)"| dtrans
+    dtrans -->|"typed EXTRACT-001 fields JSON"| classify
+    classify -->|record-classification (typed payload)| d1wrap
     apply -->|build_plan + read page_classifications from D1| d1wrap
     apply --> d1wrap
     builddocs -->|read analyses, write documents + links| d1wrap
@@ -88,12 +85,9 @@ flowchart TD
     analyze --> d1wrap
     mismatch --> d1wrap
 
-    adocs --> classifyP
-    adocs --> apply
-    adocs --> analyze
-    adocs --> mismatch
-
-    improve --> adocs
+    improve -->|runs CLI steps| classify
+    improve --> apply
+    improve --> analyze
     mismatch -. "page_refs" .-> review
     improve --> review
     review --> verdicts
@@ -116,7 +110,7 @@ sequenceDiagram
     participant D1 as D1 (fiscal-db)
     participant R2 as R2 (fiscal-documents)
     participant C as .cache/analysis/
-    participant V as classify-doc-page (vision)
+    participant V as doc_transcribe (subprocess)
 
     U->>PW: scraper scrape --download-docs
     PW->>P: login + read demonstrativo / lançamentos / aprovadores
@@ -131,10 +125,15 @@ sequenceDiagram
     W->>C: write materialized images
     W-->>U: plan JSON on stdout (no manifest file)
 
-    U->>V: classify-period parses plan, fans out each page
-    V->>C: read image
-    V->>W: record-classification (per page)
-    W->>D1: INSERT OR REPLACE page_classifications
+    U->>W: analysis classify
+    W->>D1: build_plan (pending set, same grouping)
+    W->>C: materialize images from R2
+    loop each pending non-recorded page (serial)
+        W->>V: python -m doc_transcribe --image read_path --type auto
+        V-->>W: typed EXTRACT-001 fields JSON
+        W->>D1: record-classification (typed payload) → INSERT OR REPLACE page_classifications
+    end
+    Note over W,V: subprocess exits non-zero (e.g. `claude` not on PATH)<br/>STOPS the run; a per-page parse failure records {"error": …} and continues
 
     U->>W: analysis apply-extractions
     W->>D1: build_plan + read page_classifications (same grouping)
@@ -153,7 +152,7 @@ Driven by the `improve-classification` skill; bookkeeping is deterministic Pytho
 
 ```mermaid
 flowchart LR
-    A["analyze-docs<br/>(classify → apply → analyze → mismatches)"] --> R{"per mismatch:<br/>review-mismatch verdict"}
+    A["CLI steps<br/>(classify → apply-extractions → analyze → mismatches)"] --> R{"per mismatch:<br/>review-mismatch verdict"}
     R -->|true: real finding| keep["surface, never fix"]
     R -->|false: system bug| F["fix-mismatch → PR (human-gated)"]
     R -->|transient| RE

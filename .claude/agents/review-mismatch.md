@@ -1,7 +1,7 @@
 ---
 name: review-mismatch
 description: >-
-    The context-isolated REVIEW step of the classification loop. Given ONE classification mismatch (from the analyze-docs / `mismatches` summary), it views the actual page image(s) and the ledger entry and decides whether the mismatch is **true** (the document really disagrees with the books — a finding), **false** (the system misread or mis-reconciled a legible page — a bug), **transient** (a non-systematic misread a re-run would fix), or **page-error** (image missing/illegible). For a `false` verdict it attaches a root-cause hypothesis. Returns ONLY a terse verdict JSON — never page images or transcripts. Invoke it once per mismatch (parallelizable across mismatches).
+    The context-isolated REVIEW step of the classification loop. Given ONE classification mismatch (from the `mismatches` summary), it views the actual page image(s) and the ledger entry and decides whether the mismatch is **true** (the document really disagrees with the books — a finding), **false** (the system misread or mis-reconciled a legible page — a bug), **transient** (a non-systematic misread a re-run would fix), or **page-error** (image missing/illegible). For a `false` verdict it attaches a root-cause hypothesis. Returns ONLY a terse verdict JSON — never page images or transcripts. Invoke it once per mismatch (parallelizable across mismatches).
 tools: Read, Glob, Bash
 model: inherit
 color: green
