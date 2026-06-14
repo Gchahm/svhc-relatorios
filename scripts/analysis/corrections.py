@@ -319,6 +319,55 @@ def _update_batch_status(
 # --------------------------------------------------------------------------- #
 
 
+def reclassify(
+    attachment_id: str,
+    corrected_pages: dict,
+    *,
+    target: Target = "local",
+    cache_dir: str = DEFAULT_CACHE_DIR,
+) -> dict:
+    """Composite "reclassify one attachment" helper (design §4.5).
+
+    Records the supplied corrected per-page extraction(s) as ``page_classifications`` staging then
+    propagates in the pinned order (staging-driven ``apply_extractions`` → ``build_documents`` →
+    ``analyze``), scoped to the attachment's period. This is the **un-gated** sibling of
+    :func:`apply_correction`: it has NO audit trail, snapshot, or verify-after net — those are
+    ``apply_correction``'s job. ``reclassify`` exists purely to pin the multi-command ordering
+    (design §4.5); because ``apply_extractions`` is staging-driven (feature 050) a mid-sequence crash
+    is already non-destructive (an attachment left pending with no staging is simply skipped), so this
+    helper adds ergonomics, not a safety mechanism.
+
+    ``corrected_pages`` maps ``{page_label: fields-object}``; each is validated against the frozen
+    ``page_classifications`` contract (the same gate ``record-classification`` uses). EVERY page is
+    validated BEFORE any is recorded, so a rejection writes nothing (raises ``ValueError``). An empty
+    ``corrected_pages`` is a ``no-op`` (nothing recorded, nothing propagated). An unknown attachment
+    raises ``ValueError``.
+
+    Returns ``{"result", "attachment_id", "period", "pages", "remote"}``.
+    """
+    if not corrected_pages:
+        return {"result": "no-op", "attachment_id": attachment_id, "period": None,
+                "pages": [], "remote": target == "remote"}
+
+    period, _ = _attachment_context(attachment_id, target)
+    if period is None:
+        raise ValueError(f"unknown attachment {attachment_id}")
+
+    # Validate ALL pages before recording ANY (write-nothing-on-failure — FR-014).
+    for page_label, fields in corrected_pages.items():
+        err = validate_page_fields(fields)
+        if err is not None:
+            raise ValueError(f"page {page_label!r} rejected: {err}")
+
+    for page_label, fields in corrected_pages.items():
+        record_classification(attachment_id, page_label, fields, target=target)
+    _propagate(attachment_id, period, target, cache_dir)
+
+    logger.info("reclassify %s: recorded %d page(s) + propagated", attachment_id, len(corrected_pages))
+    return {"result": "reclassified", "attachment_id": attachment_id, "period": period,
+            "pages": list(corrected_pages.keys()), "remote": target == "remote"}
+
+
 def apply_correction(
     attachment_id: str,
     target_finding_key: str,
