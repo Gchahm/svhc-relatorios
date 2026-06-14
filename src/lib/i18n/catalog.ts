@@ -453,6 +453,26 @@ export type CatalogShape = {
         no_pages_or_records: string;
         page_n: string;
         full_transcription: string;
+        // Type-aware transcription (feature 057): section titles for the typed transcription view.
+        tsection_general: string;
+        tsection_issuer: string;
+        tsection_provider: string;
+        tsection_recipient: string;
+        tsection_payer: string;
+        tsection_values: string;
+        tsection_totals: string;
+        tsection_retentions: string;
+        tsection_bank: string;
+        tsection_items: string;
+        tsection_duplicates: string;
+        tsection_identified_values: string;
+        tsection_raw_text: string;
+        // Reconciliation provenance role labels (which transcribed field feeds which recon value).
+        provenance_total: string;
+        provenance_issuer: string;
+        provenance_number: string;
+        provenance_date: string;
+        provenance_service: string;
     };
     viewer: {
         image_unavailable: string;
@@ -914,6 +934,24 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             no_pages_or_records: "Nenhuma página ou registro por página para esta análise.",
             page_n: "página {n}",
             full_transcription: "Transcrição completa",
+            tsection_general: "Geral",
+            tsection_issuer: "Emitente",
+            tsection_provider: "Prestador",
+            tsection_recipient: "Destinatário",
+            tsection_payer: "Pagador",
+            tsection_values: "Valores",
+            tsection_totals: "Totais",
+            tsection_retentions: "Retenções",
+            tsection_bank: "Banco",
+            tsection_items: "Itens",
+            tsection_duplicates: "Duplicatas",
+            tsection_identified_values: "Valores identificados",
+            tsection_raw_text: "Texto completo",
+            provenance_total: "total reconciliado",
+            provenance_issuer: "emissor",
+            provenance_number: "nº do documento",
+            provenance_date: "data de emissão",
+            provenance_service: "serviço",
         },
         viewer: {
             image_unavailable: "Imagem indisponível",
@@ -1367,6 +1405,24 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             no_pages_or_records: "No pages or per-page records for this analysis.",
             page_n: "page {n}",
             full_transcription: "Full transcription",
+            tsection_general: "General",
+            tsection_issuer: "Issuer",
+            tsection_provider: "Provider",
+            tsection_recipient: "Recipient",
+            tsection_payer: "Payer",
+            tsection_values: "Values",
+            tsection_totals: "Totals",
+            tsection_retentions: "Retentions",
+            tsection_bank: "Bank",
+            tsection_items: "Items",
+            tsection_duplicates: "Duplicates",
+            tsection_identified_values: "Identified values",
+            tsection_raw_text: "Full text",
+            provenance_total: "reconciliation total",
+            provenance_issuer: "issuer",
+            provenance_number: "document №",
+            provenance_date: "issue date",
+            provenance_service: "service",
         },
         viewer: {
             image_unavailable: "Image unavailable",

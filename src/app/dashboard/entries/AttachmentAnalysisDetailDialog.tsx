@@ -8,6 +8,7 @@ import type { AttachmentAnalysisRow } from "./types";
 import { useTranslation, useLocale } from "@/lib/i18n/client";
 import { formatCurrency } from "@/lib/i18n/formatters.client";
 import type { SupportedLocale, DeepCatalogKey } from "@/lib/i18n/catalog";
+import { buildTypedSections, provenanceRoleLabel, type TypedRow } from "./typed-transcription";
 
 type Translate = (key: DeepCatalogKey) => string;
 
@@ -121,6 +122,27 @@ function Field({ label, value, t }: { label: string; value: string | null | unde
     );
 }
 
+// A typed-transcription row: the verbatim field plus, when this field is the reconciliation
+// mapper's source for a role, a small role badge marking the provenance (feature 057).
+function TypedFieldRow({ row, t }: { row: TypedRow; t: Translate }) {
+    return (
+        <div className={`flex flex-col gap-0.5${row.wide ? " col-span-2 sm:col-span-3" : ""}`}>
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {row.label}
+                {row.provenanceRole && (
+                    <Badge
+                        variant="outline"
+                        className="border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-400 text-[9px] px-1 py-0 font-normal normal-case"
+                    >
+                        {provenanceRoleLabel(row.provenanceRole, t)}
+                    </Badge>
+                )}
+            </span>
+            <span className={`text-sm${row.wide ? " whitespace-pre-wrap break-words" : ""}`}>{row.value}</span>
+        </div>
+    );
+}
+
 function RecordValues({
     record,
     t,
@@ -147,24 +169,54 @@ function RecordValues({
         return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
     }
 
-    // Typed transcription (feature 055): show the full, rich transcription so the reviewer sees
-    // everything the AI read, not just the five flat fields. The reconciliation fields are derived
-    // deterministically downstream (the per-type mapper) and surfaced in the attachment-level summary.
+    // Typed transcription (feature 057 / EXTRACT-006): render the full transcription grouped by the
+    // document's natural structure, with the reconciliation mapper's source fields tagged with the
+    // role they feed (provenance). The grouping/provenance live in the pure `buildTypedSections`
+    // builder; a defensive try/catch degrades to the feature-055 flat flatten so an odd shape can
+    // never blank the dialog.
     if (isTyped(values)) {
-        const rows = flattenTyped(values, locale);
-        if (rows.length === 0) {
+        let sections;
+        try {
+            sections = buildTypedSections(values, t, locale);
+        } catch {
+            sections = null;
+        }
+        if (sections === null) {
+            const rows = flattenTyped(values, locale);
+            if (rows.length === 0) {
+                return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
+            }
+            return (
+                <div className="space-y-2">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {t("analysis.full_transcription")}
+                    </span>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                        {rows.map(r => (
+                            <Field key={r.label} label={r.label} value={r.value} t={t} />
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+        if (sections.length === 0) {
             return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
         }
         return (
-            <div className="space-y-2">
+            <div className="space-y-3">
                 <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     {t("analysis.full_transcription")}
                 </span>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                    {rows.map(r => (
-                        <Field key={r.label} label={r.label} value={r.value} t={t} />
-                    ))}
-                </div>
+                {sections.map(section => (
+                    <div key={section.key} className="space-y-1.5">
+                        <span className="text-[11px] font-semibold">{section.title}</span>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                            {section.rows.map(row => (
+                                <TypedFieldRow key={row.path} row={row} t={t} />
+                            ))}
+                        </div>
+                    </div>
+                ))}
             </div>
         );
     }
