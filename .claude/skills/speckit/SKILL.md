@@ -41,7 +41,7 @@ Invocation looks like `speckit <phase> [arguments]` (e.g. `speckit specify add r
 ## Scripts
 
 The bundled scripts in `scripts/` do the mechanical work (branch creation, prerequisite
-checks, plan setup, agent-context updates). The references call them by repo-relative path,
+checks, plan setup). The references call them by repo-relative path,
 e.g. `.claude/skills/speckit/scripts/create-new-feature.sh`. Run them from the repo root.
 They resolve the repo root via git and read the bundled `.specifyrc` for branch naming.
 
@@ -80,4 +80,3 @@ generate it for that project.
 ## Outputs (written to the repo, not the skill)
 
 - `specs/<branch-name>/` — specs, plans, tasks, analysis
-- `AGENTS.md` — updated by `update-agent-context.sh`

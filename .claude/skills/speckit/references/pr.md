@@ -85,16 +85,23 @@ gh pr create \
   --body "$(cat <<'EOF'
 <Brief 1-3 sentence summary of the change>
 
+Closes #<issue>
+
 **Spec**: <spec-url>
 EOF
 )"
 ```
+
+If this work tracks a GitHub issue (the caller named one, or the spec/branch references one), the
+body **must** contain a `Closes #<issue>` line (GitHub's standard closing keyword) so merging
+auto-closes the issue. Drop the line only when there is genuinely no associated issue.
 
 Add any labels your project requires with `--label <label>`.
 
 ### PR description format
 
 - Brief and concise (1-3 sentences); no test plans
+- A `Closes #<issue>` line whenever the work tracks an issue (see Step 5) — required for auto-close
 - A `**Verification**` section: the 1-3 bullets from Step 4 (what was exercised in the running app
   against local data), or `none — no runtime surface`
 - End with the spec link: `**Spec**: <url>`
@@ -102,6 +109,8 @@ Add any labels your project requires with `--label <label>`.
 Example:
 ```markdown
 Add user preference endpoints for theme and notification settings.
+
+Closes #42
 
 **Verification**:
 - GET/PUT /api/preferences round-trip via the running dev server (real user row)

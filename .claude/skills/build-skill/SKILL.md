@@ -23,6 +23,36 @@ content as a new file under `references/` and add a row to the **References** ta
 
 ## Conventions (MUST follow)
 
+- **Never assume Claude Code behavior — verify it.** When authoring or revising, do NOT recall
+  frontmatter fields, tool behavior, memory mechanics, hook semantics, dynamic-context injection, or
+  any other Claude Code feature from memory. Ground each such decision in this skill's bundled
+  `references/` (read them first); for anything they don't cover, **ask the `claude-code-guide`
+  agent** and write from its answer. Assumed Claude behavior is a defect.
+- **Repo-agnostic — keep hardcoded repository specifics out of the prompt body.** A `SKILL.md` /
+  agent body should read as reusable instructions, not bake in THIS repo's commands, file paths,
+  URLs, table names, or domain facts. Where a runtime fact is genuinely needed, *source* it — never
+  hardcode it:
+  - **Subagents** have a `memory:` field (use `project` → `.claude/agent-memory/<name>/`, shareable
+    via git). The first 200 lines / 25 KB of that directory's `MEMORY.md` auto-injects into the
+    agent's system prompt and Read/Write/Edit are auto-enabled, so put repo-specific, *evolving*
+    knowledge (commands, base URLs, locations, gotchas) there and instruct the agent to read it first
+    and curate it at the end — the `ui-reviewer` agent is the model. Subagents also inherit the full
+    CLAUDE.md hierarchy at startup, so shared repo conventions can simply live in `CLAUDE.md`.
+  - **Skills have NO memory mechanism** and do NOT auto-inherit `CLAUDE.md`. A skill that needs a
+    repo fact obtains it at runtime: dynamic context injection (a `` !`<command>` `` line in the body,
+    expanded once before the model reads the skill), reading `CLAUDE.md` / the project constitution
+    during execution, or delegating to a memory-backed subagent. Never hardcode the value.
+  - A domain-specific helper that exists only for this repo may name the concrete commands it runs,
+    but still pushes evolving knowledge into memory rather than the prompt body.
+- **Caller-agnostic — a skill/agent's instructions MUST NOT reference or explain what invokes it.**
+  Write the body as self-contained instructions for the work itself, not for the context that triggered
+  it. Do not name or describe the human, orchestrator, parent skill, loop, or agent that called it, do
+  not justify a step by *who needs it downstream*, and do not branch on the caller's identity. State
+  the requirement and its intrinsic reason instead (e.g. "include `Closes #<issue>` so merging
+  auto-closes the issue", **not** "…so the loop can link the PR"). This keeps a skill reusable from any
+  caller and prevents its prompt from drifting when the callers change. (A skill may still describe its
+  own inputs/arguments and document agents *it* spawns — the rule is about upward references to whatever
+  invoked it.)
 - **Python the skill RUNS is ALWAYS launched through Astral `uv` — never bare `python`/`python3`.**
   Any Python a skill/agent executes (analysis CLIs, bundled `scripts/` helpers, one-off commands)
   MUST go through `uv run` (this repo's convention; see `CLAUDE.md`). Use `uv run python …` for code
@@ -66,7 +96,8 @@ Invocation looks like `build-skill <action> [arguments]`.
 1. Read the **first token** as the action keyword (table below).
 2. Everything after it is that action's arguments.
 3. Before acting, read the relevant **References** file(s) so the work is grounded in the
-   official docs — never recall tool/skill/frontmatter behavior from memory.
+   official docs — never recall tool/skill/frontmatter behavior from memory. For behavior the
+   references don't cover, ask the **`claude-code-guide`** agent rather than guessing.
 4. If no action keyword is given, infer intent from the request and confirm with the user.
 
 | Action | Purpose |
