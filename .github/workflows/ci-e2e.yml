@@ -1,0 +1,85 @@
+name: CI e2e
+
+# Integration + E2E smoke (feature 046 / TEST-004), split out of ci.yml (feature 064 / CI-001).
+# This is a SEPARATE workflow from `verify` because it builds the app + provisions local
+# Miniflare (D1/R2) + drives a headless browser, so it is slow (~32 min). Splitting it lets it
+# be path-gated on PRs without gating `verify` (which must always run, so it stays in ci.yml).
+#
+# Triggers:
+#   - push to main: ALWAYS (no `paths` filter) — main keeps full coverage regardless of which
+#     paths a merge touched.
+#   - pull_request: ONLY when a relevant (functional) path changed. A doc-only / .claude-only /
+#     *.md-only PR matches nothing here, so this workflow does not trigger and no e2e check is
+#     created (cleaner than a job-level `if:` that reports a "skipped" status). The fast `verify`
+#     job in ci.yml still runs on every PR.
+on:
+    push:
+        branches: [main]
+    pull_request:
+        paths:
+            - "scripts/**"
+            - "src/**"
+            - "drizzle/**"
+            - "wrangler.toml"
+            - "package.json"
+            - "pnpm-lock.yaml"
+            - ".github/workflows/ci-e2e.yml"
+
+# Verification only — never write to the repo, never deploy.
+permissions:
+    contents: read
+
+# A newer push to the same ref supersedes an in-flight run. Distinct group from ci.yml so the
+# two workflows supersede only their own runs, never each other.
+concurrency:
+    group: ci-e2e-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    e2e:
+        name: Integration + E2E smoke (seeded local D1/R2)
+        runs-on: ubuntu-latest
+        # Backstop against a runaway/hung run (the healthy suite is ~32 min).
+        timeout-minutes: 45
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Setup Node 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Setup uv + Python 3.12
+              uses: astral-sh/setup-uv@v5
+              with:
+                  python-version: "3.12"
+                  enable-cache: true
+                  cache-dependency-glob: scripts/uv.lock
+
+            - name: Install Chromium for Playwright (Python)
+              run: cd scripts && uv run playwright install --with-deps chromium
+
+            # Provision a fresh shared local Miniflare state (.wrangler/state-test): apply
+            # migrations + seed synthetic data + R2. Used by the browser smoke below; the
+            # integration step seeds its OWN per-worker dirs (feature 063).
+            - name: Seed local D1 + R2 (synthetic)
+              run: pnpm e2e:seed
+
+            # Parallel runner (feature 063): shards modules across worker processes, each with
+            # its own isolated .wrangler/state-test-w<i> persist dir; cleaned up on completion.
+            - name: Python integration tests (real D1 writebacks)
+              run: pnpm test:py:integration
+
+            # Build the real Workers app, serve it, run the browser smoke, tear it down.
+            - name: Browser E2E smoke
+              run: pnpm test:e2e
