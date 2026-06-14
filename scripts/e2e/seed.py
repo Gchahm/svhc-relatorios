@@ -27,9 +27,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _apply_migrations() -> None:
-    """Apply the committed D1 migrations to the local Miniflare state (idempotent)."""
+    """Apply the committed D1 migrations to the local Miniflare state (idempotent).
+
+    This is a wrangler local call OUTSIDE ``d1.py``'s read/write helpers, so it must honor the
+    ``SVHC_WRANGLER_PERSIST`` selector itself (feature 061 / issue #107) — otherwise the seed would
+    migrate the default ``.wrangler/state`` (staging) while the subsequent upserts (which go through
+    ``d1.py``) land in ``.wrangler/state-test``, leaving the test DB schema-less ("no such table").
+    ``d1._persist_args("local")`` returns ``[]`` when the var is unset, so the staging default is
+    unchanged.
+    """
     subprocess.run(
-        ["npx", "wrangler", "d1", "migrations", "apply", "DATABASE", "--local"],
+        ["npx", "wrangler", "d1", "migrations", "apply", "DATABASE", "--local"]
+        + d1._persist_args("local"),
         cwd=_REPO_ROOT,
         check=True,
     )

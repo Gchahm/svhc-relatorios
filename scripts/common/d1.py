@@ -15,6 +15,7 @@ the retired import path.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,12 @@ _BUCKET = "fiscal-documents"
 
 # The repo root is where wrangler.toml lives: scripts/common/d1.py -> parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Env var that selects an isolated Miniflare persist directory for LOCAL wrangler calls (feature 061
+# / issue #107). Co-locates that invocation's local D1 + R2 + KV state in one dir. Unset => wrangler
+# default (.wrangler/state = the human's staging DB). The test/seed/e2e entrypoints set it to
+# .wrangler/state-test so the agents' tooling never clobbers staging. Never applied to --remote.
+_PERSIST_ENV = "SVHC_WRANGLER_PERSIST"
 
 # Table insertion order (respects foreign-key dependencies). Mirrors import-to-d1.mjs.
 TABLE_ORDER = [
@@ -55,6 +62,28 @@ TABLE_ORDER = [
 def target_flag(target: Target) -> str:
     """The wrangler flag for a target. ``remote`` writes production; default is local."""
     return "--remote" if target == "remote" else "--local"
+
+
+def _persist_args(target: Target) -> list[str]:
+    """``--persist-to`` flag for a LOCAL invocation when ``SVHC_WRANGLER_PERSIST`` selects a dir.
+
+    Returns ``["--persist-to", <resolved dir>]`` iff ``target == "local"`` AND the env var is set to a
+    non-empty value; otherwise ``[]``. A ``--remote`` (production) call is **never** redirected
+    (feature 061 / issue #107). A relative value resolves against ``_REPO_ROOT`` (wrangler runs with
+    ``cwd=_REPO_ROOT`` but the npm scripts run from ``scripts/`` — resolving against the repo root
+    makes the dir stable regardless of the process CWD). An absolute value is used as-is. Appended to
+    every local wrangler shell-out so a single high-level call's fan-out + nested subprocesses all
+    land in the same DB.
+    """
+    if target != "local":
+        return []
+    raw = os.environ.get(_PERSIST_ENV)
+    if not raw:
+        return []
+    path = Path(raw)
+    if not path.is_absolute():
+        path = _REPO_ROOT / path
+    return ["--persist-to", str(path)]
 
 
 def content_type_for(name: str) -> str:
@@ -162,7 +191,8 @@ def execute_sql(sql: str, *, target: Target) -> None:
         sql_path = fh.name
     try:
         subprocess.run(
-            ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--file", sql_path, target_flag(target)],
+            ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--file", sql_path, target_flag(target)]
+            + _persist_args(target),
             cwd=_REPO_ROOT,
             check=True,
             stdout=sys.stderr,
@@ -230,7 +260,8 @@ def _parse_d1_json(stdout: str) -> list[dict]:
 def query(sql: str, *, target: Target) -> list[dict]:
     """Run a SELECT against D1 and return the result rows as dicts."""
     proc = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--command", sql, "--json", target_flag(target)],
+        ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--command", sql, "--json", target_flag(target)]
+        + _persist_args(target),
         cwd=_REPO_ROOT,
         check=True,
         capture_output=True,
@@ -252,7 +283,8 @@ def put_object(key: str, file_path: str, content_type: str, *, target: Target) -
         [
             "npx", "wrangler", "r2", "object", "put", f"{_BUCKET}/{key}",
             "--file", abs_path, "--content-type", content_type, target_flag(target),
-        ],
+        ]
+        + _persist_args(target),
         cwd=_REPO_ROOT,
         check=True,
     )
@@ -265,7 +297,8 @@ def get_object(key: str, dest_path: str, *, target: Target) -> bool:
     abs_dest = str(Path(dest_path).resolve())
     Path(abs_dest).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)],
+        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)]
+        + _persist_args(target),
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
