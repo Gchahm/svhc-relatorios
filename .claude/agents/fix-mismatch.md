@@ -28,8 +28,8 @@ working branch). Use a descriptive name, e.g. `fix-<area>-<short-slug>`.
 
 Use the **`speckit`** skill to design and implement a fix targeting the hypothesized `area`:
 
-- `reading` → the page-classification prompt/skill (`.claude/skills/classify-doc-page`) or field
-  extraction.
+- `reading` → the transcription prompt/schemas in `tools/doc_transcribe` (the headless transcriber the
+  `classify` command runs) or the per-type field extraction.
 - `rollup-precedence` → the roll-up ordering in `scripts/analysis/attachments.py`
   (`build_attachment_analysis`).
 - `grouping` → byte-identical grouping in `scripts/analysis/nf_groups.py`.
@@ -44,8 +44,9 @@ Where feasible, re-run the scoped chain for the affected documents and confirm t
 gone **without** introducing new ones in scope:
 
 ```bash
-cd scripts && uv run python -m analysis docs-plan --periodo <period> --attachment-id <ids…> [--remote]
-#   (classify the replanned pages via the classify-doc-page skill if reading changed)
+cd scripts && uv run python -m analysis mark-pending --attachment-id <ids…> [--remote]
+#   (re-transcribe the now-pending pages headlessly if reading changed:)
+cd scripts && uv run python -m analysis classify --periodo <period> [--remote]
 cd scripts && uv run python -m analysis apply-extractions --periodo <period> [--remote]
 cd scripts && uv run python -m analysis analyze --periodo <period> [--remote]
 cd scripts && uv run python -m analysis mismatches --periodo <period> --attachment-id <ids…> [--remote]

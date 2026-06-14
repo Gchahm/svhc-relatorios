@@ -1,7 +1,7 @@
 """Materialize a period's page images from R2 into the ephemeral local cache.
 
-Claude vision (`classify-doc-page`) Reads a local file path and the legacy content-hash
-fallback hashes raw page bytes — neither can operate on an R2 key. This module downloads
+The `classify` command's `doc_transcribe` subprocess reads a local image file and the legacy
+content-hash fallback hashes raw page bytes — neither can operate on an R2 key. This module downloads
 the in-scope page images from R2 to a git-ignored cache dir and **rewrites the in-memory
 ``attachments[].file_path``** to the local cache paths, so the docs-plan ``read_path``s,
 the page-refs in the mismatch summary, the content-hash fallback/backfill, and the

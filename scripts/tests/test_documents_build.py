@@ -62,11 +62,14 @@ class SqlHelpersTest(unittest.TestCase):
 
 class AnalysisTotalTest(unittest.TestCase):
     def test_prefers_invoice_gross(self):
-        analysis = {"analysis_records": [{"response": {"valor_total": "150,00"}}], "extracted_amount": 99.0}
+        analysis = {
+            "analysis_records": [{"response": {"doc_type": "danfe", "totais": {"valor_total_nota": "150,00"}}}],
+            "extracted_amount": 99.0,
+        }
         self.assertEqual(_analysis_total(analysis), 150.0)
 
     def test_falls_back_to_rollup(self):
-        analysis = {"analysis_records": [{"response": {}}], "extracted_amount": 42.0}
+        analysis = {"analysis_records": [{"response": {"doc_type": "outro"}}], "extracted_amount": 42.0}
         self.assertEqual(_analysis_total(analysis), 42.0)
 
 

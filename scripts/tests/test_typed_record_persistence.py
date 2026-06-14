@@ -1,12 +1,12 @@
-"""Feature 055 / EXTRACT-004: persist typed transcriptions + flat-row coexistence.
+"""Feature 055 / EXTRACT-004 + EXTRACT-007: persist typed transcriptions (typed-only).
 
 Covers the pure seams:
 
 - ``build_attachment_analysis`` stores the RAW response verbatim (typed JSON survives) and derives
-  the reconciliation view (``recon``) via the EXTRACT-003 mapper — typed AND legacy flat.
+  the reconciliation view (``recon``) via the EXTRACT-003 mapper.
 - the shared-NF fan-out copies the response + recon to siblings unchanged.
-- ``page_classifications.validate_page_fields`` dual-path: error / typed (schema gate) / flat.
-- ``is_typed`` discriminator.
+- ``page_classifications.validate_page_fields`` typed-only gate: error / typed (schema gate); a
+  legacy flat payload (no ``doc_type``) is REJECTED (EXTRACT-007 / FR-008).
 
 No D1, no network, no ``tools/`` heavy validator (a fake typed validator is injected where the schema
 gate behavior is the thing under test; the real gate is exercised in the integration suite).
@@ -15,7 +15,7 @@ gate behavior is the thing under test; the real gate is exercised in the integra
 import unittest
 
 from analysis.attachments import _fanout_result, build_attachment_analysis
-from analysis.page_classifications import is_typed, validate_page_fields
+from analysis.page_classifications import validate_page_fields
 from analysis.typed_gate import validate_typed
 
 NFSE_TYPED = {
@@ -38,6 +38,7 @@ DANFE_TYPED = {
     "totais": {"valor_total_nota": 2790.0},
 }
 
+# A legacy flat payload (no doc_type) — the retired contract; used only to assert it is REJECTED.
 FLAT = {
     "papel_artefato": "nfse",
     "tipo_documento": "nfse",
@@ -102,28 +103,9 @@ class TypedPersistenceTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# US2 — legacy flat rows unchanged
+# US3 — the typed-only validation gate (EXTRACT-007 / FR-008)
 # --------------------------------------------------------------------------- #
-class FlatCoexistenceTest(unittest.TestCase):
-    def test_flat_record_stored_as_flat_and_rolls_up_unchanged(self):
-        res = build_attachment_analysis(
-            "x/e_p1.png", 320.0, "MANUT SV", "2025-12", "a1", "e1", provider_from({"p1": FLAT})
-        )
-        rec = res.records[0]
-        # A flat record's response is the flat dict (no doc_type); recon is its identity projection.
-        self.assertEqual(rec.response, FLAT)
-        self.assertNotIn("doc_type", rec.response)
-        self.assertEqual(rec.recon["valor_total"], 320.0)
-        self.assertEqual(rec.recon["cnpj_emitente"], "11.222.333/0001-44")
-        self.assertEqual(res.extracted_amount, 320.0)
-        self.assertEqual(res.extracted_cnpj, "11.222.333/0001-44")
-        self.assertTrue(res.amount_match)
-
-
-# --------------------------------------------------------------------------- #
-# US3 — the dual-path validation gate
-# --------------------------------------------------------------------------- #
-class ValidateDualPathTest(unittest.TestCase):
+class ValidateTypedOnlyGateTest(unittest.TestCase):
     def _fake_validator(self, payload, doc_type):
         # Minimal stand-in for the EXTRACT-001 gate: require a 'valores'/'totais' block per type.
         if doc_type == "nfse" and "valores" not in payload:
@@ -131,12 +113,6 @@ class ValidateDualPathTest(unittest.TestCase):
         if "unexpected" in payload:
             return ["$: unexpected key 'unexpected'"]
         return []
-
-    def test_is_typed_predicate(self):
-        self.assertTrue(is_typed({"doc_type": "nfse"}))
-        self.assertFalse(is_typed({"valor_total": 1}))
-        self.assertFalse(is_typed("not a dict"))
-        self.assertFalse(is_typed(None))
 
     def test_valid_typed_accepted(self):
         self.assertIsNone(validate_page_fields(NFSE_TYPED, typed_validator=self._fake_validator))
@@ -161,13 +137,11 @@ class ValidateDualPathTest(unittest.TestCase):
     def test_error_result_still_accepted(self):
         self.assertIsNone(validate_page_fields({"error": "page illegible"}, typed_validator=self._fake_validator))
 
-    def test_flat_still_validates(self):
-        self.assertIsNone(validate_page_fields(FLAT, typed_validator=self._fake_validator))
-
-    def test_flat_missing_key_still_rejected(self):
-        bad = dict(FLAT)
-        del bad["valor_total"]
-        self.assertIsNotNone(validate_page_fields(bad, typed_validator=self._fake_validator))
+    def test_flat_rejected(self):
+        # The retired flat contract (a dict WITHOUT doc_type) is rejected — typed-only (FR-008).
+        err = validate_page_fields(FLAT, typed_validator=self._fake_validator)
+        self.assertIsNotNone(err)
+        self.assertIn("doc_type", err)
 
     def test_non_dict_rejected(self):
         self.assertIsNotNone(validate_page_fields([1, 2], typed_validator=self._fake_validator))

@@ -548,7 +548,7 @@ def _fanout_result(
 # parsed fields. It returns (parsed_fields, None) on success or (None, error_reason) on
 # failure. This is the single seam that decouples the deterministic analysis from where
 # the extraction comes from (the D1 `page_classifications` staging table today, written
-# by the classify-doc-page flow; a per-image file previously, the VLM before that).
+# by the classify flow (doc_transcribe subprocess); a per-image file previously, the VLM before that).
 # Keyed by identity, not path, because a page-image filename is named by entry, not
 # attachment, so the attachment id is supplied by the plan rather than parsed from the path.
 ExtractionProvider = "Callable[[str, str], tuple[dict | None, str | None]]"

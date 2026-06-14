@@ -28,18 +28,18 @@ from analysis.corrections import (
 )
 
 
-def _fields(**over):
+def _fields(valor_total=320, **over):
+    # A typed NFS-e transcription (EXTRACT-007 typed-only contract). The ``valor_total`` knob sets the
+    # nested net (valores.valor_liquido) — the field the nfse mapper reconciles on.
     base = {
-        "papel_artefato": "nfse",
-        "tipo_documento": "NFS-e",
-        "valor_total": 320,
-        "valor_liquido": 320,
-        "valor_pago": 320,
-        "cnpj_emitente": "11222333000181",
-        "nome_emitente": "EXEMPLO LTDA",
+        "doc_type": "nfse",
+        "schema_version": "1",
+        "raw_text": "NFS-e EXEMPLO ...",
+        "numero": "123",
         "data_emissao": "2099-01-10",
-        "numero_documento": "123",
-        "descricao_servico": "servico",
+        "prestador": {"nome": "EXEMPLO LTDA", "cnpj": "11222333000181"},
+        "valores": {"valor_servico": valor_total, "deducoes": 0, "valor_liquido": valor_total},
+        "discriminacao_servico": "servico",
     }
     base.update(over)
     return base
@@ -71,11 +71,20 @@ class IdBuilderTest(unittest.TestCase):
 
 
 class FieldDiffTest(unittest.TestCase):
+    # field_diff compares top-level keys generically; for a typed nfse payload the amount lives under
+    # the top-level `valores` object, so a changed total surfaces as a changed `valores` field.
     def test_changed_field_only(self):
         cur = _fields(valor_total=800)
         new = _fields(valor_total=320)
         diff = field_diff(cur, new)
-        self.assertEqual(diff, [{"field": "valor_total", "from": 800, "to": 320}])
+        self.assertEqual(
+            diff,
+            [{
+                "field": "valores",
+                "from": {"valor_servico": 800, "deducoes": 0, "valor_liquido": 800},
+                "to": {"valor_servico": 320, "deducoes": 0, "valor_liquido": 320},
+            }],
+        )
 
     def test_no_change_is_empty(self):
         self.assertEqual(field_diff(_fields(), _fields()), [])  # FR-009 no-op
@@ -89,8 +98,8 @@ class FieldDiffTest(unittest.TestCase):
         )
 
     def test_deterministic_field_order(self):
-        cur = _fields(valor_total=1, valor_liquido=2)
-        new = _fields(valor_total=10, valor_liquido=20)
+        cur = _fields(numero="1", data_emissao="2099-01-01")
+        new = _fields(numero="9", data_emissao="2099-01-02")
         fields = [d["field"] for d in field_diff(cur, new)]
         self.assertEqual(fields, sorted(fields))
 

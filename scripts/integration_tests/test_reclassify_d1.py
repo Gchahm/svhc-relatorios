@@ -27,18 +27,16 @@ from . import _harness as h
 
 
 def _fields(valor_total):
-    """A frozen-contract NFS-e page extraction with a given total (other amounts track it)."""
+    """A typed EXTRACT-001 NFS-e page transcription with a given net total (EXTRACT-007 typed-only)."""
     return {
-        "papel_artefato": "nfse",
-        "tipo_documento": "NFS-e",
-        "valor_total": valor_total,
-        "valor_liquido": valor_total,
-        "valor_pago": valor_total,
-        "cnpj_emitente": "11222333000181",
-        "nome_emitente": "EXEMPLO Fornecedor B",
+        "doc_type": "nfse",
+        "schema_version": "1",
+        "raw_text": "NFS-e NF-1002 EXEMPLO",
+        "numero": "NF-1002",
         "data_emissao": "2099-01-10",
-        "numero_documento": "NF-1002",
-        "descricao_servico": "EXEMPLO servico",
+        "prestador": {"nome": "EXEMPLO Fornecedor B", "cnpj": "11222333000181"},
+        "valores": {"valor_servico": valor_total, "deducoes": 0.0, "valor_liquido": valor_total},
+        "discriminacao_servico": "EXEMPLO servico",
     }
 
 

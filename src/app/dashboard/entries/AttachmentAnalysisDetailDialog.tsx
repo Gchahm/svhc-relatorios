@@ -33,23 +33,6 @@ interface PageInfo {
 // per the pipeline's amount precedence (payment_proof paid -> boleto -> invoice net -> gross).
 const PAYMENT_ARTIFACT_ROLES = new Set(["payment_proof", "boleto"]);
 
-// Well-known keys emitted by the VLM prompt, in display order, with friendly label keys.
-// The label is a catalog key (chrome, translated); the extraction `key` itself stays verbatim.
-const KNOWN_FIELDS: { key: string; labelKey: DeepCatalogKey; currency?: boolean }[] = [
-    { key: "valor_total", labelKey: "analysis.field_gross", currency: true },
-    { key: "valor_liquido", labelKey: "analysis.field_net", currency: true },
-    { key: "valor_pago", labelKey: "analysis.field_paid", currency: true },
-    { key: "cnpj_emitente", labelKey: "analysis.field_cnpj" },
-    { key: "nome_emitente", labelKey: "analysis.field_issuer" },
-    { key: "data_emissao", labelKey: "analysis.field_issue_date" },
-    { key: "numero_documento", labelKey: "analysis.field_document_number" },
-    { key: "descricao_servico", labelKey: "analysis.field_service" },
-    { key: "tipo_documento", labelKey: "analysis.field_doc_type" },
-    { key: "papel_artefato", labelKey: "analysis.field_artifact_role" },
-];
-
-const KNOWN_KEYS = new Set(KNOWN_FIELDS.map(f => f.key));
-
 function formatValue(value: unknown, locale: SupportedLocale, currency?: boolean) {
     if (value === null || value === undefined || value === "") return null;
     if (currency && typeof value === "number") return formatCurrency(value, locale);
@@ -73,13 +56,6 @@ function parseResponse(record: AttachmentAnalysisRecord): {
         }
     }
     return { values: null, fallback: record.parseError || null };
-}
-
-// Feature 055 / EXTRACT-004: a stored response is a TYPED transcription (the EXTRACT-001-conformant
-// per-type object) when it carries a `doc_type` key; otherwise it is a legacy flat record. This
-// mirrors the single Python predicate (`analysis.page_classifications.is_typed`).
-function isTyped(values: Record<string, unknown>): boolean {
-    return Object.prototype.hasOwnProperty.call(values, "doc_type");
 }
 
 // Flatten a typed transcription into displayable label/value rows: scalars become `label = value`,
@@ -169,74 +145,52 @@ function RecordValues({
         return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
     }
 
-    // Typed transcription (feature 057 / EXTRACT-006): render the full transcription grouped by the
-    // document's natural structure, with the reconciliation mapper's source fields tagged with the
-    // role they feed (provenance). The grouping/provenance live in the pure `buildTypedSections`
-    // builder; a defensive try/catch degrades to the feature-055 flat flatten so an odd shape can
-    // never blank the dialog.
-    if (isTyped(values)) {
-        let sections;
-        try {
-            sections = buildTypedSections(values, t, locale);
-        } catch {
-            sections = null;
-        }
-        if (sections === null) {
-            const rows = flattenTyped(values, locale);
-            if (rows.length === 0) {
-                return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
-            }
-            return (
-                <div className="space-y-2">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {t("analysis.full_transcription")}
-                    </span>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                        {rows.map(r => (
-                            <Field key={r.label} label={r.label} value={r.value} t={t} />
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-        if (sections.length === 0) {
+    // Typed transcription (EXTRACT-006/007 — the only stored shape): render the full transcription
+    // grouped by the document's natural structure, with the reconciliation mapper's source fields
+    // tagged with the role they feed (provenance). The grouping/provenance live in the pure
+    // `buildTypedSections` builder; a defensive try/catch degrades to a flat flatten so an odd shape
+    // can never blank the dialog.
+    let sections;
+    try {
+        sections = buildTypedSections(values, t, locale);
+    } catch {
+        sections = null;
+    }
+    if (sections === null) {
+        const rows = flattenTyped(values, locale);
+        if (rows.length === 0) {
             return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
         }
         return (
-            <div className="space-y-3">
+            <div className="space-y-2">
                 <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     {t("analysis.full_transcription")}
                 </span>
-                {sections.map(section => (
-                    <div key={section.key} className="space-y-1.5">
-                        <span className="text-[11px] font-semibold">{section.title}</span>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                            {section.rows.map(row => (
-                                <TypedFieldRow key={row.path} row={row} t={t} />
-                            ))}
-                        </div>
-                    </div>
-                ))}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                    {rows.map(r => (
+                        <Field key={r.label} label={r.label} value={r.value} t={t} />
+                    ))}
+                </div>
             </div>
         );
     }
-
-    const known = KNOWN_FIELDS.map(f => ({ ...f, display: formatValue(values[f.key], locale, f.currency) })).filter(
-        f => f.display !== null
-    );
-    const extraKeys = Object.keys(values).filter(k => !KNOWN_KEYS.has(k) && formatValue(values[k], locale) !== null);
-
-    if (known.length === 0 && extraKeys.length === 0) {
+    if (sections.length === 0) {
         return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
     }
-
     return (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-            {known.map(f => (
-                <Field key={f.key} label={t(f.labelKey)} value={f.display} t={t} />
-            ))}
-            {extraKeys.map(k => (
-                <Field key={k} label={k} value={formatValue(values[k], locale)} t={t} />
+        <div className="space-y-3">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("analysis.full_transcription")}
+            </span>
+            {sections.map(section => (
+                <div key={section.key} className="space-y-1.5">
+                    <span className="text-[11px] font-semibold">{section.title}</span>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                        {section.rows.map(row => (
+                            <TypedFieldRow key={row.path} row={row} t={t} />
+                        ))}
+                    </div>
+                </div>
             ))}
         </div>
     );

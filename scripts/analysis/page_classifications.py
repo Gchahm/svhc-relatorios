@@ -1,17 +1,16 @@
-"""Per-page classification staging: the DB-backed seam between the vision skill and apply.
+"""Per-page classification staging: the DB-backed seam between ``classify`` and apply.
 
-Replaces the former ``<image>.classify.json`` file seam (feature 017). The
-``classify-doc-page`` skill records one extraction per page through the
-``record-classification`` CLI, which writes a row to the ``page_classifications`` table
-(one row per ``(attachment_id, page_label)``). ``apply-extractions`` then reads those
-rows — via :class:`D1ExtractionProvider` — to build the authoritative roll-up
-(``attachment_analyses`` + ``attachment_analysis_records``). The staging table is the
-merge's *input*; the finalized roll-up remains the authoritative analysis.
+Replaces the former ``<image>.classify.json`` file seam (feature 017). The ``classify`` command
+(EXTRACT-007) transcribes each page via the ``doc_transcribe`` subprocess and records one extraction
+per page through the ``record-classification`` CLI / :func:`record_classification`, which writes a row
+to the ``page_classifications`` table (one row per ``(attachment_id, page_label)``).
+``apply-extractions`` then reads those rows — via :class:`D1ExtractionProvider` — to build the
+authoritative roll-up (``attachment_analyses`` + ``attachment_analysis_records``). The staging table
+is the merge's *input*; the finalized roll-up remains the authoritative analysis.
 
-This module owns: the frozen per-page field contract (ported from the skill's former
-``validate_classify.py`` PostToolUse hook, which no longer fires because the skill no
-longer writes a file), the deterministic row id, the record-write, and the
-D1-backed extraction provider. Stdlib only.
+This module owns: the per-page field contract (typed-only since EXTRACT-007 — the only accepted fields
+shape is the EXTRACT-001 typed transcription, schema-validated via the injected ``typed_validator``),
+the deterministic row id, the record-write, and the D1-backed extraction provider. Stdlib only.
 """
 
 from __future__ import annotations
@@ -23,69 +22,31 @@ from common.d1 import Target
 
 TABLE = "page_classifications"
 
-# ─── Frozen per-page field contract ──────────────────────────────────────────
-# Mirrors .claude/skills/classify-doc-page/templates/result.json and the page-extraction
-# contract the deterministic pipeline consumes. Keep in sync with the skill's template.
-REQUIRED_KEYS = {
-    "papel_artefato",
-    "tipo_documento",
-    "valor_total",
-    "valor_liquido",
-    "valor_pago",
-    "cnpj_emitente",
-    "nome_emitente",
-    "data_emissao",
-    "numero_documento",
-    "descricao_servico",
-}
-PAPEL_VALUES = {"invoice", "nfse", "boleto", "payment_proof", "other"}
-STRING_OR_NULL = {
-    "tipo_documento",
-    "cnpj_emitente",
-    "nome_emitente",
-    "data_emissao",
-    "numero_documento",
-    "descricao_servico",
-}
-AMOUNT_KEYS = {"valor_total", "valor_liquido", "valor_pago"}
-
-
-def is_typed(resp) -> bool:
-    """The single typed-vs-flat discriminator (feature 055 / FR-008).
-
-    A stored per-page response is a **typed transcription** (the EXTRACT-001-conformant per-type
-    object) when it is a dict carrying a ``doc_type`` key; a dict without ``doc_type`` is a **legacy
-    flat record** (the pre-typed reconciliation contract below). Owned here so the store / derive /
-    render paths cannot drift on the discriminator (the EXTRACT-003 mapper keys on ``doc_type`` too,
-    and the UI mirrors this predicate). Never raises.
-    """
-    return isinstance(resp, dict) and "doc_type" in resp
-
 
 def validate_page_fields(obj, *, typed_validator=None) -> str | None:
-    """Validate a per-page extraction against the frozen contract (dual-path).
+    """Validate a per-page extraction against the typed-only contract (EXTRACT-007 / FR-008).
 
-    Returns an error message describing the first violation, or ``None`` when the
-    payload is valid. Accepts ONE of:
+    Returns an error message describing the first violation, or ``None`` when the payload is valid.
+    Accepts ONLY ONE of:
 
-    - the single permitted error alternative ``{"error": "<non-empty string>"}`` (unchanged);
-    - a **typed transcription** payload (a dict carrying ``doc_type``) — validated against the
-      EXTRACT-001 schema for its type via ``typed_validator`` (feature 055). ``typed_validator`` is
-      injected (default ``None``) so this module stays stdlib-only and import-clean of ``tools/``;
-      the ``record-classification`` CLI supplies ``analysis.typed_gate.validate_typed``. When no
-      validator is supplied a typed payload is accepted only structurally (it must be a dict) — but
-      the CLI always supplies the gate, so typed payloads are always schema-validated in practice;
-    - the legacy **flat** fields object (no ``doc_type``: exactly ``REQUIRED_KEYS``,
-      ``papel_artefato`` in the allowed set, string-or-null and amount typing) — unchanged.
+    - the single permitted error alternative ``{"error": "<non-empty string>"}``;
+    - a **typed transcription** payload (a dict carrying a ``doc_type`` key) — validated against the
+      EXTRACT-001 schema for its type via ``typed_validator``. ``typed_validator`` is injected
+      (default ``None``) so this module stays stdlib-only and import-clean of ``tools/``; the
+      ``record-classification`` CLI and the ``classify`` command supply
+      ``analysis.typed_gate.validate_typed``. When no validator is supplied a typed payload is
+      accepted only structurally (it must be a dict carrying ``doc_type``) — but every live caller
+      supplies the gate, so typed payloads are schema-validated in practice.
 
-    This is the canonical validator the ``record-classification`` CLI enforces.
+    Any other payload — including the retired legacy flat fields object (a dict WITHOUT ``doc_type``)
+    — is **rejected**. This is the canonical validator the ``record-classification`` CLI enforces.
     """
     if not isinstance(obj, dict):
         return f"expected a single JSON object, got {type(obj).__name__}"
 
     keys = set(obj)
 
-    # An error object is the one allowed alternative to the fields object.
+    # An error object is the one allowed alternative to a typed fields object.
     if "error" in keys:
         if keys != {"error"}:
             return f'an error result must be exactly {{"error": "..."}}, got keys {sorted(keys)}'
@@ -93,39 +54,15 @@ def validate_page_fields(obj, *, typed_validator=None) -> str | None:
             return '"error" must be a non-empty string'
         return None
 
-    # A typed transcription payload (carries doc_type): validate against the EXTRACT-001 schema.
-    if is_typed(obj):
-        if typed_validator is None:
-            return None
-        errors = typed_validator(obj, obj.get("doc_type"))
-        if errors:
-            return "typed payload does not conform to the EXTRACT-001 schema: " + "; ".join(errors)
+    # Typed-only: the sole accepted fields shape is the EXTRACT-001 typed transcription, identified
+    # by a doc_type discriminator and validated against its schema.
+    if "doc_type" not in keys:
+        return 'payload is not a typed transcription (missing "doc_type") and is not an {"error": ...} result'
+    if typed_validator is None:
         return None
-
-    missing = REQUIRED_KEYS - keys
-    extra = keys - REQUIRED_KEYS
-    if missing:
-        return f"missing required field(s): {sorted(missing)}"
-    if extra:
-        return f"unexpected field(s) (do not add/rename keys): {sorted(extra)}"
-
-    papel = obj["papel_artefato"]
-    if papel not in PAPEL_VALUES:
-        return f"papel_artefato must be one of {sorted(PAPEL_VALUES)}, got {papel!r}"
-
-    for k in STRING_OR_NULL:
-        v = obj[k]
-        if v is not None and not isinstance(v, str):
-            return f"{k} must be a string or null, got {type(v).__name__}"
-
-    for k in AMOUNT_KEYS:
-        v = obj[k]
-        if v is None:
-            continue
-        # bool is a subclass of int — reject it explicitly.
-        if isinstance(v, bool) or not isinstance(v, (int, float, str)):
-            return f"{k} must be a number, a currency string, or null, got {type(v).__name__}"
-
+    errors = typed_validator(obj, obj.get("doc_type"))
+    if errors:
+        return "typed payload does not conform to the EXTRACT-001 schema: " + "; ".join(errors)
     return None
 
 
@@ -300,7 +237,7 @@ class D1ExtractionProvider:
     def __call__(self, attachment_id: str, page_label: str) -> tuple[dict | None, str | None]:
         row = self._by_key.get((attachment_id, page_label))
         if row is None:
-            return None, "no classification for page (run classify-doc-page)"
+            return None, "no classification for page (run classify)"
         if row.get("error"):
             return None, str(row["error"])
         resp = row.get("response")

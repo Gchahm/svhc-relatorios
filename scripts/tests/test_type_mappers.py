@@ -220,38 +220,21 @@ class DispatchEdgeTest(unittest.TestCase):
             self.assertEqual(set(to_reconciliation_fields(resp)), set(RECONCILIATION_KEYS))
 
 
-class LegacyFlatPassthroughTest(unittest.TestCase):
-    """US3: a pre-typed flat record (no doc_type) yields exactly its own reconciliation fields."""
+class TypedOnlyReadFallbackTest(unittest.TestCase):
+    """EXTRACT-007: the legacy flat pass-through is removed; a dict without a recognized doc_type is a
+    defensive read-path fallback (→ outro), never a supported contract (the write-time gate rejects it).
+    """
 
-    def test_flat_record_unchanged(self):
-        flat = {
-            "papel_artefato": "invoice",
-            "tipo_documento": "danfe",
-            "valor_total": "100,00",
-            "valor_liquido": None,
-            "valor_pago": None,
-            "cnpj_emitente": "12345678000199",
-            "nome_emitente": "ACME COMERCIO LTDA",
-            "data_emissao": "05/12/2025",
-            "numero_documento": "NF-1",
-            "descricao_servico": "servico",
-        }
-        out = to_reconciliation_fields(flat)
-        for k in RECONCILIATION_KEYS:
-            self.assertEqual(out[k], flat[k], k)
+    def test_dict_without_doc_type_falls_back_to_outro(self):
+        # No doc_type → outro mapper: papel 'other', and only outro's best-effort fields populate.
+        out = to_reconciliation_fields({"papel_artefato": "invoice", "valor_total": 100.0})
+        self.assertEqual(set(out), set(RECONCILIATION_KEYS))
+        self.assertEqual(out["papel_artefato"], "other")
+        self.assertEqual(out["tipo_documento"], "outro")
 
-    def test_flat_record_extra_keys_ignored(self):
-        flat = {"papel_artefato": "boleto", "valor_total": 50.0, "unknown_field": "x"}
-        out = to_reconciliation_fields(flat)
-        self.assertNotIn("unknown_field", out)
-        self.assertEqual(out["valor_total"], 50.0)
-        self.assertEqual(out["papel_artefato"], "boleto")
-
-    def test_idempotent_on_flat(self):
-        flat = {"papel_artefato": "invoice", "valor_total": 100.0, "cnpj_emitente": "X"}
-        once = to_reconciliation_fields(flat)
-        twice = to_reconciliation_fields(once)
-        self.assertEqual(once, twice)
+    def test_never_raises_on_odd_input(self):
+        for resp in ({}, {"x": 1}, {"doc_type": None}, {"doc_type": "no-such-type"}):
+            self.assertEqual(set(to_reconciliation_fields(resp)), set(RECONCILIATION_KEYS))
 
 
 class RollupFalsePositiveCasesTest(unittest.TestCase):

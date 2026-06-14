@@ -47,7 +47,13 @@ class TestMergeAndWrite(unittest.TestCase):
                     page_index=0,
                     page_label="p1",
                     artifact_role="invoice",
-                    response={"numero": "NF-9999", "valor_total": 50.0},
+                    response={
+                        "doc_type": "danfe",
+                        "schema_version": "1",
+                        "raw_text": "DANFE NF-9999 EXEMPLO",
+                        "numero": "NF-9999",
+                        "totais": {"valor_total_nota": 50.0},
+                    },
                 )
             ],
         )

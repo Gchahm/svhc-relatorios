@@ -35,18 +35,16 @@ from . import _harness as h
 
 
 def _fields(valor_total):
-    """A frozen-contract NFS-e page extraction with a given total (other amounts track it)."""
+    """A typed EXTRACT-001 NFS-e page transcription with a given net total (EXTRACT-007 typed-only)."""
     return {
-        "papel_artefato": "nfse",
-        "tipo_documento": "NFS-e",
-        "valor_total": valor_total,
-        "valor_liquido": valor_total,
-        "valor_pago": valor_total,
-        "cnpj_emitente": "11222333000181",
-        "nome_emitente": "EXEMPLO Fornecedor B",
+        "doc_type": "nfse",
+        "schema_version": "1",
+        "raw_text": "NFS-e NF-1002 EXEMPLO",
+        "numero": "NF-1002",
         "data_emissao": "2099-01-10",
-        "numero_documento": "NF-1002",
-        "descricao_servico": "EXEMPLO servico",
+        "prestador": {"nome": "EXEMPLO Fornecedor B", "cnpj": "11222333000181"},
+        "valores": {"valor_servico": valor_total, "deducoes": 0.0, "valor_liquido": valor_total},
+        "discriminacao_servico": "EXEMPLO servico",
     }
 
 
@@ -119,10 +117,12 @@ class TestCorrectionsD1(unittest.TestCase):
         self.assertEqual(applied["result"], "applied", applied)
         self.assertAlmostEqual(self._extracted_amount(), 250.0, places=2)
         self.assertIsNone(self._amount_finding_key(), "finding should have cleared")
+        # The typed nfse net lives under the top-level `valores` object, so that is the changed field.
         row = next(r for r in list_corrections(attachment_ids=[self.att], target="local")
-                   if r["field"] == "valor_total")
+                   if r["field"] == "valores")
         self.assertEqual(row["status"], "applied")
-        self.assertEqual((row["from_value"], row["to_value"]), (800, 250))
+        self.assertEqual(row["from_value"]["valor_liquido"], 800)
+        self.assertEqual(row["to_value"]["valor_liquido"], 250)
         self.assertEqual(row["evidence"], "/abs/2099-01/x_p1.png")
         self.assertEqual(row["agent"], "triage-agent")
         self.assertEqual(row["page_label"], "p1")

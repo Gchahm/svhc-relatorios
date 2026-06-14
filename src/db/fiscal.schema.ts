@@ -267,8 +267,8 @@ export const attachmentAnalysisRecords = sqliteTable(
 );
 
 // ─── Page Classifications (classificacao_pagina) ─────────────────────────────
-// Per-page staging input for the analysis merge: the raw vision result for ONE
-// page of ONE attachment, written by the classify-doc-page flow (via the
+// Per-page staging input for the analysis merge: the typed transcription for ONE
+// page of ONE attachment, written by the headless `classify` command (via the
 // `record-classification` CLI) and read by `apply-extractions` to build the
 // authoritative roll-up (attachment_analyses + records). One row per
 // (attachment, page_label). Replaces the former `<image>.classify.json` file

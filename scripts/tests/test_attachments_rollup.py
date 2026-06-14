@@ -105,14 +105,18 @@ class MapArtifactRoleTest(unittest.TestCase):
 
 class NfTotalForReconciliationTest(unittest.TestCase):
     def test_prefers_invoice_gross(self):
-        responses = [{"valor_total": "150,00"}, {"valor_pago": "50,00"}]
+        # Typed responses: a danfe gross 150 wins over a comprovante paid 50.
+        responses = [
+            {"doc_type": "danfe", "totais": {"valor_total_nota": "150,00"}},
+            {"doc_type": "comprovante_pagamento", "valor": "50,00"},
+        ]
         self.assertEqual(nf_total_for_reconciliation(responses), 150.0)
 
     def test_falls_back(self):
-        self.assertEqual(nf_total_for_reconciliation([{}], fallback=42.0), 42.0)
+        self.assertEqual(nf_total_for_reconciliation([{"doc_type": "outro"}], fallback=42.0), 42.0)
 
     def test_none_when_nothing(self):
-        self.assertIsNone(nf_total_for_reconciliation([{}]))
+        self.assertIsNone(nf_total_for_reconciliation([{"doc_type": "outro"}]))
 
 
 class BuildAttachmentAnalysisTest(unittest.TestCase):
@@ -129,11 +133,10 @@ class BuildAttachmentAnalysisTest(unittest.TestCase):
     def test_invoice_gross_matches_entry(self):
         pages = {
             "p1": {
-                "papel_artefato": "invoice",
-                "valor_total": "100,00",
-                "cnpj_emitente": "12345678000199",
-                "nome_emitente": "ACME COMERCIO LTDA",
-                "numero_documento": "NF-1",
+                "doc_type": "danfe",
+                "totais": {"valor_total_nota": "100,00"},
+                "emitente": {"cnpj": "12345678000199", "nome": "ACME COMERCIO LTDA"},
+                "numero": "NF-1",
                 "data_emissao": "05/12/2025",
             }
         }
@@ -149,7 +152,7 @@ class BuildAttachmentAnalysisTest(unittest.TestCase):
         self.assertEqual(res.extracted_cnpj, "12345678000199")
 
     def test_amount_mismatch_beyond_tolerance(self):
-        pages = {"p1": {"papel_artefato": "invoice", "valor_total": "200,00"}}
+        pages = {"p1": {"doc_type": "danfe", "totais": {"valor_total_nota": "200,00"}}}
         res = build_attachment_analysis(
             "x/y_p1.png", 100.0, None, "2025-12", "a1", "e1", provider_from(pages)
         )
@@ -157,8 +160,8 @@ class BuildAttachmentAnalysisTest(unittest.TestCase):
 
     def test_payment_proof_paid_wins_over_invoice_gross(self):
         pages = {
-            "p1": {"papel_artefato": "invoice", "valor_total": "1000,00"},
-            "p2": {"tipo_documento": "comprovante", "valor_pago": "250,00"},
+            "p1": {"doc_type": "danfe", "totais": {"valor_total_nota": "1000,00"}},
+            "p2": {"doc_type": "comprovante_pagamento", "valor": "250,00"},
         }
         res = build_attachment_analysis(
             "x/a_p1.png;x/a_p2.png", 250.0, None, "2025-12", "a1", "e1", provider_from(pages)
@@ -168,8 +171,8 @@ class BuildAttachmentAnalysisTest(unittest.TestCase):
 
     def test_multi_invoice_sum(self):
         pages = {
-            "p1": {"papel_artefato": "invoice", "valor_total": "60,00", "numero_documento": "A"},
-            "p2": {"papel_artefato": "invoice", "valor_total": "40,00", "numero_documento": "B"},
+            "p1": {"doc_type": "danfe", "totais": {"valor_total_nota": "60,00"}, "numero": "A"},
+            "p2": {"doc_type": "danfe", "totais": {"valor_total_nota": "40,00"}, "numero": "B"},
         }
         res = build_attachment_analysis(
             "x/a_p1.png;x/a_p2.png", 100.0, None, "2025-12", "a1", "e1", provider_from(pages)
@@ -177,7 +180,7 @@ class BuildAttachmentAnalysisTest(unittest.TestCase):
         self.assertEqual(res.extracted_amount, 100.0)
 
     def test_out_of_period_date(self):
-        pages = {"p1": {"papel_artefato": "invoice", "valor_total": "100,00", "data_emissao": "01/01/2020"}}
+        pages = {"p1": {"doc_type": "danfe", "totais": {"valor_total_nota": "100,00"}, "data_emissao": "01/01/2020"}}
         res = build_attachment_analysis(
             "x/a_p1.png", 100.0, None, "2025-12", "a1", "e1", provider_from(pages)
         )
@@ -196,10 +199,10 @@ class FanoutAndGroupMatchTest(unittest.TestCase):
                 page_index=0,
                 page_label="p1",
                 artifact_role="invoice",
-                response={"valor_total": "100,00", "nome_emitente": "ACME COMERCIO LTDA",
-                          "data_emissao": "05/12/2025"},
-                # Feature 055: the roll-up reads the derived reconciliation view (`recon`); for a flat
-                # record it is the identity of `response` (the mapper's flat pass-through).
+                response={"doc_type": "danfe", "totais": {"valor_total_nota": "100,00"},
+                          "emitente": {"nome": "ACME COMERCIO LTDA"}, "data_emissao": "05/12/2025"},
+                # The roll-up reads the derived reconciliation view (`recon`) — the typed mapper's
+                # output for the typed `response` above.
                 recon={"valor_total": "100,00", "nome_emitente": "ACME COMERCIO LTDA",
                        "data_emissao": "05/12/2025"},
             )

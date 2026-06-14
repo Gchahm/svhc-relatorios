@@ -35,16 +35,17 @@ is off the import path). The small canonical-type alias resolution is *mirrored*
 corpus types are stable), exactly as the scraper mirrors — rather than imports — the analysis
 reconciliation tolerance.
 
-Coexistence (design §10.4 / T2): a record that carries a ``doc_type`` discriminator is typed; one
-without is a **legacy flat record** (the pre-typed contract, ``page_classifications.REQUIRED_KEYS``)
-and is passed through unchanged. ``to_reconciliation_fields`` is therefore **idempotent** on a flat
-record — flat-in → same-flat-out — which gives the no-regression guarantee by construction.
+Typed-only (EXTRACT-007): the legacy flat record contract is retired — every stored ``response`` is a
+typed transcription (carries a ``doc_type`` discriminator). ``to_reconciliation_fields`` runs the
+per-type mapper for that ``doc_type`` (an unknown type falls back to ``outro``). It still never raises
+on a malformed/non-dict input (degrading to an all-``None`` reconciliation dict), so a read of any
+odd stored state stays safe.
 """
 
 from __future__ import annotations
 
-# The flat reconciliation-field contract the analysis roll-up consumes off each page's response.
-# (Mirrors page_classifications.REQUIRED_KEYS plus papel_artefato, which the roll-up reads too.)
+# The flat reconciliation-field contract the analysis roll-up consumes off each page's typed response.
+# (The keys the roll-up reads — papel_artefato plus the reconciliation fields each mapper fills.)
 RECONCILIATION_KEYS: tuple[str, ...] = (
     "papel_artefato",
     "tipo_documento",
@@ -237,31 +238,18 @@ _MAPPERS = {
 }
 
 
-def _passthrough_flat(resp: dict) -> dict:
-    """Project the reconciliation keys off a legacy flat record (the pre-typed contract).
-
-    Values are returned unchanged; extra/unknown keys are ignored. A missing key → None. This is the
-    identity over the reconciliation contract, so a record classified before typed transcription
-    yields exactly what the pre-feature roll-up read (the no-regression guarantee).
-    """
-    return {k: resp.get(k) for k in RECONCILIATION_KEYS}
-
-
 def to_reconciliation_fields(response) -> dict:
-    """Derive the flat reconciliation fields from a typed (or legacy flat) per-page response.
+    """Derive the flat reconciliation fields from a typed per-page response (EXTRACT-007: typed-only).
 
     - ``None`` / non-dict → an empty-valued reconciliation dict (all keys present, all None).
-    - a ``doc_type`` discriminator present → canonicalize it and run that type's mapper (an unknown
-      type falls back to ``outro``).
-    - no ``doc_type`` → **legacy flat pass-through** (the pre-typed record yields what it always did).
+    - any dict → canonicalize its ``doc_type`` and run that type's mapper (a missing/unknown type
+      falls back to ``outro`` — a defensive read path; the write-time gate already rejects non-typed
+      payloads, so a dict without a recognized ``doc_type`` can only come from malformed legacy state).
 
-    Never raises on any input. Idempotent on a legacy flat record (flat-in → same-flat-out), so the
-    wiring boundary can apply it once at record build and a downstream re-application is safe.
+    Never raises on any input.
     """
     if not isinstance(response, dict):
         return _empty()
-    if "doc_type" not in response:
-        return _passthrough_flat(response)
     canonical = _canonical_doc_type(response.get("doc_type"))
     mapper = _MAPPERS.get(canonical, _map_outro)
     return mapper(response)

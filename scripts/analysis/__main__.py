@@ -2,7 +2,9 @@
 """Analysis CLI — ``python -m analysis <command>``.
 
 Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
-Playwright scraping stack. Commands: docs-plan, record-classification, apply-extractions,
+Playwright scraping stack. Commands: docs-plan, classify (headless typed transcription via the
+doc_transcribe subprocess — see specs/066-classify-cli-typed-only/contracts/classify-cli.md),
+record-classification, apply-extractions,
 re-derive (image-free systematic re-run of the deterministic mappers over stored transcriptions —
 see specs/056-re-derive-command/contracts/re-derive-cli.md),
 mark-pending, analyze, mismatches, reclassify (composite "reclassify one attachment" helper that
@@ -22,6 +24,7 @@ import logging
 import sys
 
 from . import run_analysis
+from .classify import ClassifyConfigError, classify_period
 from .corrections import apply_correction, list_corrections, reclassify, undo_correction
 from .documents import DocumentNotFound, build_documents, document_evidence
 from .extractions import apply_extractions, mark_pending, plan_extractions, re_derive, summarize_mismatches
@@ -62,6 +65,17 @@ def main(argv=None):
     # not via id flags here. --min-amount/--limit are orthogonal filters on the pending set.
     p.add_argument("--min-amount", type=float, help="Only plan pending attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of pending attachments to plan.")
+
+    p = sub.add_parser(
+        "classify",
+        help="Headless typed transcription of a period's pending pages (doc_transcribe subprocess -> page_classifications)",
+    )
+    _add_common(p)
+    # Same DB-controlled selection as docs-plan (the pending set); mark-pending controls scope.
+    p.add_argument("--min-amount", type=float, help="Only classify pending attachments for entries >= this amount.")
+    p.add_argument("--limit", type=int, help="Maximum number of pending attachments to classify.")
+    p.add_argument("--backend", choices=["cli", "api"], default="cli", help="doc_transcribe backend (default: cli).")
+    p.add_argument("--model", help="Optional model override passed through to doc_transcribe.")
 
     p = sub.add_parser("apply-extractions", help="Merge per-page classifications (D1 page_classifications) into attachment_analyses (D1)")
     _add_common(p)
@@ -196,6 +210,24 @@ def main(argv=None):
             cache_dir=args.cache_dir,
             min_amount=args.min_amount,
             limit=args.limit,
+        )
+    elif args.command == "classify":
+        try:
+            result = classify_period(
+                target=target,
+                periods_filter=args.periodo,
+                cache_dir=args.cache_dir,
+                min_amount=args.min_amount,
+                limit=args.limit,
+                backend=args.backend,
+                model=args.model,
+            )
+        except ClassifyConfigError as e:
+            print(f"error: classify stopped (config/environment): {e}", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"Classified: {result['recorded']} typed page(s), {result['errors']} error row(s), "
+            f"{result['skipped']} already-recorded skipped."
         )
     elif args.command == "apply-extractions":
         apply_extractions(
