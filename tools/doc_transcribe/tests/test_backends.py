@@ -145,16 +145,19 @@ class CliBackendTest(unittest.TestCase):
 
 
 class ApiBackendBuildRequestTest(unittest.TestCase):
-    def test_build_request_puts_schema_as_json_schema_and_image_block(self):
+    def test_build_request_embeds_instruction_and_image_without_output_config(self):
         backend = ApiBackend()
         schema = schema_for("recibo")
         req = backend.build_request(
             image_bytes=SAMPLE_PNG, media_type="image/png", schema=schema, instruction="INSTR"
         )
-        self.assertEqual(req["model"], "claude-opus-4-8")
-        self.assertEqual(req["output_config"]["format"]["type"], "json_schema")
-        self.assertIs(req["output_config"]["format"]["schema"], schema)
+        self.assertEqual(req["model"], "claude-haiku-4-5-20251001")
+        # No wire-enforced structured output: the grammar caps optional params at 24, which the
+        # rich typed schemas (danfe=35, nfse=28) and their union (104) exceed. The schema rides in
+        # the prompt (instruction) instead and the JSON is validated above the backend.
+        self.assertNotIn("output_config", req)
         content = req["messages"][0]["content"]
+        self.assertEqual(content[1]["text"], "INSTR")
         kinds = [b["type"] for b in content]
         self.assertIn("image", kinds)
         self.assertIn("text", kinds)

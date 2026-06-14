@@ -112,3 +112,51 @@ def schema_for(doc_type: str | None) -> dict:
 def supported_types() -> tuple[str, ...]:
     """Return the canonical document types."""
     return DOC_TYPES
+
+
+def _inline_branch(schema: dict) -> dict:
+    """Return one per-type schema as a self-contained ``anyOf`` branch: every local
+    ``#/$defs/<name>`` ref is **inlined** with a copy of the def body and ``$defs``/``$schema``
+    are dropped.
+
+    The API's structured-output validator accepts a top-level ``anyOf`` but rejects ``$defs``
+    alongside it ("For 'anyOf', '$defs' is not supported"), and a bare ``$ref`` can't resolve
+    once ``$defs`` is gone — so the only ref-free form is full inlining. The per-type schemas
+    are shallow and non-recursive (recursion is forbidden by the contract), so inlining
+    terminates. Pure — never mutates the cached input schema."""
+    defs = schema.get("$defs", {})
+
+    def inline(node, depth):
+        if depth > 64:
+            raise ValueError("ref nesting too deep (recursion is not allowed in the contract)")
+        if isinstance(node, dict):
+            if "$ref" in node and isinstance(node["$ref"], str) and node["$ref"].startswith("#/$defs/"):
+                target = defs[node["$ref"][len("#/$defs/"):]]
+                resolved = inline(target, depth + 1)
+                siblings = {k: inline(v, depth + 1) for k, v in node.items() if k != "$ref"}
+                return {**resolved, **siblings}
+            return {k: inline(v, depth + 1) for k, v in node.items()}
+        if isinstance(node, list):
+            return [inline(x, depth + 1) for x in node]
+        return node
+
+    return inline({k: v for k, v in schema.items() if k not in ("$defs", "$schema")}, 0)
+
+
+def union_schema() -> dict:
+    """An ``anyOf`` union over every canonical type's schema, fully **ref-inlined**.
+
+    This is the instruction shape used for **auto** detection: the model is shown all
+    supported document types at once, so it classifies the page AND fills the matching
+    type's structured fields in a single pass — instead of only ``raw_text`` (the failure
+    mode when auto was shown the ``outro`` schema alone). ``anyOf`` (never ``oneOf``) keeps
+    it inside the validator's supported subset; each branch is discriminated by its
+    single-value ``doc_type`` enum. Each branch is fully inlined (no ``$defs``/``$ref``)
+    because the API's structured-output format rejects ``$defs`` under a top-level ``anyOf``.
+    A returned payload is still validated against the resolved per-type schema
+    (``validate_transcription``), not this union."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Auto typed transcription — any supported Brazilian fiscal document",
+        "anyOf": [_inline_branch(load_schema(t)) for t in DOC_TYPES],
+    }
