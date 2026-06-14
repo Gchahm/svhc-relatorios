@@ -31,6 +31,18 @@ _BUCKET = "fiscal-documents"
 # The repo root is where wrangler.toml lives: scripts/common/d1.py -> parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Resolve the wrangler executable ONCE at import (TEST-006 / issue #108). ``npx wrangler`` re-resolves
+# the package on every invocation; a single pipeline run makes hundreds of wrangler shell-outs, so
+# that per-call overhead multiplies. Point straight at the repo-local binary when it exists, falling
+# back to ``npx wrangler`` only when it's absent (e.g. a global-only wrangler install). This changes
+# only HOW the executable is located — every flag/arg below is unchanged, so --remote behavior is
+# byte-for-byte identical.
+_WRANGLER = (
+    [str(_REPO_ROOT / "node_modules" / ".bin" / "wrangler")]
+    if (_REPO_ROOT / "node_modules" / ".bin" / "wrangler").exists()
+    else ["npx", "wrangler"]
+)
+
 # Env var that selects an isolated Miniflare persist directory for LOCAL wrangler calls (feature 061
 # / issue #107). Co-locates that invocation's local D1 + R2 + KV state in one dir. Unset => wrangler
 # default (.wrangler/state = the human's staging DB). The test/seed/e2e entrypoints set it to
@@ -191,7 +203,7 @@ def execute_sql(sql: str, *, target: Target) -> None:
         sql_path = fh.name
     try:
         subprocess.run(
-            ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--file", sql_path, target_flag(target)]
+            [*_WRANGLER, "d1", "execute", _DB_BINDING, "--file", sql_path, target_flag(target)]
             + _persist_args(target),
             cwd=_REPO_ROOT,
             check=True,
@@ -260,7 +272,7 @@ def _parse_d1_json(stdout: str) -> list[dict]:
 def query(sql: str, *, target: Target) -> list[dict]:
     """Run a SELECT against D1 and return the result rows as dicts."""
     proc = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--command", sql, "--json", target_flag(target)]
+        [*_WRANGLER, "d1", "execute", _DB_BINDING, "--command", sql, "--json", target_flag(target)]
         + _persist_args(target),
         cwd=_REPO_ROOT,
         check=True,
@@ -281,7 +293,7 @@ def put_object(key: str, file_path: str, content_type: str, *, target: Target) -
     abs_path = str(Path(file_path).resolve())
     subprocess.run(
         [
-            "npx", "wrangler", "r2", "object", "put", f"{_BUCKET}/{key}",
+            *_WRANGLER, "r2", "object", "put", f"{_BUCKET}/{key}",
             "--file", abs_path, "--content-type", content_type, target_flag(target),
         ]
         + _persist_args(target),
@@ -297,7 +309,7 @@ def get_object(key: str, dest_path: str, *, target: Target) -> bool:
     abs_dest = str(Path(dest_path).resolve())
     Path(abs_dest).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        ["npx", "wrangler", "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)]
+        [*_WRANGLER, "r2", "object", "get", f"{_BUCKET}/{key}", "--file", abs_dest, target_flag(target)]
         + _persist_args(target),
         cwd=_REPO_ROOT,
         capture_output=True,
