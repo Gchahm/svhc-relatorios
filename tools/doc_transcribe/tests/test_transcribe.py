@@ -11,6 +11,7 @@ import unittest
 
 from doc_transcribe import SCHEMA_VERSION, transcribe
 from doc_transcribe.backends import TranscribeError
+from doc_transcribe.registry import DOC_TYPES
 from doc_transcribe.tests._helpers import SAMPLE_PNG, FakeBackend, load_example
 
 
@@ -49,6 +50,28 @@ class TranscribeResultTest(unittest.TestCase):
         result = transcribe(SAMPLE_PNG, "auto", backend_impl=backend)
         self.assertEqual(result["doc_type"], "boleto")
         self.assertNotIn("parse_errors", result)
+
+    def test_auto_presents_union_of_all_types_to_backend(self):
+        # Regression (EXTRACT-007): auto mode must show the model the anyOf UNION of every type's
+        # schema — not just `outro`. Showing only `outro` lets the model return raw_text but never the
+        # structured fields (cnpj/numero/valores), so no documents could ever be built downstream.
+        backend = FakeBackend(_canned("nfse"))
+        result = transcribe(SAMPLE_PNG, "auto", backend_impl=backend)
+        schema = backend.calls[0]["schema"]
+        self.assertIn("anyOf", schema)
+        branch_types = {b["properties"]["doc_type"]["enum"][0] for b in schema["anyOf"]}
+        self.assertEqual(branch_types, set(DOC_TYPES))
+        # A structured nfse response round-trips with its typed fields intact.
+        self.assertEqual(result["doc_type"], "nfse")
+        self.assertIn("prestador", result["fields"])
+        self.assertNotIn("parse_errors", result)
+
+    def test_forced_type_still_shows_only_that_schema(self):
+        # A forced type must NOT get the union — it pins the single schema (unchanged behavior).
+        backend = FakeBackend(_canned("recibo"))
+        transcribe(SAMPLE_PNG, "recibo", backend_impl=backend)
+        self.assertNotIn("anyOf", backend.calls[0]["schema"])
+        self.assertEqual(backend.calls[0]["schema"]["properties"]["doc_type"]["enum"], ["recibo"])
 
     def test_canonical_stamping_overrides_bogus_echo(self):
         # Model echoes a bogus schema_version and an unknown type on an otherwise-recibo body.

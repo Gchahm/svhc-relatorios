@@ -26,7 +26,7 @@ import os
 
 from .backends import ApiBackend, Backend, CliBackend, TranscribeError, extract_json, media_type_for
 from .prompts import build_instruction
-from .registry import SCHEMA_VERSION, canonical_type, schema_for
+from .registry import SCHEMA_VERSION, canonical_type, schema_for, union_schema
 from .validator import validate_transcription
 
 _NO_JSON_ERROR = "backend returned no parseable JSON"
@@ -75,11 +75,13 @@ def transcribe(
     image_bytes, media_type = _read_image(image)
 
     forced = doc_type != "auto"
-    # For the instruction + (forced) validation schema, resolve now. For "auto" we use the outro
-    # schema as the instruction's shape hint (it carries the common envelope + raw_text) and re-resolve
-    # from the model's reported type after the backend returns.
+    # For the instruction schema, resolve now. A forced type shows that type's schema. "auto" shows
+    # the anyOf UNION of every type's schema, so the model classifies AND fills the matching type's
+    # structured fields in one pass (showing only ``outro`` could yield raw_text but never structured
+    # fields). Either way we re-resolve from the model's reported ``doc_type`` and validate against
+    # that specific type's schema after the backend returns.
     resolved = canonical_type(doc_type) if forced else "auto"
-    instruction_schema = schema_for(doc_type) if forced else schema_for("outro")
+    instruction_schema = schema_for(doc_type) if forced else union_schema()
     instruction = build_instruction(instruction_schema, resolved)
 
     impl = backend_impl if backend_impl is not None else _make_backend(backend, model)

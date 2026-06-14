@@ -1,4 +1,4 @@
-.PHONY: scrape setup analyze docs-plan apply-extractions mismatches sync-dev sync-prod kill-port
+.PHONY: scrape setup classify analyze docs-plan apply-extractions mismatches sync-dev sync-prod kill-port
 
 # Kill whatever process is listening on PORT (default 3000): make kill-port [PORT=3000]
 PORT ?= 3000
@@ -27,10 +27,13 @@ scrape:
 	cd scripts && uv run python -m scraper
 
 # Document analysis (decoupled from the scraper — no Playwright needed).
-# The vision step (classify-doc-page / classify-period skills, analyze-docs agent)
-# runs inside Claude Code between docs-plan and apply-extractions.
 docs-plan:
 	cd scripts && uv run python -m analysis docs-plan
+
+# Headless vision: transcribes each pending page via the doc_transcribe subprocess
+# (claude -p / Anthropic API) and records the typed extraction to D1.
+classify:
+	cd scripts && uv run python -m analysis classify
 
 apply-extractions:
 	cd scripts && uv run python -m analysis apply-extractions

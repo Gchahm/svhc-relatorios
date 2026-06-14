@@ -74,6 +74,10 @@ def main(argv=None):
     # Same DB-controlled selection as docs-plan (the pending set); mark-pending controls scope.
     p.add_argument("--min-amount", type=float, help="Only classify pending attachments for entries >= this amount.")
     p.add_argument("--limit", type=int, help="Maximum number of pending attachments to classify.")
+    p.add_argument(
+        "--attachment-id", type=str, nargs="*",
+        help="Scope to these attachments (representative or member); intersects the pending set. Default: whole pending set.",
+    )
     p.add_argument("--backend", choices=["cli", "api"], default="cli", help="doc_transcribe backend (default: cli).")
     p.add_argument("--model", help="Optional model override passed through to doc_transcribe.")
 
@@ -219,6 +223,7 @@ def main(argv=None):
                 cache_dir=args.cache_dir,
                 min_amount=args.min_amount,
                 limit=args.limit,
+                attachment_ids=args.attachment_id,
                 backend=args.backend,
                 model=args.model,
             )

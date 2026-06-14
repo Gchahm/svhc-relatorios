@@ -66,6 +66,41 @@ class TestRegistry(unittest.TestCase):
         self.assertIsInstance(SCHEMA_VERSION, str)
         self.assertEqual(SCHEMA_VERSION, "1")
 
+    def test_union_schema_is_fully_inlined(self):
+        # The API accepts a top-level anyOf but rejects $defs/$ref alongside it (EXTRACT-007:
+        # "For 'anyOf', '$defs' is not supported"). The union must therefore be fully ref-inlined:
+        # NO $defs and NO $ref anywhere. It must still preserve the inlined structure (e.g. danfe's
+        # emitente carries the parte_emitente fields directly).
+        from doc_transcribe.registry import union_schema
+
+        u = union_schema()
+
+        def find(node, key):
+            if isinstance(node, dict):
+                if key in node:
+                    return True
+                return any(find(v, key) for v in node.values())
+            if isinstance(node, list):
+                return any(find(x, key) for x in node)
+            return False
+
+        self.assertEqual([b["properties"]["doc_type"]["enum"][0] for b in u["anyOf"]], list(DOC_TYPES))
+        self.assertNotIn("$defs", u)
+        self.assertFalse(find(u, "$ref"), "union must be fully inlined — no $ref")
+        self.assertFalse(find(u, "$defs"), "union must be fully inlined — no $defs")
+        # The danfe branch's emitente was a $ref to parte_emitente — now inlined to its fields.
+        danfe = next(b for b in u["anyOf"] if b["properties"]["doc_type"]["enum"] == ["danfe"])
+        emit = danfe["properties"]["emitente"]["anyOf"][0]
+        self.assertIn("cnpj", emit["properties"])
+
+    def test_union_schema_does_not_mutate_cached_per_type_schema(self):
+        from doc_transcribe.registry import union_schema
+
+        union_schema()
+        danfe = load_schema("danfe")
+        self.assertIn("$defs", danfe)  # still self-contained
+        self.assertEqual(danfe["properties"]["emitente"]["anyOf"][0]["$ref"], "#/$defs/parte_emitente")
+
 
 if __name__ == "__main__":
     unittest.main()

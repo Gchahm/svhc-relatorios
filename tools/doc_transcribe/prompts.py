@@ -29,8 +29,10 @@ def build_instruction(schema: dict, doc_type: str) -> str:
     schema_text = json.dumps(schema, ensure_ascii=False, indent=2)
     if doc_type == "auto":
         type_line = (
-            "Detect the Brazilian fiscal-document type and set the JSON 'doc_type' field to the "
-            "detected type. If you cannot confidently classify it, use 'outro'."
+            "First identify the Brazilian fiscal-document type. The schema below is an 'anyOf' over "
+            "all supported types; choose the branch that matches the document, set the JSON "
+            "'doc_type' field to that type, and fill that branch's structured fields — do NOT return "
+            "only raw_text. Use 'outro' ONLY when the document is genuinely none of the specific types."
         )
     else:
         type_line = f"The document type is '{doc_type}'. Set the JSON 'doc_type' field to '{doc_type}'."

@@ -28,9 +28,11 @@ import tempfile
 from pathlib import Path
 from typing import Protocol
 
-# Default model for the api backend (best fidelity for dense fiscal documents; design T4). The cli
-# backend uses whatever model the local Claude Code session is configured with unless a model is given.
-DEFAULT_API_MODEL = "claude-opus-4-8"
+# Default model for the api backend. Haiku keeps per-page cost low for bulk transcription (a
+# largely OCR-style task); pass --model to override (e.g. claude-sonnet-4-6 / claude-opus-4-8 for
+# denser documents). The cli backend uses whatever model the local Claude Code session is
+# configured with unless a model is given.
+DEFAULT_API_MODEL = "claude-haiku-4-5-20251001"
 
 # Subprocess wall-clock cap for the cli backend (a single page transcription).
 _CLI_TIMEOUT_SECONDS = 300
@@ -218,7 +220,15 @@ class ApiBackend:
         self.model = model
 
     def build_request(self, *, image_bytes: bytes, media_type: str, schema: dict, instruction: str) -> dict:
-        """Pure builder for the ``messages.create`` kwargs (no SDK needed to construct it)."""
+        """Pure builder for the ``messages.create`` kwargs (no SDK needed to construct it).
+
+        The schema is conveyed to the model via the **prompt** — ``instruction`` already embeds it
+        (see ``build_instruction``) — and the returned JSON is parsed + validated above the backend,
+        exactly like the ``cli`` backend. We deliberately do NOT use ``output_config.format``
+        (wire-enforced structured output): it compiles the schema into a grammar with a hard cap of
+        24 optional parameters, which the rich typed schemas (and their anyOf union) far exceed
+        ("Schemas contains too many optional parameters"). ``schema`` is kept in the signature for
+        protocol symmetry but is not sent on the wire."""
         import base64
 
         data = base64.standard_b64encode(image_bytes).decode("ascii")
@@ -226,7 +236,6 @@ class ApiBackend:
             "model": self.model,
             "max_tokens": 8000,
             "thinking": {"type": "adaptive"},
-            "output_config": {"format": {"type": "json_schema", "schema": schema}},
             "messages": [
                 {
                     "role": "user",
