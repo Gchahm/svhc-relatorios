@@ -16,8 +16,17 @@
  * (mirrors `deeplinkView.ts` / `deeplinkView.test.mjs`).
  */
 
-import { formatCurrencyFor } from "../../../lib/i18n/formatters.core.ts";
 import type { SupportedLocale, DeepCatalogKey } from "../../../lib/i18n/catalog.ts";
+
+// Local currency formatter — kept inline (not imported from formatters.core) so this pure module
+// stays self-contained and does not drag the rest of the formatting surface into the node:test
+// coverage set. Mirrors `formatters.core.formatCurrencyFor` (BRL for pt-BR, USD otherwise).
+function formatCurrencyAmount(amount: number, locale: SupportedLocale): string {
+    return new Intl.NumberFormat(locale === "pt-BR" ? "pt-BR" : "en-US", {
+        style: "currency",
+        currency: locale === "pt-BR" ? "BRL" : "USD",
+    }).format(amount);
+}
 
 type Translate = (key: DeepCatalogKey) => string;
 
@@ -200,7 +209,7 @@ const HIDDEN_TOP_KEYS = new Set(["doc_type", "schema_version"]);
 
 function formatLeaf(key: string, raw: unknown, locale: SupportedLocale): string | null {
     if (raw === null || raw === undefined || raw === "") return null;
-    if (typeof raw === "number" && AMOUNT_LEAF.has(key)) return formatCurrencyFor(raw, locale);
+    if (typeof raw === "number" && AMOUNT_LEAF.has(key)) return formatCurrencyAmount(raw, locale);
     if (typeof raw === "boolean") return raw ? "true" : "false";
     if (typeof raw === "object") return JSON.stringify(raw);
     return String(raw);

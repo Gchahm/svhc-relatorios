@@ -293,6 +293,15 @@ test("malformed / partial typed shapes never throw and drop nothing present", ()
     assert.equal(byPath.has("doc_type"), false); // discriminator hidden even for unknown types
 });
 
+test("amount leaves are currency-formatted per locale (pt-BR BRL / en USD)", () => {
+    const recibo = { doc_type: "recibo", schema_version: "1", valor: 1234.5, recebedor: { nome: "X" } };
+    const ptRows = rowsByPath(buildTypedSections(recibo, makeT("pt-BR"), "pt-BR"));
+    const enRows = rowsByPath(buildTypedSections(recibo, makeT("en"), "en"));
+    // pt-BR uses R$ (BRL); en uses $ (USD). Exact glyphs vary by ICU, so assert the currency marker.
+    assert.match(ptRows.get("valor").value, /R\$/);
+    assert.match(enRows.get("valor").value, /\$/);
+});
+
 test("empty string values are omitted (no empty noise)", () => {
     const sections = buildTypedSections(
         { doc_type: "recibo", schema_version: "1", numero: "", valor: 10, recebedor: { nome: "", cnpj_cpf: "X1" } },
