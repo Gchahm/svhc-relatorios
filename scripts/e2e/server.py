@@ -108,9 +108,21 @@ def serve(port: int = DEFAULT_PORT, build_timeout_s: float = 240.0):
     # wrangler dev injects .dev.vars into the Worker runtime; ensure the auth vars are present.
     ensure_dev_vars(port)
 
-    # `pnpm preview` passes flags after `--` through to `wrangler dev`.
+    # `pnpm preview` passes flags after `--` through to `wrangler dev`. When SVHC_WRANGLER_PERSIST is
+    # set (the test:e2e entrypoint sets it to .wrangler/state-test), forward --persist-to so the
+    # SERVED Worker reads the same isolated test DB the seed/integration suites wrote — otherwise the
+    # smoke would serve the human's staging DB / an empty DB (feature 061 / issue #107). Resolve a
+    # relative value against the repo root, mirroring common/d1.py. Unset => no flag (staging default).
+    preview_args = ["pnpm", "preview", "--", "--port", str(port)]
+    persist = os.environ.get("SVHC_WRANGLER_PERSIST")
+    if persist:
+        persist_path = Path(persist)
+        if not persist_path.is_absolute():
+            persist_path = _REPO_ROOT / persist_path
+        preview_args += ["--persist-to", str(persist_path)]
+
     proc = subprocess.Popen(
-        ["pnpm", "preview", "--", "--port", str(port)],
+        preview_args,
         cwd=_REPO_ROOT,
         env=dict(os.environ),
         start_new_session=True,  # own process group so we can kill children (the build + wrangler)
