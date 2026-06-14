@@ -44,8 +44,13 @@ class TypedRollupTest(unittest.TestCase):
         self.assertTrue(res.amount_match)
         self.assertEqual(res.document_number, "0000123")
         self.assertEqual(res.extracted_cnpj, "11.222.333/0001-44")
-        # The persisted record.response is the flat mapped dict.
-        self.assertEqual(res.records[0].response["valor_total"], 320.0)
+        # Feature 055: the persisted record.response is the RAW typed JSON (verbatim — carrying
+        # doc_type, so it survives into attachment_analysis_records.response); the derived flat
+        # reconciliation view lives on record.recon.
+        self.assertEqual(res.records[0].response["doc_type"], "nfse")
+        self.assertEqual(res.records[0].response["valores"]["valor_liquido"], 320.0)
+        self.assertNotIn("valor_total", res.records[0].response)
+        self.assertEqual(res.records[0].recon["valor_total"], 320.0)
         self.assertEqual(res.records[0].artifact_role, "nfse")
 
     def test_danfe_total_matches_entry(self):

@@ -452,6 +452,7 @@ export type CatalogShape = {
         parse_error_prefix: string;
         no_pages_or_records: string;
         page_n: string;
+        full_transcription: string;
     };
     viewer: {
         image_unavailable: string;
@@ -912,6 +913,7 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             parse_error_prefix: "Erro de leitura:",
             no_pages_or_records: "Nenhuma página ou registro por página para esta análise.",
             page_n: "página {n}",
+            full_transcription: "Transcrição completa",
         },
         viewer: {
             image_unavailable: "Imagem indisponível",
@@ -1364,6 +1366,7 @@ export const catalog: Record<SupportedLocale, CatalogShape> = {
             parse_error_prefix: "Parse error:",
             no_pages_or_records: "No pages or per-page records for this analysis.",
             page_n: "page {n}",
+            full_transcription: "Full transcription",
         },
         viewer: {
             image_unavailable: "Image unavailable",

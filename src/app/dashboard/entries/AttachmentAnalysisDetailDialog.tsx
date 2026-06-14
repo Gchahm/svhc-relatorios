@@ -74,6 +74,34 @@ function parseResponse(record: AttachmentAnalysisRecord): {
     return { values: null, fallback: record.parseError || null };
 }
 
+// Feature 055 / EXTRACT-004: a stored response is a TYPED transcription (the EXTRACT-001-conformant
+// per-type object) when it carries a `doc_type` key; otherwise it is a legacy flat record. This
+// mirrors the single Python predicate (`analysis.page_classifications.is_typed`).
+function isTyped(values: Record<string, unknown>): boolean {
+    return Object.prototype.hasOwnProperty.call(values, "doc_type");
+}
+
+// Flatten a typed transcription into displayable label/value rows: scalars become `label = value`,
+// nested objects expand with a dotted label (`prestador.cnpj`), arrays/objects without scalars fall
+// back to a compact JSON string. Defensive: never throws on an odd/partial shape.
+function flattenTyped(
+    obj: Record<string, unknown>,
+    locale: SupportedLocale,
+    prefix = ""
+): { label: string; value: string }[] {
+    const rows: { label: string; value: string }[] = [];
+    for (const [key, raw] of Object.entries(obj)) {
+        const label = prefix ? `${prefix}.${key}` : key;
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+            rows.push(...flattenTyped(raw as Record<string, unknown>, locale, label));
+            continue;
+        }
+        const display = formatValue(raw, locale);
+        if (display !== null) rows.push({ label, value: display });
+    }
+    return rows;
+}
+
 function pageLabelDisplay(record: AttachmentAnalysisRecord, t: Translate) {
     if (record.pageLabel) return record.pageLabel;
     if (record.pageIndex !== null) return t("analysis.page_n").replace("{n}", String(record.pageIndex + 1));
@@ -117,6 +145,28 @@ function RecordValues({
             );
         }
         return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
+    }
+
+    // Typed transcription (feature 055): show the full, rich transcription so the reviewer sees
+    // everything the AI read, not just the five flat fields. The reconciliation fields are derived
+    // deterministically downstream (the per-type mapper) and surfaced in the attachment-level summary.
+    if (isTyped(values)) {
+        const rows = flattenTyped(values, locale);
+        if (rows.length === 0) {
+            return <p className="text-xs italic text-muted-foreground">{t("analysis.no_parsed_values")}</p>;
+        }
+        return (
+            <div className="space-y-2">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {t("analysis.full_transcription")}
+                </span>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                    {rows.map(r => (
+                        <Field key={r.label} label={r.label} value={r.value} t={t} />
+                    ))}
+                </div>
+            </div>
+        );
     }
 
     const known = KNOWN_FIELDS.map(f => ({ ...f, display: formatValue(values[f.key], locale, f.currency) })).filter(
