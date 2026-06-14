@@ -102,10 +102,14 @@ jobs:
             - name: Install Chromium for Playwright (Python)
               run: cd scripts && uv run playwright install --with-deps chromium
 
-            # Provision a fresh local Miniflare state: apply migrations + seed synthetic data + R2.
+            # Provision a fresh shared local Miniflare state (.wrangler/state-test): apply
+            # migrations + seed synthetic data + R2. Used by the browser smoke below; the
+            # integration step seeds its OWN per-worker dirs (feature 063).
             - name: Seed local D1 + R2 (synthetic)
               run: pnpm e2e:seed
 
+            # Parallel runner (feature 063): shards modules across worker processes, each with
+            # its own isolated .wrangler/state-test-w<i> persist dir; cleaned up on completion.
             - name: Python integration tests (real D1 writebacks)
               run: pnpm test:py:integration
 
