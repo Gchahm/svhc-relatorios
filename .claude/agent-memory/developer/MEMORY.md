@@ -2,6 +2,9 @@
 
 - [tools/ module test discovery](tools-module-test-discovery.md) — self-contained `tools/<pkg>/` modules (underscore name, zero scripts/analysis imports); run tests with `-t tools`; prettier covers tools/
 - [integration-tests shared-D1 scope](integration-tests-shared-d1-scope.md) — real-D1 integration tests share local Miniflare D1 with non-synthetic data; scope assertions to synthetic ids, never whole-table counts
+- [integration-tests real-pipeline cost](integration-tests-real-pipeline-cost.md) — real-D1 tests are slow (~1-2s/wrangler subprocess; a 4-test module ~7min); keep this layer smoke-depth, push granular cases to mocked unit suite
+- [integration-tests serial shared DB](integration-tests-serial-shared-db.md) — integration modules share ONE .wrangler/state-test D1; run them SERIALLY — concurrent runs cause spurious wrangler non-zero exits + seed-timestamp mismatch failures (not code bugs)
+- [integration parallel runner](integration-parallel-runner.md) — `pnpm test:py:integration` is now a parallel runner (per-worker isolated .wrangler/state-test-w<i> dirs); each worker RESETS to seed baseline before EVERY module (reuse-once contaminates); serial fallback = `:serial`
 - [prettier docs CI gate](prettier-docs-ci-gate.md) — CI "Lint, format, tests, typecheck" runs `prettier --check .` over markdown too; doc-touching PRs can pass tests but fail format — run prettier --write before pushing
 - [summarize_mismatches empty scope](summarize-mismatches-empty-scope.md) — a falsy attachment_ids/entry_ids ([] or None) means "no scope = ALL findings"; short-circuit to [] yourself when a computed id set is empty
 - [EXTRACT-002 vision transcriber](extract002-vision-transcriber.md) — transcribe() seam in tools/doc_transcribe: pluggable cli/api backend, validate-above-backend, claude -p prompt via stdin, anthropic optional/lazy
