@@ -62,6 +62,13 @@ class TestReDeriveD1(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
+        # RETAIN the per-test h.restore() here (unlike the sibling TEST-006 trims on reclassify /
+        # typed-record): this module is NOT subject-singleton/subject-scoped. test_scoped_run_leaves_
+        # out_of_scope_untouched reads E1 (out of scope) as a baseline, and test_shared_nf_group_re_
+        # derives_together mutates the E1/E2 shared-NF pair to 300. Without a per-test clean baseline,
+        # the order tests run in would let one test's E1/E2/E3 mutation leak into another's "before"
+        # snapshot. The five tests each exercise a DISTINCT path, so none can be merged away either —
+        # this module's share of the speedup comes from the npx-wrangler removal, not a reseed cut.
         h.restore()
 
     def _classify_e3(self) -> dict:

@@ -56,12 +56,17 @@ class TestReclassifyD1(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # The period-scoped propagation rewrites the synthetic period's analyses + alerts; reset so
-        # later modules in the shared-process integration suite see a clean seed.
+        # The period-scoped propagation rewrites the synthetic period's analyses + alerts; reset ONCE
+        # here so later modules in the shared-process integration suite see a clean seed.
         h.restore()
 
     def setUp(self):
-        h.restore()
+        # No per-test h.restore() (TEST-006 / #108, same trim as PR #106): E3 is a SINGLETON
+        # attachment (NF-1002, no shared-NF sibling, so the affected scope is just E3), and every test
+        # fully re-establishes its subject within the test — reclassify records E3's staging + runs the
+        # period pipeline, and the bystander snapshot (E1, which no test ever writes) is taken inside
+        # the same test. So nothing leaks across tests; the baseline reset for later modules stays in
+        # tearDownClass.
         self._cache = tempfile.mkdtemp()
 
     def test_reclassify_records_and_re_derives(self):

@@ -62,8 +62,19 @@ class TestTypedRecordD1(unittest.TestCase):
         cls.e4_att = cls.ids["attachments"]["E4"]
         cls.e4_an = cls.ids["analyses"]["E4"]
 
-    def setUp(self):
+    @classmethod
+    def tearDownClass(cls):
+        # apply_extractions rewrites E4's analysis (+ its records); reset the synthetic baseline ONCE
+        # here so later modules in the shared-process integration suite see a clean seed.
         h.restore()
+
+    def setUp(self):
+        # No per-test h.restore() (TEST-006 / #108, same trim as PR #106): E4 is its OWN shared-NF
+        # representative (single-entry, page p1), and every test re-establishes it within the test —
+        # record_classification (INSERT OR REPLACE on its staging) + apply_extractions, or mark_pending
+        # (which clears its staging + stamp) before asserting no write. Every assertion reads E4's own
+        # ids, so nothing leaks across tests; the baseline reset for later modules is in tearDownClass.
+        pass
 
     def _e4_record_response(self):
         resp = h.scalar(
