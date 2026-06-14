@@ -107,19 +107,17 @@ def run(base_url: str) -> None:
                     raise SmokeError(f"S3a: analysis dialog is missing section heading '{heading_text}'")
             # Wait for the async record load — the per-page card appears after the /api fetch.
             # The flat record's valor_total maps to KNOWN_FIELD "Bruto"; wait for that label.
-            page.wait_for_selector(
-                "[role=dialog] text=BRUTO",
-                timeout=_NAV_TIMEOUT_MS,
-            )
+            # (Playwright's text= engine can't be combined with a CSS attribute selector in one
+            # string, so scope with get_by_text on the dialog locator instead.)
+            dialog.get_by_text("BRUTO", exact=False).first.wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
             # The seeded valor_total is 150.00; it must be currency-formatted (pt-BR: R$ 150,00).
-            if dialog.locator("text=R$ 150,00").count() == 0:
+            if dialog.get_by_text("R$ 150,00", exact=False).count() == 0:
                 raise SmokeError("S3a: flat record valor_total (R$ 150,00) not rendered in dialog")
             # The "Transcrição completa" heading must NOT appear for flat records (typed-path guard).
-            if dialog.locator("text=Transcrição completa").count() != 0:
+            if dialog.get_by_text("Transcrição completa", exact=False).count() != 0:
                 raise SmokeError("S3a: 'Transcrição completa' heading appeared for a legacy flat record")
-            # No JavaScript errors — console errors are checked outside this block; we just assert
-            # the page has not navigated away and dialog is still open.
-            if "[role=dialog]" not in page.content():
+            # The dialog must still be open (not crashed/navigated away during the flat render).
+            if dialog.count() == 0:
                 raise SmokeError("S3a: dialog disappeared unexpectedly during flat record render")
             page.keyboard.press("Escape")
             page.wait_for_selector("[role=dialog]", state="hidden", timeout=_NAV_TIMEOUT_MS)
