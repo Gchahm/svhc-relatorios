@@ -5,7 +5,10 @@ Decoupled from the scraper: imports only the stdlib analysis pipeline, never the
 Playwright scraping stack. Commands: docs-plan, record-classification, apply-extractions,
 re-derive (image-free systematic re-run of the deterministic mappers over stored transcriptions —
 see specs/056-re-derive-command/contracts/re-derive-cli.md),
-mark-pending, analyze, mismatches, document-evidence (the document→attachment(s) triage evidence
+mark-pending, analyze, mismatches, reclassify (composite "reclassify one attachment" helper that
+records corrected staging then propagates — un-gated sibling of apply-correction; see
+specs/058-fix-document-findings-agent/contracts/reclassify-cli.md),
+document-evidence (the document→attachment(s) triage evidence
 resolver — see specs/051-document-evidence-resolver/contracts/document-evidence-cli.md;
 see also specs/008-decouple-analysis-scripts/contracts/analysis-cli.md
 and specs/017-classify-to-d1/contracts/record-classification-cli.md); record-verdict,
@@ -19,7 +22,7 @@ import logging
 import sys
 
 from . import run_analysis
-from .corrections import apply_correction, list_corrections, undo_correction
+from .corrections import apply_correction, list_corrections, reclassify, undo_correction
 from .documents import DocumentNotFound, build_documents, document_evidence
 from .extractions import apply_extractions, mark_pending, plan_extractions, re_derive, summarize_mismatches
 from .page_classifications import record_classification
@@ -141,6 +144,19 @@ def main(argv=None):
         "--no-progress-window", type=int, default=DEFAULT_NO_PROGRESS_WINDOW,
         help="Consecutive-iteration window for the no-progress guard (default 2).",
     )
+
+    p = sub.add_parser(
+        "reclassify",
+        help="Composite: record corrected per-page staging for an attachment then propagate (un-gated; §4.5)",
+    )
+    p.add_argument("--attachment-id", required=True, help="Attachment (plan representative id) to reclassify.")
+    p.add_argument(
+        "--pages",
+        dest="pages_json",
+        help='Corrected per-page extraction(s) as JSON: {"<page_label>": <fields-object>}. Omit or "-" to read stdin.',
+    )
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
 
     p = sub.add_parser(
         "apply-correction",
@@ -286,6 +302,29 @@ def main(argv=None):
             no_progress_window=args.no_progress_window,
         )
         print(json.dumps(state, ensure_ascii=False, indent=2))
+    elif args.command == "reclassify":
+        raw = args.pages_json
+        if raw is None or raw == "-":
+            raw = sys.stdin.read()
+        try:
+            corrected_pages = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"error: --pages is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(corrected_pages, dict):
+            print('error: --pages must be a JSON object {"<page_label>": <fields>}', file=sys.stderr)
+            sys.exit(1)
+        try:
+            result = reclassify(
+                args.attachment_id,
+                corrected_pages,
+                target=target,
+                cache_dir=args.cache_dir,
+            )
+        except ValueError as e:
+            print(f"error: reclassify rejected: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "apply-correction":
         raw = args.pages_json
         if raw is None or raw == "-":
