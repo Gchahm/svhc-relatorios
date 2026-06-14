@@ -2,21 +2,26 @@
 
 Drive the full ``apply_correction`` / ``list_corrections`` / ``undo_correction`` flow against local
 Miniflare D1 (the real ``scripts/common/d1.py`` wrapper, the real staging-driven apply + analyze
-pipeline), on the synthetic ``2099-01`` period. Covers:
+pipeline), on the synthetic ``2099-01`` period. Smoke depth (one happy path + the distinct failure
+paths) — the granular logic is covered by the fast mocked unit suite
+(``scripts/tests/test_corrections.py``); this layer only proves the unstubbed wiring. Four tests:
 
-- US1: a correction whose verify-after PASSES persists the change + an ``applied`` row with all
-  required fields; a correction whose verify-after FAILS (target not cleared) rolls the data back
-  byte-for-byte (SC-002) and records ``rolled-back``; the no-op + unverifiable (fail-closed) paths
-  write no row.
-- US2: list returns the recorded fields; undo restores the pre-correction value (SC-003), the
-  original finding reappears, and the record becomes ``reverted``; a second undo is rejected (FR-008).
-- US3: the record survives an ephemeral-cache wipe and stays listable/undoable (SC-004).
+- ``test_applied_lifecycle_record_list_durability_undo`` (US1/US2/US3): one pipeline pass for the
+  whole applied-correction lifecycle — a verify-after-PASS correction persists the change + an
+  ``applied`` row with all required fields; list returns them; the record survives an ephemeral-cache
+  wipe (SC-004); undo restores the pre-correction value (SC-003) with ``reverted``/``reverted_by``/
+  ``reverted_at`` and the original finding reappears; a second undo is rejected (FR-008).
+- ``test_apply_fail_rolls_back_byte_for_byte`` (US1): a correction whose verify-after FAILS (target
+  not cleared) rolls the data back byte-for-byte (SC-002) and records ``rolled-back``.
+- ``test_no_op_writes_no_row`` / ``test_unverifiable_writes_no_row`` (US1): the no-op + unverifiable
+  (fail-closed) paths write no row.
 
 Run: ``pnpm test:py:integration`` (needs ``wrangler`` + an applied local migration set).
 """
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 
@@ -62,14 +67,17 @@ class TestCorrectionsD1(unittest.TestCase):
         h.q(f"DELETE FROM data_corrections WHERE attachment_id IN ({att_ids})")
 
     def setUp(self):
-        h.restore()
         # E3 is a singleton (no shared-NF sibling), ledger amount 250.00 — a clean correction target.
+        # No per-test restore(): each test fully re-establishes E3 via _stage_and_propagate
+        # (mark_pending invalidates staging → record → apply rolls up), every assertion is E3-scoped,
+        # and run_analysis rewrites the 2099-01 alerts atomically (no cross-test accumulation). The
+        # baseline reset for later modules in the shared process stays in tearDownClass.
         self.att = self.ids["attachments"]["E3"]
         self.entry = self.ids["entries"]["E3"]
         self.period = self.ids["period"]
         self._cache = tempfile.mkdtemp()
-        # Clean any correction rows a prior test left for this attachment (restore() doesn't touch
-        # data_corrections — it is outside the synthetic analysis-owned reset set).
+        # Clean any correction rows a prior test left for this attachment (data_corrections is outside
+        # the synthetic analysis-owned reset set).
         h.q(f"DELETE FROM data_corrections WHERE attachment_id = '{self.att}'")
 
     # -- helpers ----------------------------------------------------------------
@@ -91,35 +99,53 @@ class TestCorrectionsD1(unittest.TestCase):
     def _extracted_amount(self):
         return h.scalar(f"SELECT extracted_amount FROM attachment_analyses WHERE attachment_id = '{self.att}'")
 
-    # -- US1: verify-after PASS -------------------------------------------------
-
-    def test_apply_pass_records_and_changes(self):
+    # -- US1/US2/US3: the full applied-correction lifecycle in one pipeline pass -
+    # Record (verify-after PASS) → list + audit row → cache-wipe durability (SC-004) →
+    # undo (SC-003) → second-undo rejection (FR-008). Replaces four tests that each re-ran the same
+    # arrange; the granular logic is covered by the mocked unit suite (scripts/tests/test_corrections.py).
+    def test_applied_lifecycle_record_list_durability_undo(self):
         # Arrange: a wrong extraction (800) creates an amount mismatch vs the ledger's 250.
         self._stage_and_propagate(800)
         target = self._amount_finding_key()
         self.assertIsNotNone(target, "expected an amount mismatch from the wrong extraction")
 
         # Act: correct it to the ledger value 250 (verify-after should pass).
-        result = apply_correction(self.att, target, {"p1": _fields(250)},
-                                  evidence="/abs/2099-01/x_p1.png", agent="triage-agent",
-                                  target="local", cache_dir=self._cache)
+        applied = apply_correction(self.att, target, {"p1": _fields(250)},
+                                   evidence="/abs/2099-01/x_p1.png", agent="triage-agent",
+                                   target="local", cache_dir=self._cache)
+        batch = applied["batch_id"]
 
         # Assert: applied, data changed, finding cleared, audit row complete.
-        self.assertEqual(result["result"], "applied", result)
+        self.assertEqual(applied["result"], "applied", applied)
         self.assertAlmostEqual(self._extracted_amount(), 250.0, places=2)
         self.assertIsNone(self._amount_finding_key(), "finding should have cleared")
-        rows = list_corrections(attachment_ids=[self.att], target="local")
-        self.assertTrue(rows)
-        row = next(r for r in rows if r["field"] == "valor_total")
+        row = next(r for r in list_corrections(attachment_ids=[self.att], target="local")
+                   if r["field"] == "valor_total")
         self.assertEqual(row["status"], "applied")
-        self.assertEqual(row["from_value"], 800)
-        self.assertEqual(row["to_value"], 250)
+        self.assertEqual((row["from_value"], row["to_value"]), (800, 250))
         self.assertEqual(row["evidence"], "/abs/2099-01/x_p1.png")
         self.assertEqual(row["agent"], "triage-agent")
         self.assertEqual(row["page_label"], "p1")
         self.assertEqual(row["target_finding_key"], target)
         self.assertEqual(row["period"], self.period)
         self.assertIsNotNone(row["created_at"])
+
+        # SC-004: the record lives in D1, not the ephemeral cache — survives a full wipe.
+        shutil.rmtree(self._cache, ignore_errors=True)
+        self._cache = tempfile.mkdtemp()
+        self.assertTrue(list_corrections(attachment_ids=[self.att], target="local"))
+
+        # SC-003: undo restores the pre-correction value and the original finding reappears.
+        undone = undo_correction(batch, actor="gustavo", target="local", cache_dir=self._cache)
+        self.assertEqual(undone["result"], "reverted", undone)
+        self.assertAlmostEqual(self._extracted_amount(), 800.0, places=2)
+        self.assertIsNotNone(self._amount_finding_key(), "original finding should reappear")
+        rows = list_corrections(attachment_ids=[self.att], target="local")
+        self.assertTrue(all(r["status"] == "reverted" and r["reverted_by"] == "gustavo"
+                            and r["reverted_at"] for r in rows))
+
+        # FR-008: a second undo of the now-reverted batch is rejected, no change.
+        self.assertEqual(undo_correction(batch, target="local", cache_dir=self._cache)["result"], "rejected")
 
     # -- US1: verify-after FAIL -> rollback (SC-002) ----------------------------
 
@@ -164,52 +190,6 @@ class TestCorrectionsD1(unittest.TestCase):
         self.assertEqual(h.count("data_corrections", f"attachment_id = '{self.att}'"), 0)
         # Data unchanged (still 250).
         self.assertAlmostEqual(self._extracted_amount(), 250.0, places=2)
-
-    # -- US2: list + undo (SC-003, FR-008) -------------------------------------
-
-    def test_undo_restores_and_records(self):
-        self._stage_and_propagate(800)
-        target = self._amount_finding_key()
-        applied = apply_correction(self.att, target, {"p1": _fields(250)}, target="local", cache_dir=self._cache)
-        self.assertEqual(applied["result"], "applied")
-        batch = applied["batch_id"]
-        self.assertAlmostEqual(self._extracted_amount(), 250.0, places=2)
-
-        # Undo restores the pre-correction value (SC-003) and the original finding reappears.
-        undone = undo_correction(batch, actor="gustavo", target="local", cache_dir=self._cache)
-        self.assertEqual(undone["result"], "reverted", undone)
-        self.assertAlmostEqual(self._extracted_amount(), 800.0, places=2)
-        self.assertIsNotNone(self._amount_finding_key(), "original finding should reappear")
-        rows = list_corrections(attachment_ids=[self.att], target="local")
-        self.assertTrue(all(r["status"] == "reverted" for r in rows))
-        self.assertTrue(all(r["reverted_by"] == "gustavo" for r in rows))
-        self.assertTrue(all(r["reverted_at"] for r in rows))
-
-    def test_second_undo_rejected(self):
-        self._stage_and_propagate(800)
-        target = self._amount_finding_key()
-        batch = apply_correction(self.att, target, {"p1": _fields(250)}, target="local", cache_dir=self._cache)["batch_id"]
-        self.assertEqual(undo_correction(batch, target="local", cache_dir=self._cache)["result"], "reverted")
-        # Second undo of a now-reverted batch is rejected, no change (FR-008).
-        second = undo_correction(batch, target="local", cache_dir=self._cache)
-        self.assertEqual(second["result"], "rejected", second)
-
-    # -- US3: durability across a cache wipe (SC-004) --------------------------
-
-    def test_record_survives_cache_wipe(self):
-        import shutil
-
-        self._stage_and_propagate(800)
-        target = self._amount_finding_key()
-        batch = apply_correction(self.att, target, {"p1": _fields(250)}, target="local", cache_dir=self._cache)["batch_id"]
-        # Wipe the ephemeral cache entirely.
-        shutil.rmtree(self._cache, ignore_errors=True)
-        self._cache = tempfile.mkdtemp()
-        # The correction is still listable (it lives in D1, not the cache).
-        rows = list_corrections(attachment_ids=[self.att], target="local")
-        self.assertTrue(rows)
-        # And still undoable.
-        self.assertEqual(undo_correction(batch, target="local", cache_dir=self._cache)["result"], "reverted")
 
 
 if __name__ == "__main__":
