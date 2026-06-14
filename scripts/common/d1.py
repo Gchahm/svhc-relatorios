@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -47,6 +48,7 @@ TABLE_ORDER = [
     "documents",
     "document_entries",
     "alerts",
+    "data_corrections",
 ]
 
 
@@ -148,6 +150,12 @@ def execute_sql(sql: str, *, target: Target) -> None:
     ``subprocess.CalledProcessError`` on a non-zero exit so callers report failure
     (FR-007). This is the escape hatch for non-upsert SQL (e.g. the period-/attachment-
     scoped DELETEs the analysis writebacks issue before upserting).
+
+    ``wrangler``'s banner + result-envelope are routed to **stderr**, not the process
+    stdout: a write has no return value callers parse, and leaving wrangler's JSON on
+    stdout would corrupt any command that emits a machine-readable JSON result there
+    (e.g. ``apply-correction`` / ``undo-correction``, which write D1 and then print their
+    result to stdout). Errors still surface (non-zero exit raises; the banner is on stderr).
     """
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False, encoding="utf-8") as fh:
         fh.write(sql)
@@ -157,6 +165,7 @@ def execute_sql(sql: str, *, target: Target) -> None:
             ["npx", "wrangler", "d1", "execute", _DB_BINDING, "--file", sql_path, target_flag(target)],
             cwd=_REPO_ROOT,
             check=True,
+            stdout=sys.stderr,
         )
     finally:
         Path(sql_path).unlink(missing_ok=True)

@@ -292,6 +292,46 @@ export const pageClassifications = sqliteTable(
     table => [index("page_classifications_attachment_id_idx").on(table.attachmentId)]
 );
 
+// ─── Data corrections (correção de dado) ─────────────────────────────────────
+// Analysis-owned audit trail for the autonomous triage agent's data corrections
+// (feature 054 / TRIAGE-003). One row per CHANGED FIELD of one apply-correction call;
+// rows of one call share `batchId`. Durable + queryable (NOT the ephemeral verdicts
+// cache, NOT alerts.notes), reversible (the `fromStaging` snapshot is the restore input),
+// and verify-after-gated. Never written by the scraper, never a mirror table.
+// See specs/054-correction-audit-trail.
+
+export const dataCorrections = sqliteTable(
+    "data_corrections",
+    {
+        id: uuid(), // det_id("data_correction", batchId, pageLabel, field)
+        batchId: text("batch_id").notNull(), // correlates the field-rows of one apply-correction call
+        attachmentId: text("attachment_id")
+            .notNull()
+            .references(() => attachments.id),
+        period: text("period", { length: 7 }), // YYYY-MM of the attachment's entry (for scoped listing)
+        pageLabel: text("page_label", { length: 20 }).notNull(),
+        field: text("field").notNull(), // corrected frozen field name (e.g. valor_total)
+        fromValue: text("from_value"), // JSON-encoded previous value (NULL if absent/null)
+        toValue: text("to_value"), // JSON-encoded corrected value
+        evidence: text("evidence"), // page image read_path the decision was based on (FR-013)
+        agent: text("agent").notNull(), // acting actor id; never empty (sentinel default)
+        targetFindingKey: text("target_finding_key"), // the mismatch_key the correction targeted
+        status: text("status", { length: 20 }).notNull(), // applied | rolled-back | flagged | reverted
+        detail: text("detail"), // free-text outcome/reason (verify-after result, rollback/undo note)
+        fromStaging: text("from_staging"), // JSON snapshot of the attachment's pre-correction staging rows (restore input)
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+        revertedAt: integer("reverted_at", { mode: "timestamp_ms" }),
+        revertedBy: text("reverted_by"),
+    },
+    table => [
+        index("data_corrections_attachment_id_idx").on(table.attachmentId),
+        index("data_corrections_status_idx").on(table.status),
+        index("data_corrections_period_idx").on(table.period),
+    ]
+);
+
 // ─── Alerts (alerta) ─────────────────────────────────────────────────────────
 
 export const alerts = sqliteTable(

@@ -17,6 +17,7 @@ import logging
 import sys
 
 from . import run_analysis
+from .corrections import apply_correction, list_corrections, undo_correction
 from .documents import DocumentNotFound, build_documents, document_evidence
 from .extractions import apply_extractions, mark_pending, plan_extractions, summarize_mismatches
 from .page_classifications import record_classification
@@ -128,6 +129,34 @@ def main(argv=None):
         help="Consecutive-iteration window for the no-progress guard (default 2).",
     )
 
+    p = sub.add_parser(
+        "apply-correction",
+        help="Record + apply one data correction to an attachment, gated by verify-after (TRIAGE-003)",
+    )
+    p.add_argument("--attachment-id", required=True, help="Attachment to correct (plan representative id).")
+    p.add_argument("--target-finding", required=True, help="mismatch_key of the finding the correction should clear.")
+    p.add_argument(
+        "--pages",
+        dest="pages_json",
+        help='Corrected per-page extraction(s) as JSON: {"<page_label>": <fields-object>}. Omit or "-" to read stdin.',
+    )
+    p.add_argument("--evidence", help="Page image read_path the decision was based on (recorded with each row).")
+    p.add_argument("--agent", default=None, help="Acting agent id (default: triage-agent).")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
+
+    p = sub.add_parser("list-corrections", help="List recorded data corrections, optionally scoped (read-only)")
+    p.add_argument("--attachment-id", type=str, nargs="*", help="Scope to these attachment ids.")
+    p.add_argument("--periodo", type=str, help="Scope to this period (YYYY-MM).")
+    p.add_argument("--status", choices=["applied", "rolled-back", "flagged", "reverted"], help="Scope to a status.")
+    p.add_argument("--remote", action="store_true", help="Read the REMOTE (production) D1 instead of local.")
+
+    p = sub.add_parser("undo-correction", help="Reverse a previously-applied data correction (restore + re-derive)")
+    p.add_argument("--id", dest="correction_id", required=True, help="A correction row id OR a batch_id (reverses the whole batch).")
+    p.add_argument("--actor", default=None, help="Who is performing the undo (default: human).")
+    p.add_argument("--cache-dir", default=CACHE_DIR, help="Ephemeral local scratch dir (default: ../.cache/analysis).")
+    p.add_argument("--remote", action="store_true", help="Write the REMOTE (production) D1 instead of local.")
+
     args = parser.parse_args(argv)
     target = "remote" if getattr(args, "remote", False) else "local"
 
@@ -233,6 +262,52 @@ def main(argv=None):
             no_progress_window=args.no_progress_window,
         )
         print(json.dumps(state, ensure_ascii=False, indent=2))
+    elif args.command == "apply-correction":
+        raw = args.pages_json
+        if raw is None or raw == "-":
+            raw = sys.stdin.read()
+        try:
+            corrected_pages = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"error: --pages is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(corrected_pages, dict):
+            print('error: --pages must be a JSON object {"<page_label>": <fields>}', file=sys.stderr)
+            sys.exit(1)
+        try:
+            result = apply_correction(
+                args.attachment_id,
+                args.target_finding,
+                corrected_pages,
+                evidence=args.evidence,
+                agent=args.agent or "triage-agent",
+                target=target,
+                cache_dir=args.cache_dir,
+            )
+        except ValueError as e:
+            print(f"error: correction rejected: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if result.get("result") not in ("applied", "no-op"):
+            sys.exit(1)
+    elif args.command == "list-corrections":
+        rows = list_corrections(
+            attachment_ids=args.attachment_id,
+            period=args.periodo,
+            status=args.status,
+            target=target,
+        )
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    elif args.command == "undo-correction":
+        result = undo_correction(
+            args.correction_id,
+            actor=args.actor or "human",
+            target=target,
+            cache_dir=args.cache_dir,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if result.get("result") != "reverted":
+            sys.exit(1)
 
 
 main()
