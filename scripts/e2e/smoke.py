@@ -92,6 +92,38 @@ def run(base_url: str) -> None:
             if page.locator(".bg-yellow-100").count() == 0:
                 raise SmokeError("S3: deep-linked entry row was not highlighted")
 
+            # ── S3a: analysis dialog — feature 055 (EXTRACT-004) legacy-flat record render ──
+            # Verify the AttachmentAnalysisDetailDialog renders the per-page flat record section
+            # without console errors. The seeded E1 attachment has one flat page_extraction record
+            # (keys: tipo_documento, numero, cnpj, valor_total — no top-level `doc_type`, so the
+            # legacy path is taken). Checks: dialog is open, all three sections present, the per-page
+            # card with KNOWN_FIELD labels is visible (valor_total → "BRUTO"), no blank/crash panel.
+            dialog = page.locator("[role=dialog]")
+            dialog.wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+            # All three dialog sections must be present (h3 headings are locale-neutral anchors
+            # given the current hardcoded pt-BR locale).
+            for heading_text in ("Lançamento (origem)", "Consolidado (extraído)", "Páginas"):
+                if dialog.locator(f"h3:has-text('{heading_text}')").count() == 0:
+                    raise SmokeError(f"S3a: analysis dialog is missing section heading '{heading_text}'")
+            # Wait for the async record load — the per-page card appears after the /api fetch.
+            # The flat record's valor_total maps to KNOWN_FIELD "Bruto"; wait for that label.
+            page.wait_for_selector(
+                "[role=dialog] text=BRUTO",
+                timeout=_NAV_TIMEOUT_MS,
+            )
+            # The seeded valor_total is 150.00; it must be currency-formatted (pt-BR: R$ 150,00).
+            if dialog.locator("text=R$ 150,00").count() == 0:
+                raise SmokeError("S3a: flat record valor_total (R$ 150,00) not rendered in dialog")
+            # The "Transcrição completa" heading must NOT appear for flat records (typed-path guard).
+            if dialog.locator("text=Transcrição completa").count() != 0:
+                raise SmokeError("S3a: 'Transcrição completa' heading appeared for a legacy flat record")
+            # No JavaScript errors — console errors are checked outside this block; we just assert
+            # the page has not navigated away and dialog is still open.
+            if "[role=dialog]" not in page.content():
+                raise SmokeError("S3a: dialog disappeared unexpectedly during flat record render")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("[role=dialog]", state="hidden", timeout=_NAV_TIMEOUT_MS)
+
             # ── S4: dead deep link shows the feature-037 not-found notice (no crash) ──
             page.goto(
                 f"{base_url}/dashboard/entries?period={PERIOD}&entry=00000000-0000-0000-0000-000000000000",

@@ -33,7 +33,12 @@ class PageAnalysisRecord:
     page_index: int | None = None
     page_label: str | None = None
     artifact_role: str | None = None
-    response: dict | None = None  # parsed page values (stored JSON-serialized on import)
+    response: dict | None = None  # RAW parsed page values — typed transcription (carries doc_type/
+    # schema_version) OR a legacy flat record. Stored JSON-serialized on import (feature 055: the typed
+    # JSON survives verbatim into attachment_analysis_records.response).
+    recon: dict | None = None  # NON-PERSISTED: the flat reconciliation view derived from `response`
+    # via type_mappers.to_reconciliation_fields (feature 055). The roll-up reads `recon`; persistence
+    # reads `response`. Defaults to an empty dict's behavior via `recon or {}` at every read site.
     parse_error: str | None = None  # set when image missing/unreadable or unparseable
 
     def to_dict(self) -> dict:
@@ -142,7 +147,7 @@ def _attachment_in_period(records, period: str) -> bool | None:
     """
     seen_date = False
     for r in records:
-        resp = getattr(r, "response", None) or {}
+        resp = getattr(r, "recon", None) or {}
         date_str = resp.get("data_emissao")
         if not date_str:
             continue
@@ -216,7 +221,7 @@ def _issuer_names_of(records) -> list[str]:
     """Per-page ``nome_emitente`` values (non-empty), preserving order."""
     names: list[str] = []
     for r in records:
-        val = (r.response or {}).get("nome_emitente")
+        val = (r.recon or {}).get("nome_emitente")
         if val not in (None, ""):
             names.append(val)
     return names
@@ -235,7 +240,7 @@ def _pick_issuer_name(payment_recs, boleto_recs, invoice_recs, parsed_records):
     ordered += [r for r in parsed_records if r not in ordered]
     fallback = None
     for r in ordered:
-        val = (r.response or {}).get("nome_emitente")
+        val = (r.recon or {}).get("nome_emitente")
         if val in (None, ""):
             continue
         if is_payer_name(val):
@@ -263,14 +268,14 @@ def _pick_attachment_date(records) -> str | None:
     """
 
     def date_of(r) -> str | None:
-        val = (r.response or {}).get("data_emissao")
+        val = (r.recon or {}).get("data_emissao")
         return val if val not in (None, "") else None
 
     def tipo(r) -> str:
-        return str((r.response or {}).get("tipo_documento") or "").strip().lower()
+        return str((r.recon or {}).get("tipo_documento") or "").strip().lower()
 
     def has_paid(r) -> bool:
-        return _parse_brl_value((r.response or {}).get("valor_pago")) is not None
+        return _parse_brl_value((r.recon or {}).get("valor_pago")) is not None
 
     def role(r) -> str:
         return r.artifact_role or "other"
@@ -318,14 +323,14 @@ def _pick_payment_amount(payment_recs) -> float | None:
     """
 
     def tipo(r) -> str:
-        return str((r.response or {}).get("tipo_documento") or "").strip().lower()
+        return str((r.recon or {}).get("tipo_documento") or "").strip().lower()
 
     def paid(r) -> float | None:
-        val = _parse_brl_value((r.response or {}).get("valor_pago"))
+        val = _parse_brl_value((r.recon or {}).get("valor_pago"))
         return val if val is not None and val > 0 else None
 
     def total(r) -> float | None:
-        val = _parse_brl_value((r.response or {}).get("valor_total"))
+        val = _parse_brl_value((r.recon or {}).get("valor_total"))
         return val if val is not None and val > 0 else None
 
     def rank(r) -> int:
@@ -362,7 +367,7 @@ def _sum_distinct_invoices(invoice_recs) -> float | None:
     seen: set[tuple] = set()
     totals: list[float] = []
     for r in invoice_recs:
-        resp = r.response or {}
+        resp = r.recon or {}
         gross = _parse_brl_value(resp.get("valor_total"))
         if gross is None or gross <= 0:
             continue
@@ -384,7 +389,9 @@ def _rollup_attachment_fields(result: "AttachmentAnalysisResult") -> None:
       has each field;
     - the amount used for amount_match follows the precedence
       payment_proof paid -> boleto -> invoice net -> invoice gross.
-    Gross and net are NOT collapsed here; both remain in each record's response.
+    Gross and net are NOT collapsed here; both remain in each record's raw response. The roll-up
+    reads each record's derived reconciliation view (``recon``); the raw ``response`` (the typed
+    transcription or legacy flat record) is what is persisted (feature 055).
     """
     parsed_records = [r for r in result.records if r.response]
     if not parsed_records:
@@ -402,7 +409,7 @@ def _rollup_attachment_fields(result: "AttachmentAnalysisResult") -> None:
 
     def first_field(key: str):
         for r in id_priority:
-            val = r.response.get(key)
+            val = (r.recon or {}).get(key)
             if val not in (None, ""):
                 return val
         return None
@@ -422,7 +429,7 @@ def _rollup_attachment_fields(result: "AttachmentAnalysisResult") -> None:
     def pick(records, *keys):
         for r in records:
             for key in keys:
-                val = _parse_brl_value(r.response.get(key))
+                val = _parse_brl_value((r.recon or {}).get(key))
                 if val is not None and val > 0:
                     return val
         return None
@@ -521,6 +528,8 @@ def _fanout_result(
                 page_label=r.page_label,
                 artifact_role=r.artifact_role,
                 response=r.response,
+                recon=r.recon,  # carry the derived reconciliation view too (feature 055), so the
+                # sibling rolls up AND persists identically to the representative (FR-009).
                 parse_error=r.parse_error,
             )
         )
@@ -586,12 +595,16 @@ def build_attachment_analysis(
         if parsed is None:
             record.parse_error = error or "no extraction for page"
         else:
-            # Derive the flat reconciliation fields deterministically from the (typed or legacy
-            # flat) extraction — replacing the model's "which number is the total" guesswork with
-            # versioned per-type rules (feature 053 / EXTRACT-003). Idempotent on a legacy flat
-            # record, so periods classified before typed transcription are unaffected.
-            record.response = to_reconciliation_fields(parsed)
-            record.artifact_role = _map_artifact_role(record.response)
+            # Store the RAW extraction verbatim so the rich typed transcription (carrying doc_type/
+            # schema_version) survives into attachment_analysis_records.response (feature 055). Derive
+            # the flat reconciliation view ONCE via the EXTRACT-003 per-type mapper — replacing the
+            # model's "which number is the total" guesswork with versioned per-type rules (feature
+            # 053). The mapper is idempotent on a legacy flat record, so periods classified before
+            # typed transcription store and roll up exactly as before. The roll-up reads `recon`;
+            # persistence reads `response`.
+            record.response = parsed
+            record.recon = to_reconciliation_fields(parsed)
+            record.artifact_role = _map_artifact_role(record.recon)
             any_success = True
         result.records.append(record)
 

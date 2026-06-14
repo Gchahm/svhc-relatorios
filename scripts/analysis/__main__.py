@@ -186,12 +186,15 @@ def main(argv=None):
             print(f"error: extraction is not valid JSON: {e}", file=sys.stderr)
             sys.exit(1)
         try:
+            from .typed_gate import validate_typed
+
             record_classification(
                 args.attachment_id,
                 args.page_label,
                 payload,
                 page_index=args.page_index,
                 target=target,
+                typed_validator=validate_typed,
             )
         except ValueError as e:
             print(f"error: classification rejected: {e}", file=sys.stderr)

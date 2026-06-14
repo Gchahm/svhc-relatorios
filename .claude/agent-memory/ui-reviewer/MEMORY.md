@@ -26,3 +26,22 @@ run via `pnpm test:e2e` (build + serve + smoke) or `pnpm e2e:smoke` against a ru
 period `2099-01`). **Add UI-review tests to this suite in Python** — do NOT add `@playwright/test` /
 a `tests/e2e/*.spec.ts` JS suite or any new dependency. (TS unit tests use `node:test`, Python unit
 tests use `unittest`, but the browser/e2e layer is `scripts/e2e/`.)
+
+To run smoke manually, the server must be on port 3001 (trusted origin). Use `pnpm e2e:smoke` (builds
+and starts on :3001). The preview server started by `pnpm preview` defaults to :8787 — NOT trusted.
+
+## Recurring traps / gotchas
+
+- **`pnpm preview` uses port 8787** (not 3000/3001). The e2e smoke suite requires port 3001.
+  `pnpm e2e:smoke` handles this; manual `pnpm preview` does not.
+- **Locale is hardcoded pt-BR** — `getLocale()` always returns "pt-BR"; there is no locale-switcher
+  UI yet. English catalog keys exist and are correct but cannot be tested through the browser.
+- **Entry rows are not keyboard-focusable** (tabIndex: -1) — pre-existing a11y gap, not introduced
+  by any recent feature. The dialog itself is keyboard-accessible (Close button + image expand button
+  are tabbable; Escape closes).
+- **All app dialogs lack `DialogDescription`** — Radix fires a console warning on every dialog open.
+  The `DialogDescription` component exists in shadcn/ui but is not used anywhere. Pre-existing.
+- **Synthetic seed records are legacy flat** — the `analysis_records.response` in `scripts/e2e/synthetic.py`
+  uses `tipo_documento`/`numero`/`cnpj`/`valor_total` (no top-level `doc_type`), so `isTyped()` returns
+  false for all seeded records. The typed render path (feature 055) cannot be exercised with the
+  current synthetic seed — add a typed record to `synthetic.py` if you need live typed-path coverage.

@@ -198,6 +198,10 @@ class FanoutAndGroupMatchTest(unittest.TestCase):
                 artifact_role="invoice",
                 response={"valor_total": "100,00", "nome_emitente": "ACME COMERCIO LTDA",
                           "data_emissao": "05/12/2025"},
+                # Feature 055: the roll-up reads the derived reconciliation view (`recon`); for a flat
+                # record it is the identity of `response` (the mapper's flat pass-through).
+                recon={"valor_total": "100,00", "nome_emitente": "ACME COMERCIO LTDA",
+                       "data_emissao": "05/12/2025"},
             )
         ]
         return rep

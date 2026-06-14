@@ -48,15 +48,35 @@ STRING_OR_NULL = {
 AMOUNT_KEYS = {"valor_total", "valor_liquido", "valor_pago"}
 
 
-def validate_page_fields(obj) -> str | None:
-    """Validate a per-page extraction against the frozen contract.
+def is_typed(resp) -> bool:
+    """The single typed-vs-flat discriminator (feature 055 / FR-008).
+
+    A stored per-page response is a **typed transcription** (the EXTRACT-001-conformant per-type
+    object) when it is a dict carrying a ``doc_type`` key; a dict without ``doc_type`` is a **legacy
+    flat record** (the pre-typed reconciliation contract below). Owned here so the store / derive /
+    render paths cannot drift on the discriminator (the EXTRACT-003 mapper keys on ``doc_type`` too,
+    and the UI mirrors this predicate). Never raises.
+    """
+    return isinstance(resp, dict) and "doc_type" in resp
+
+
+def validate_page_fields(obj, *, typed_validator=None) -> str | None:
+    """Validate a per-page extraction against the frozen contract (dual-path).
 
     Returns an error message describing the first violation, or ``None`` when the
-    payload is valid. Accepts EITHER the full fields object (exactly ``REQUIRED_KEYS``,
-    ``papel_artefato`` in the allowed set, string-or-null and amount typing) OR the single
-    permitted alternative ``{"error": "<non-empty string>"}``. This is the canonical
-    validator the ``record-classification`` CLI enforces (it used to be the skill's
-    file-write hook).
+    payload is valid. Accepts ONE of:
+
+    - the single permitted error alternative ``{"error": "<non-empty string>"}`` (unchanged);
+    - a **typed transcription** payload (a dict carrying ``doc_type``) — validated against the
+      EXTRACT-001 schema for its type via ``typed_validator`` (feature 055). ``typed_validator`` is
+      injected (default ``None``) so this module stays stdlib-only and import-clean of ``tools/``;
+      the ``record-classification`` CLI supplies ``analysis.typed_gate.validate_typed``. When no
+      validator is supplied a typed payload is accepted only structurally (it must be a dict) — but
+      the CLI always supplies the gate, so typed payloads are always schema-validated in practice;
+    - the legacy **flat** fields object (no ``doc_type``: exactly ``REQUIRED_KEYS``,
+      ``papel_artefato`` in the allowed set, string-or-null and amount typing) — unchanged.
+
+    This is the canonical validator the ``record-classification`` CLI enforces.
     """
     if not isinstance(obj, dict):
         return f"expected a single JSON object, got {type(obj).__name__}"
@@ -69,6 +89,15 @@ def validate_page_fields(obj) -> str | None:
             return f'an error result must be exactly {{"error": "..."}}, got keys {sorted(keys)}'
         if not isinstance(obj["error"], str) or not obj["error"].strip():
             return '"error" must be a non-empty string'
+        return None
+
+    # A typed transcription payload (carries doc_type): validate against the EXTRACT-001 schema.
+    if is_typed(obj):
+        if typed_validator is None:
+            return None
+        errors = typed_validator(obj, obj.get("doc_type"))
+        if errors:
+            return "typed payload does not conform to the EXTRACT-001 schema: " + "; ".join(errors)
         return None
 
     missing = REQUIRED_KEYS - keys
@@ -134,16 +163,22 @@ def record_classification(
     *,
     page_index: int | None = None,
     target: Target = "local",
+    typed_validator=None,
 ) -> None:
     """Validate then upsert one page's extraction into ``page_classifications``.
 
-    ``payload`` is either the full fields object or ``{"error": "<reason>"}`` (already
-    parsed from JSON). Raises :class:`ValueError` on a contract violation so the caller
-    (the CLI) can exit non-zero and the classifier can correct and re-record. A fields
-    object sets ``response`` and leaves ``error`` NULL; an error result sets ``error`` and
-    leaves ``response`` NULL.
+    ``payload`` is a typed transcription object (carrying ``doc_type``), the legacy flat fields
+    object, or ``{"error": "<reason>"}`` (already parsed from JSON). Raises :class:`ValueError` on a
+    contract violation so the caller (the CLI) can exit non-zero and the classifier can correct and
+    re-record. A typed/flat fields object sets ``response`` (stored VERBATIM — the typed JSON,
+    carrying ``doc_type``/``schema_version``, survives into ``attachment_analysis_records`` after
+    roll-up) and leaves ``error`` NULL; an error result sets ``error`` and leaves ``response`` NULL.
+
+    ``typed_validator`` is the EXTRACT-001 schema validator for typed payloads (the CLI passes
+    ``analysis.typed_gate.validate_typed``); it is injected to keep this module import-clean of
+    ``tools/``.
     """
-    err = validate_page_fields(payload)
+    err = validate_page_fields(payload, typed_validator=typed_validator)
     if err is not None:
         raise ValueError(err)
 
